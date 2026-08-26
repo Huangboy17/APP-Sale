@@ -1,0 +1,6 @@
+{
+  "name": "SalesFlow CRM - Quản Lý Bán Hàng & Báo Giá 3 Cấp",
+  "description": "Hệ thống quản lý bán hàng 3 cấp (Super Admin, Trưởng phòng/Giám đốc Cấp 1, Nhân viên kinh doanh Cấp 2) với quy trình chốt hợp đồng, quản lý báo giá đa phiên bản, kiểm tra giá DP, xuất PDF báo giá & hợp đồng, tách bảng giữ hàng và đặt hàng theo tồn kho.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

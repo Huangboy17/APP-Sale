@@ -1,0 +1,212 @@
+import * as XLSX from 'xlsx';
+import { CustomerStage, ProductPriceItem, InventoryItem, QuotationStatus } from '../types';
+
+export const formatVND = (amount: number): string => {
+  return new Intl.NumberFormat('vi-VN', {
+    style: 'currency',
+    currency: 'VND',
+    maximumFractionDigits: 0,
+  }).format(amount || 0);
+};
+
+export const formatNumber = (num: number): string => {
+  return new Intl.NumberFormat('vi-VN').format(num || 0);
+};
+
+export const formatDate = (dateStr: string): string => {
+  if (!dateStr) return '';
+  const date = new Date(dateStr);
+  if (isNaN(date.getTime())) return dateStr;
+  return new Intl.DateTimeFormat('vi-VN', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+  }).format(date);
+};
+
+// Convert number to Vietnamese text for contracts
+export const numberToVietnameseWords = (n: number): string => {
+  if (n === 0) return 'Không đồng';
+  const units = ['', 'nghìn', 'triệu', 'tỷ', 'nghìn tỷ', 'triệu tỷ'];
+  const digits = ['không', 'một', 'hai', 'ba', 'bốn', 'năm', 'sáu', 'bảy', 'tám', 'chín'];
+
+  const readThreeDigits = (num: number, showZeroHundred: boolean): string => {
+    let res = '';
+    const hundred = Math.floor(num / 100);
+    const remainder = num % 100;
+    const ten = Math.floor(remainder / 10);
+    const unit = remainder % 10;
+
+    if (hundred > 0 || showZeroHundred) {
+      res += digits[hundred] + ' trăm ';
+      if (ten === 0 && unit > 0) res += 'lẻ ';
+    }
+
+    if (ten > 1) {
+      res += digits[ten] + ' mươi ';
+      if (unit === 1) res += 'mốt ';
+    } else if (ten === 1) {
+      res += 'mười ';
+      if (unit === 1) res += 'một ';
+    }
+
+    if (ten > 0 && unit === 5) {
+      res += 'lăm ';
+    } else if (ten === 0 && unit === 5 && (hundred > 0 || showZeroHundred)) {
+      res += 'năm ';
+    } else if (unit > 0 && !(ten >= 1 && unit === 1)) {
+      res += digits[unit] + ' ';
+    }
+
+    return res.trim();
+  };
+
+  let num = Math.abs(Math.round(n));
+  const parts: number[] = [];
+  while (num > 0) {
+    parts.push(num % 1000);
+    num = Math.floor(num / 1000);
+  }
+
+  let result = '';
+  for (let i = parts.length - 1; i >= 0; i--) {
+    const val = parts[i];
+    if (val > 0) {
+      const showZero = i < parts.length - 1;
+      const str = readThreeDigits(val, showZero);
+      result += str + ' ' + units[i] + ' ';
+    }
+  }
+
+  result = result.trim();
+  if (result.length > 0) {
+    result = result.charAt(0).toUpperCase() + result.slice(1) + ' đồng chẵn';
+  }
+  return result;
+};
+
+// Stage visual helpers
+export const getCustomerStageConfig = (stage: CustomerStage) => {
+  switch (stage) {
+    case 'new':
+      return {
+        label: 'Tạo mới',
+        bg: 'bg-sky-50 text-sky-700 border-sky-200',
+        badge: 'bg-sky-500',
+        color: '#0284c7',
+      };
+    case 'contacted':
+      return {
+        label: 'Đang tiếp cận',
+        bg: 'bg-blue-50 text-blue-700 border-blue-200',
+        badge: 'bg-blue-500',
+        color: '#2563eb',
+      };
+    case 'quoting':
+      return {
+        label: 'Đang báo giá',
+        bg: 'bg-amber-50 text-amber-700 border-amber-200',
+        badge: 'bg-amber-500',
+        color: '#d97706',
+      };
+    case 'contract_signed':
+      return {
+        label: 'Chốt - Đã ký HĐ',
+        bg: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+        badge: 'bg-emerald-500',
+        color: '#059669',
+      };
+    case 'rejected':
+      return {
+        label: 'Từ chối / Mất khách',
+        bg: 'bg-rose-50 text-rose-700 border-rose-200',
+        badge: 'bg-rose-500',
+        color: '#e11d48',
+      };
+    default:
+      return {
+        label: stage,
+        bg: 'bg-slate-50 text-slate-700 border-slate-200',
+        badge: 'bg-slate-500',
+        color: '#64748b',
+      };
+  }
+};
+
+export const getQuotationStatusConfig = (status: QuotationStatus) => {
+  switch (status) {
+    case 'draft':
+      return { label: 'Bản nháp', bg: 'bg-slate-100 text-slate-700' };
+    case 'sent':
+      return { label: 'Đã gửi khách', bg: 'bg-blue-100 text-blue-700' };
+    case 'negotiating':
+      return { label: 'Đang đàm phán', bg: 'bg-amber-100 text-amber-700' };
+    case 'approved_contract':
+      return { label: 'Đã chốt ký HĐ', bg: 'bg-emerald-100 text-emerald-800' };
+    case 'cancelled':
+      return { label: 'Đã hủy', bg: 'bg-rose-100 text-rose-700' };
+    default:
+      return { label: status, bg: 'bg-gray-100 text-gray-700' };
+  }
+};
+
+// Excel Helpers
+export const exportProductsToExcel = (products: ProductPriceItem[]) => {
+  const data = products.map((p, idx) => ({
+    'STT': idx + 1,
+    'Mã hàng (SKU)': p.sku,
+    'Tên hàng hóa / Sản phẩm': p.name,
+    'Phân loại': p.category,
+    'Hãng sản xuất': p.brand,
+    'Màu sắc': p.color,
+    'Kích thước / Quy cách': p.size,
+    'Đơn vị tính': p.unit,
+    'Giá niêm yết (VNĐ)': p.listPrice,
+    'Giá DP (Giá sàn tối thiểu)': p.dpPrice,
+    'Mô tả chi tiết': p.description || '',
+  }));
+
+  const worksheet = XLSX.utils.json_to_sheet(data);
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, worksheet, 'Bang_Gia_San_Pham');
+  XLSX.writeFile(workbook, `Data_Gia_San_Pham_${new Date().toISOString().split('T')[0]}.xlsx`);
+};
+
+export const exportInventoryToExcel = (inventory: InventoryItem[]) => {
+  const data = inventory.map((i, idx) => ({
+    'STT': idx + 1,
+    'Mã hàng (SKU)': i.sku,
+    'Tên hàng hóa': i.name,
+    'ĐVT': i.unit,
+    'Tồn thực tế': i.totalQuantity,
+    'Đang giữ hàng': i.reservedQuantity,
+    'Tồn khả dụng': i.availableQuantity,
+    'Vị trí kho': i.warehouseLocation || '',
+    'Ngày cập nhật': i.updatedAt,
+  }));
+
+  const worksheet = XLSX.utils.json_to_sheet(data);
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, worksheet, 'Ton_Kho');
+  XLSX.writeFile(workbook, `Bang_Ton_Kho_${new Date().toISOString().split('T')[0]}.xlsx`);
+};
+
+export const parseExcelFile = async (file: File): Promise<any[]> => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const data = new Uint8Array(e.target?.result as ArrayBuffer);
+        const workbook = XLSX.read(data, { type: 'array' });
+        const firstSheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[firstSheetName];
+        const json = XLSX.utils.sheet_to_json(worksheet);
+        resolve(json);
+      } catch (err) {
+        reject(err);
+      }
+    };
+    reader.onerror = (error) => reject(error);
+    reader.readAsArrayBuffer(file);
+  });
+};
