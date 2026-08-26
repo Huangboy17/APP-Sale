@@ -1,8 +1,10 @@
 import React, { useState } from 'react';
-import { Customer, CustomerStage } from '../../types';
+import { Customer, CustomerStage, Quotation, QuotationStatus } from '../../types';
 import { useApp } from '../../context/AppContext';
 import { CustomerModal } from './CustomerModal';
-import { formatVND, formatDate, getCustomerStageConfig } from '../../utils/formatters';
+import { CustomerDetailModal } from './CustomerDetailModal';
+import { formatVND, formatDate, getCustomerStageConfig, getQuotationStatusConfig } from '../../utils/formatters';
+import confetti from 'canvas-confetti';
 import {
   Plus,
   Search,
@@ -24,13 +26,19 @@ import {
   XCircle,
   AlertCircle,
   UserPlus,
+  Printer,
+  Copy,
+  Check,
+  ChevronRight,
+  Eye,
+  Layers,
 } from 'lucide-react';
 
 export const CustomerList: React.FC = () => {
   const {
     currentUser,
     filteredCustomers,
-    quotations,
+    filteredQuotations,
     updateCustomerStage,
     deleteCustomer,
     assignCustomer,
@@ -38,21 +46,35 @@ export const CustomerList: React.FC = () => {
     setIsCreateQuoteModalOpen,
     setSelectedCustomerIdForQuote,
     setSelectedQuoteForModal,
+    setPdfPreviewData,
+    updateQuotationStatus,
+    cloneQuotationToNextRound,
+    finalizeQuoteToContract,
     setActiveTab,
   } = useApp();
 
   const [searchTerm, setSearchTerm] = useState('');
   const [stageFilter, setStageFilter] = useState<string>('all');
   const [salesFilter, setSalesFilter] = useState<string>('all');
-  const [viewMode, setViewMode] = useState<'kanban' | 'table'>('kanban');
+  const [viewMode, setViewMode] = useState<'table' | 'kanban'>('table');
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedCustomerToEdit, setSelectedCustomerToEdit] = useState<Customer | null>(null);
 
-  // History modal state
-  const [historyCustomer, setHistoryCustomer] = useState<Customer | null>(null);
+  // Selected customer for full detail modal
+  const [selectedCustomerForDetail, setSelectedCustomerForDetail] = useState<Customer | null>(null);
 
   const isManagerOrAdmin = currentUser.role === 'super_admin' || currentUser.role === 'manager_c1';
+
+  // Selectable sales reps for filter: if manager C1, only show their managed C2s
+  const selectableSalesReps = users.filter((u) => {
+    if (u.role !== 'sales_c2') return false;
+    if (currentUser.role === 'super_admin') return true;
+    if (currentUser.role === 'manager_c1') {
+      return u.managerId === currentUser.id || u.createdBy === currentUser.id;
+    }
+    return false;
+  });
 
   // Filtering
   const displayedCustomers = filteredCustomers.filter((c) => {
@@ -60,6 +82,7 @@ export const CustomerList: React.FC = () => {
       c.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       c.code.toLowerCase().includes(searchTerm.toLowerCase()) ||
       c.phone.includes(searchTerm) ||
+      (c.address && c.address.toLowerCase().includes(searchTerm.toLowerCase())) ||
       (c.company && c.company.toLowerCase().includes(searchTerm.toLowerCase()));
 
     const matchStage = stageFilter === 'all' || c.stage === stageFilter;
@@ -73,12 +96,18 @@ export const CustomerList: React.FC = () => {
     setIsModalOpen(true);
   };
 
-  const handleEditCustomer = (customer: Customer) => {
+  const handleEditCustomer = (customer: Customer, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
     setSelectedCustomerToEdit(customer);
     setIsModalOpen(true);
   };
 
-  const handleCreateQuoteForCustomer = (customerId: string) => {
+  const handleOpenCustomerDetail = (customer: Customer) => {
+    setSelectedCustomerForDetail(customer);
+  };
+
+  const handleCreateQuoteForCustomer = (customerId: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
     setSelectedQuoteForModal(null);
     setSelectedCustomerIdForQuote(customerId);
     setIsCreateQuoteModalOpen(true);
@@ -99,18 +128,26 @@ export const CustomerList: React.FC = () => {
         <div>
           <h1 className="text-base sm:text-lg font-bold text-slate-900 flex items-center space-x-2">
             <span>👥</span>
-            <span>Quản Lý Khách Hàng & Pipeline Bán Hàng</span>
+            <span>Danh Sách Khách Hàng & Quản Lý Báo Giá</span>
           </h1>
           <p className="text-xs text-slate-500">
-            {currentUser.role === 'sales_c2'
-              ? 'Danh sách khách hàng bạn được giao & tự tạo mới. Theo dõi từ khâu tạo mới đến chốt hợp đồng.'
-              : 'Theo dõi tình hình khách hàng của toàn phòng kinh doanh, phân công Sales Cấp 2 chăm sóc.'}
+            Bảng theo dõi khách hàng theo Tên, Mã KH, SĐT, Địa chỉ, Tình trạng. Nhấp vào khách hàng để xem chi tiết & theo dõi các đợt báo giá.
           </p>
         </div>
 
         <div className="flex items-center space-x-2">
           {/* View toggle */}
           <div className="bg-slate-100 p-0.5 rounded-md flex items-center border border-slate-200">
+            <button
+              onClick={() => setViewMode('table')}
+              className={`px-2.5 py-1 rounded text-xs font-semibold flex items-center space-x-1 transition ${
+                viewMode === 'table' ? 'bg-white shadow-2xs text-blue-700' : 'text-slate-500 hover:text-slate-900'
+              }`}
+              title="Xem dạng danh sách bảng"
+            >
+              <TableIcon className="w-3.5 h-3.5" />
+              <span>Bảng Danh Sách</span>
+            </button>
             <button
               onClick={() => setViewMode('kanban')}
               className={`px-2.5 py-1 rounded text-xs font-semibold flex items-center space-x-1 transition ${
@@ -120,16 +157,6 @@ export const CustomerList: React.FC = () => {
             >
               <Columns className="w-3.5 h-3.5" />
               <span>Kanban</span>
-            </button>
-            <button
-              onClick={() => setViewMode('table')}
-              className={`px-2.5 py-1 rounded text-xs font-semibold flex items-center space-x-1 transition ${
-                viewMode === 'table' ? 'bg-white shadow-2xs text-blue-700' : 'text-slate-500 hover:text-slate-900'
-              }`}
-              title="Xem dạng danh sách"
-            >
-              <TableIcon className="w-3.5 h-3.5" />
-              <span>Bảng</span>
             </button>
           </div>
 
@@ -145,11 +172,11 @@ export const CustomerList: React.FC = () => {
 
       {/* Filter & Search Bar */}
       <div className="bg-white p-3 rounded-lg border border-slate-200 shadow-xs flex flex-col md:flex-row items-center justify-between gap-2.5">
-        <div className="relative w-full md:w-80">
+        <div className="relative w-full md:w-96">
           <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5" />
           <input
             type="text"
-            placeholder="Tìm theo tên, SĐT, mã KH, công ty..."
+            placeholder="Tìm theo tên, SĐT, mã KH, địa chỉ, công ty..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             className="w-full pl-8 pr-3 py-1.5 text-xs border border-slate-300 rounded-md focus:ring-1 focus:ring-blue-500 outline-hidden bg-slate-50/50"
@@ -163,7 +190,7 @@ export const CustomerList: React.FC = () => {
             onChange={(e) => setStageFilter(e.target.value)}
             className="px-2.5 py-1.5 text-xs border border-slate-300 rounded-md bg-white focus:ring-1 focus:ring-blue-500 outline-hidden font-medium text-slate-700"
           >
-            <option value="all">Tất cả giai đoạn ({filteredCustomers.length})</option>
+            <option value="all">Tất cả tình trạng ({filteredCustomers.length})</option>
             <option value="new">1. Tạo mới</option>
             <option value="contacted">2. Đang tiếp cận</option>
             <option value="quoting">3. Đang báo giá</option>
@@ -178,21 +205,204 @@ export const CustomerList: React.FC = () => {
               onChange={(e) => setSalesFilter(e.target.value)}
               className="px-2.5 py-1.5 text-xs border border-slate-300 rounded-md bg-white focus:ring-1 focus:ring-blue-500 outline-hidden font-medium text-slate-700"
             >
-              <option value="all">Tất cả Sales phụ trách</option>
-              {users
-                .filter((u) => u.role === 'sales_c2')
-                .map((u) => (
-                  <option key={u.id} value={u.id}>
-                    {u.name}
-                  </option>
-                ))}
+              <option value="all">Tất cả Sales phụ trách ({selectableSalesReps.length})</option>
+              {selectableSalesReps.map((u) => (
+                <option key={u.id} value={u.id}>
+                  {u.name}
+                </option>
+              ))}
             </select>
           )}
         </div>
       </div>
 
-      {/* Kanban Board View */}
-      {viewMode === 'kanban' ? (
+      {/* PRIMARY VIEW: TABLE VIEW */}
+      {viewMode === 'table' ? (
+        <div className="bg-white rounded-lg border border-slate-200 overflow-hidden shadow-xs">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead className="bg-slate-50 border-b border-slate-200 text-slate-700 font-bold uppercase tracking-wider text-[11px]">
+                <tr>
+                  <th className="px-3.5 py-3 w-24">Mã KH</th>
+                  <th className="px-3.5 py-3">Tên Khách Hàng / Công Ty</th>
+                  <th className="px-3.5 py-3">Số Điện Thoại</th>
+                  <th className="px-3.5 py-3">Địa Chỉ / Công Trình</th>
+                  <th className="px-3.5 py-3 text-center">Tình Trạng</th>
+                  <th className="px-3.5 py-3">Báo Giá Từng Đợt</th>
+                  <th className="px-3.5 py-3">Sales Phụ Trách</th>
+                  <th className="px-3.5 py-3 text-right">Giá Trị Dự Kiến</th>
+                  <th className="px-3.5 py-3 text-center">Thao Tác</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 text-slate-700">
+                {displayedCustomers.length === 0 ? (
+                  <tr>
+                    <td colSpan={9} className="px-4 py-12 text-center text-slate-400">
+                      Không tìm thấy khách hàng nào phù hợp với bộ lọc.
+                    </td>
+                  </tr>
+                ) : (
+                  displayedCustomers.map((cust) => {
+                    const stageCfg = getCustomerStageConfig(cust.stage);
+                    const customerQuotes = filteredQuotations.filter((q) => q.customerId === cust.id);
+                    const contractQuote = customerQuotes.find((q) => q.isContractQuote);
+
+                    return (
+                      <tr
+                        key={cust.id}
+                        onClick={() => handleOpenCustomerDetail(cust)}
+                        className="hover:bg-blue-50/50 transition cursor-pointer group"
+                      >
+                        {/* Mã KH */}
+                        <td className="px-3.5 py-3 font-mono font-bold text-blue-700 whitespace-nowrap">
+                          <span className="bg-blue-50 group-hover:bg-blue-100 px-1.5 py-0.5 rounded transition">
+                            {cust.code}
+                          </span>
+                        </td>
+
+                        {/* Tên & Công ty */}
+                        <td className="px-3.5 py-3">
+                          <div className="font-bold text-slate-900 text-xs flex items-center space-x-1">
+                            <span className="group-hover:text-blue-700 transition">{cust.name}</span>
+                            <ChevronRight className="w-3.5 h-3.5 text-slate-400 opacity-0 group-hover:opacity-100 transition shrink-0" />
+                          </div>
+                          {cust.company && (
+                            <div className="text-[11px] text-slate-500 flex items-center space-x-1 mt-0.5">
+                              <Building className="w-3 h-3 text-slate-400 shrink-0" />
+                              <span className="line-clamp-1">{cust.company}</span>
+                            </div>
+                          )}
+                        </td>
+
+                        {/* Số điện thoại */}
+                        <td className="px-3.5 py-3 whitespace-nowrap">
+                          <div className="font-semibold text-slate-800 flex items-center space-x-1">
+                            <Phone className="w-3 h-3 text-slate-400 shrink-0" />
+                            <a
+                              href={`tel:${cust.phone}`}
+                              onClick={(e) => e.stopPropagation()}
+                              className="hover:text-blue-600 hover:underline"
+                            >
+                              {cust.phone}
+                            </a>
+                          </div>
+                          {cust.email && (
+                            <div className="text-[10px] text-slate-400 flex items-center space-x-1 mt-0.5">
+                              <Mail className="w-2.5 h-2.5 shrink-0" />
+                              <span className="truncate max-w-[140px]">{cust.email}</span>
+                            </div>
+                          )}
+                        </td>
+
+                        {/* Địa chỉ */}
+                        <td className="px-3.5 py-3 max-w-xs">
+                          {cust.address ? (
+                            <div className="text-xs text-slate-700 flex items-start space-x-1">
+                              <MapPin className="w-3 h-3 text-slate-400 mt-0.5 shrink-0" />
+                              <span className="line-clamp-2">{cust.address}</span>
+                            </div>
+                          ) : (
+                            <span className="text-[11px] text-slate-400 italic">Chưa có địa chỉ</span>
+                          )}
+                        </td>
+
+                        {/* Tình trạng */}
+                        <td className="px-3.5 py-3 text-center whitespace-nowrap">
+                          <div className="inline-flex flex-col items-center">
+                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${stageCfg.bg}`}>
+                              {stageCfg.label}
+                            </span>
+                            {contractQuote && (
+                              <span className="text-[9px] font-bold text-emerald-700 mt-0.5 flex items-center space-x-0.5">
+                                <Check className="w-2.5 h-2.5" />
+                                <span>Đã ký HĐ</span>
+                              </span>
+                            )}
+                          </div>
+                        </td>
+
+                        {/* Báo giá từng đợt */}
+                        <td className="px-3.5 py-3 whitespace-nowrap">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleOpenCustomerDetail(cust);
+                            }}
+                            className="px-2 py-1 rounded bg-slate-100 group-hover:bg-white text-blue-700 hover:bg-blue-100 font-semibold text-[11px] flex items-center space-x-1.5 transition border border-slate-200"
+                          >
+                            <Layers className="w-3 h-3 text-blue-600" />
+                            <span>{customerQuotes.length} đợt báo giá</span>
+                          </button>
+                        </td>
+
+                        {/* Sales phụ trách */}
+                        <td className="px-3.5 py-3 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                          {isManagerOrAdmin ? (
+                            <select
+                              value={cust.assignedToId}
+                              onChange={(e) => {
+                                const selectedU = users.find((u) => u.id === e.target.value);
+                                if (selectedU) {
+                                  assignCustomer(cust.id, selectedU.id, selectedU.name);
+                                }
+                              }}
+                              className="text-xs border border-slate-300 rounded px-2 py-1 bg-white font-medium focus:ring-1 focus:ring-blue-500 outline-hidden"
+                            >
+                              {users
+                                .filter((u) => u.role === 'sales_c2' || u.id === currentUser.id)
+                                .map((u) => (
+                                  <option key={u.id} value={u.id}>
+                                    {u.name}
+                                  </option>
+                                ))}
+                            </select>
+                          ) : (
+                            <span className="font-medium text-slate-800">{cust.assignedToName}</span>
+                          )}
+                        </td>
+
+                        {/* Giá trị dự kiến */}
+                        <td className="px-3.5 py-3 text-right font-bold text-slate-900 font-mono whitespace-nowrap">
+                          {formatVND(cust.expectedValue)}
+                        </td>
+
+                        {/* Thao tác */}
+                        <td className="px-3.5 py-3 text-center whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                          <div className="flex items-center justify-center space-x-1">
+                            <button
+                              onClick={() => handleOpenCustomerDetail(cust)}
+                              className="px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded text-[11px] font-semibold transition flex items-center space-x-1"
+                              title="Xem chi tiết & lịch sử báo giá"
+                            >
+                              <Eye className="w-3 h-3" />
+                              <span>Chi Tiết</span>
+                            </button>
+                            <button
+                              onClick={(e) => handleCreateQuoteForCustomer(cust.id, e)}
+                              className="p-1 text-slate-500 hover:text-blue-600 rounded hover:bg-slate-100 transition"
+                              title="Tạo báo giá mới"
+                            >
+                              <Plus className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={(e) => handleEditCustomer(cust, e)}
+                              className="p-1 text-slate-400 hover:text-slate-700 rounded transition"
+                              title="Chỉnh sửa thông tin"
+                            >
+                              <Edit2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ) : (
+        /* KANBAN BOARD VIEW */
         <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-3">
           {stages.map((st) => {
             const stageCustomers = displayedCustomers.filter((c) => c.stage === st.key);
@@ -222,21 +432,22 @@ export const CustomerList: React.FC = () => {
                     </div>
                   ) : (
                     stageCustomers.map((cust) => {
-                      const customerQuotes = quotations.filter((q) => q.customerId === cust.id);
+                      const customerQuotes = filteredQuotations.filter((q) => q.customerId === cust.id);
                       const hasContractQuote = customerQuotes.some((q) => q.isContractQuote);
 
                       return (
                         <div
                           key={cust.id}
-                          className="bg-white rounded-md p-2.5 border border-slate-200 shadow-2xs hover:border-blue-300 transition group relative text-xs"
+                          onClick={() => handleOpenCustomerDetail(cust)}
+                          className="bg-white rounded-md p-2.5 border border-slate-200 shadow-2xs hover:border-blue-300 transition group relative text-xs cursor-pointer"
                         >
                           <div className="flex items-start justify-between">
                             <span className="font-mono text-[10px] font-bold text-blue-600 bg-blue-50 px-1 py-0.2 rounded">
                               {cust.code}
                             </span>
-                            <div className="flex items-center space-x-1">
+                            <div className="flex items-center space-x-1" onClick={(e) => e.stopPropagation()}>
                               <button
-                                onClick={() => handleEditCustomer(cust)}
+                                onClick={(e) => handleEditCustomer(cust, e)}
                                 className="p-1 text-slate-400 hover:text-blue-600 rounded transition"
                                 title="Chỉnh sửa"
                               >
@@ -245,7 +456,9 @@ export const CustomerList: React.FC = () => {
                             </div>
                           </div>
 
-                          <h4 className="font-bold text-xs text-slate-900 mt-1 line-clamp-1">{cust.name}</h4>
+                          <h4 className="font-bold text-xs text-slate-900 mt-1 line-clamp-1 group-hover:text-blue-700 transition">
+                            {cust.name}
+                          </h4>
                           {cust.company && (
                             <p className="text-[10px] text-slate-500 flex items-center space-x-1 mt-0.5 line-clamp-1">
                               <Building className="w-2.5 h-2.5 shrink-0" />
@@ -258,6 +471,13 @@ export const CustomerList: React.FC = () => {
                             <span>{cust.phone}</span>
                           </div>
 
+                          {cust.address && (
+                            <div className="text-[10px] text-slate-500 mt-0.5 flex items-start space-x-1 line-clamp-1">
+                              <MapPin className="w-2.5 h-2.5 text-slate-400 mt-0.5 shrink-0" />
+                              <span>{cust.address}</span>
+                            </div>
+                          )}
+
                           {cust.expectedValue > 0 && (
                             <div className="mt-1.5 text-[11px] font-bold text-emerald-700">
                               Dự kiến: {formatVND(cust.expectedValue)}
@@ -267,10 +487,13 @@ export const CustomerList: React.FC = () => {
                           {/* Quotes badges */}
                           <div className="mt-1.5 pt-1.5 border-t border-slate-100 flex items-center justify-between text-[10px]">
                             <button
-                              onClick={() => setHistoryCustomer(cust)}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleOpenCustomerDetail(cust);
+                              }}
                               className="text-blue-600 hover:text-blue-800 font-medium flex items-center space-x-1"
                             >
-                              <History className="w-2.5 h-2.5" />
+                              <Layers className="w-2.5 h-2.5" />
                               <span>{customerQuotes.length} đợt báo giá</span>
                             </button>
 
@@ -295,9 +518,9 @@ export const CustomerList: React.FC = () => {
                           </div>
 
                           {/* Quick Action Button on Card */}
-                          <div className="mt-2 pt-1.5 border-t border-slate-100 flex items-center gap-1">
+                          <div className="mt-2 pt-1.5 border-t border-slate-100 flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
                             <button
-                              onClick={() => handleCreateQuoteForCustomer(cust.id)}
+                              onClick={(e) => handleCreateQuoteForCustomer(cust.id, e)}
                               className="flex-1 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded text-[10px] font-bold transition flex items-center justify-center space-x-1"
                             >
                               <FileText className="w-2.5 h-2.5" />
@@ -327,116 +550,6 @@ export const CustomerList: React.FC = () => {
             );
           })}
         </div>
-      ) : (
-        /* Table View */
-        <div className="bg-white rounded-lg border border-slate-200 overflow-hidden shadow-xs">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
-              <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-bold uppercase tracking-wider text-[11px]">
-                <tr>
-                  <th className="px-3 py-2.5">Mã KH</th>
-                  <th className="px-3 py-2.5">Tên Khách Hàng / Công Ty</th>
-                  <th className="px-3 py-2.5">Liên Hệ</th>
-                  <th className="px-3 py-2.5">Giai Đoạn</th>
-                  <th className="px-3 py-2.5">Sales Phụ Trách</th>
-                  <th className="px-3 py-2.5">Báo Giá</th>
-                  <th className="px-3 py-2.5 text-right">Giá Trị Dự Kiến</th>
-                  <th className="px-3 py-2.5 text-center">Thao Tác</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 text-slate-700">
-                {displayedCustomers.length === 0 ? (
-                  <tr>
-                    <td colSpan={8} className="px-4 py-8 text-center text-slate-400">
-                      Không tìm thấy khách hàng nào phù hợp
-                    </td>
-                  </tr>
-                ) : (
-                  displayedCustomers.map((cust) => {
-                    const stageCfg = getCustomerStageConfig(cust.stage);
-                    const customerQuotes = quotations.filter((q) => q.customerId === cust.id);
-
-                    return (
-                      <tr key={cust.id} className="hover:bg-slate-50/80 transition">
-                        <td className="px-3 py-2 font-mono font-bold text-blue-600">{cust.code}</td>
-                        <td className="px-3 py-2">
-                          <div className="font-bold text-slate-900">{cust.name}</div>
-                          {cust.company && <div className="text-[10px] text-slate-500">{cust.company}</div>}
-                        </td>
-                        <td className="px-3 py-2">
-                          <div className="font-medium text-slate-800">{cust.phone}</div>
-                          {cust.email && <div className="text-[10px] text-slate-500">{cust.email}</div>}
-                        </td>
-                        <td className="px-3 py-2">
-                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${stageCfg.bg}`}>
-                            {stageCfg.label}
-                          </span>
-                          {cust.stage === 'rejected' && cust.rejectReason && (
-                            <div className="text-[9px] text-rose-600 mt-0.5 max-w-xs">{cust.rejectReason}</div>
-                          )}
-                        </td>
-                        <td className="px-3 py-2">
-                          {isManagerOrAdmin ? (
-                            <select
-                              value={cust.assignedToId}
-                              onChange={(e) => {
-                                const selectedU = users.find((u) => u.id === e.target.value);
-                                if (selectedU) {
-                                  assignCustomer(cust.id, selectedU.id, selectedU.name);
-                                }
-                              }}
-                              className="text-xs border border-slate-300 rounded px-1.5 py-0.5 bg-white font-medium"
-                            >
-                              {users
-                                .filter((u) => u.role === 'sales_c2' || u.id === currentUser.id)
-                                .map((u) => (
-                                  <option key={u.id} value={u.id}>
-                                    {u.name}
-                                  </option>
-                                ))}
-                            </select>
-                          ) : (
-                            <span className="font-medium text-slate-800">{cust.assignedToName}</span>
-                          )}
-                        </td>
-                        <td className="px-3 py-2">
-                          <button
-                            onClick={() => setHistoryCustomer(cust)}
-                            className="text-blue-600 hover:text-blue-800 font-semibold flex items-center space-x-1"
-                          >
-                            <History className="w-3 h-3" />
-                            <span>{customerQuotes.length} phiên bản</span>
-                          </button>
-                        </td>
-                        <td className="px-3 py-2 text-right font-bold text-slate-900 font-mono">
-                          {formatVND(cust.expectedValue)}
-                        </td>
-                        <td className="px-3 py-2 text-center">
-                          <div className="flex items-center justify-center space-x-1">
-                            <button
-                              onClick={() => handleCreateQuoteForCustomer(cust.id)}
-                              className="px-2 py-0.5 bg-blue-50 text-blue-700 hover:bg-blue-100 rounded text-[11px] font-semibold"
-                              title="Tạo báo giá mới"
-                            >
-                              + Báo giá
-                            </button>
-                            <button
-                              onClick={() => handleEditCustomer(cust)}
-                              className="p-1 text-slate-400 hover:text-blue-600 rounded transition"
-                              title="Chỉnh sửa"
-                            >
-                              <Edit2 className="w-3 h-3" />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
       )}
 
       {/* Customer Modal Create/Edit */}
@@ -446,99 +559,17 @@ export const CustomerList: React.FC = () => {
         customerToEdit={selectedCustomerToEdit}
       />
 
-      {/* Quote History Modal for Customer */}
-      {historyCustomer && (
-        <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-2xl w-full shadow-2xl border border-slate-200 overflow-hidden">
-            <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between bg-slate-50">
-              <div>
-                <h3 className="text-base font-bold text-slate-900">
-                  Lịch Sử Các Đợt Báo Giá - {historyCustomer.name}
-                </h3>
-                <p className="text-xs text-slate-500">
-                  Lưu trữ từng đợt báo giá (v1, v2, v3...) cho đến khi chọn báo giá chốt ký hợp đồng
-                </p>
-              </div>
-              <button
-                onClick={() => setHistoryCustomer(null)}
-                className="text-slate-400 hover:text-slate-600 p-1"
-              >
-                ✕
-              </button>
-            </div>
-
-            <div className="p-6 space-y-3 max-h-[70vh] overflow-y-auto">
-              {quotations.filter((q) => q.customerId === historyCustomer.id).length === 0 ? (
-                <div className="text-center py-8 text-slate-500 text-xs">
-                  Chưa có báo giá nào cho khách hàng này.
-                </div>
-              ) : (
-                quotations
-                  .filter((q) => q.customerId === historyCustomer.id)
-                  .sort((a, b) => b.version - a.version)
-                  .map((q) => (
-                    <div
-                      key={q.id}
-                      className="p-4 rounded-xl border border-slate-200 hover:border-blue-300 transition flex items-center justify-between bg-slate-50/60"
-                    >
-                      <div>
-                        <div className="flex items-center space-x-2">
-                          <span className="font-mono font-bold text-xs text-blue-700">{q.quoteNumber}</span>
-                          {q.isContractQuote ? (
-                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300">
-                              ✓ Báo Giá Chốt Ký HĐ
-                            </span>
-                          ) : (
-                            <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-slate-200 text-slate-700">
-                              Báo Giá Lần {q.version}
-                            </span>
-                          )}
-                        </div>
-                        <div className="text-xs text-slate-600 mt-1 font-medium">{q.title}</div>
-                        <div className="text-[11px] text-slate-400 mt-0.5">
-                          Ngày tạo: {formatDate(q.date)} • {q.items.length} mặt hàng
-                        </div>
-                      </div>
-
-                      <div className="text-right">
-                        <div className="text-sm font-bold text-slate-900">{formatVND(q.grandTotal)}</div>
-                        <button
-                          onClick={() => {
-                            setHistoryCustomer(null);
-                            setSelectedQuoteForModal(q);
-                            setIsCreateQuoteModalOpen(true);
-                          }}
-                          className="mt-1 text-xs text-blue-600 hover:text-blue-800 font-semibold"
-                        >
-                          Mở cửa sổ báo giá →
-                        </button>
-                      </div>
-                    </div>
-                  ))
-              )}
-            </div>
-
-            <div className="p-4 border-t border-slate-200 bg-slate-50 flex items-center justify-between">
-              <button
-                onClick={() => {
-                  const custId = historyCustomer.id;
-                  setHistoryCustomer(null);
-                  handleCreateQuoteForCustomer(custId);
-                }}
-                className="px-4 py-2 bg-blue-600 text-white text-xs font-semibold rounded-xl hover:bg-blue-700 transition"
-              >
-                + Tạo Đợt Báo Giá Mới (v{quotations.filter((q) => q.customerId === historyCustomer.id).length + 1})
-              </button>
-              <button
-                onClick={() => setHistoryCustomer(null)}
-                className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-200 rounded-xl transition"
-              >
-                Đóng
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Customer Detail & Quotations Tracker Modal */}
+      <CustomerDetailModal
+        isOpen={!!selectedCustomerForDetail}
+        customer={selectedCustomerForDetail}
+        onClose={() => setSelectedCustomerForDetail(null)}
+        onEditCustomer={(cust) => {
+          setSelectedCustomerToEdit(cust);
+          setIsModalOpen(true);
+        }}
+      />
     </div>
   );
 };
+

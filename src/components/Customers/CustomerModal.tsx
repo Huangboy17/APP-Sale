@@ -270,10 +270,19 @@ export const CustomerModal: React.FC<CustomerModalProps> = ({
                   className="w-full px-2.5 py-1.5 text-xs border border-slate-300 rounded bg-white focus:ring-1 focus:ring-blue-500 focus:border-blue-500 outline-hidden font-medium"
                 >
                   {users
-                    .filter((u) => u.role === 'sales_c2' || u.id === currentUser.id)
+                    .filter((u) => {
+                      if (u.id === currentUser.id) return true;
+                      if (u.role === 'sales_c2') {
+                        if (currentUser.role === 'super_admin') return true;
+                        if (currentUser.role === 'manager_c1') {
+                          return u.managerId === currentUser.id || u.createdBy === currentUser.id;
+                        }
+                      }
+                      return false;
+                    })
                     .map((u) => (
                       <option key={u.id} value={u.id}>
-                        {u.name} ({u.role === 'manager_c1' ? 'Cấp 1' : 'Sales Cấp 2'})
+                        {u.name} ({u.role === 'manager_c1' ? 'Chính bạn (C1)' : 'Sales C2'})
                       </option>
                     ))}
                 </select>

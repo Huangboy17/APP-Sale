@@ -137,7 +137,7 @@ export const ProductPriceMaster: React.FC = () => {
           </p>
         </div>
 
-        {/* Action buttons (Cấp 1 & Admin) */}
+        {/* Action buttons (Cấp 1 & Cấp 2 đều được quyền import & khai thác bảng giá) */}
         <div className="flex items-center space-x-1.5 self-start sm:self-auto">
           <button
             onClick={downloadProductTemplateExcel}
@@ -156,25 +156,22 @@ export const ProductPriceMaster: React.FC = () => {
             <span>Xuất Excel ({products.length})</span>
           </button>
 
-          {isManagerOrAdmin && (
-            <>
-              <button
-                onClick={() => setIsImportModalOpen(true)}
-                className="px-2.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border border-indigo-200 rounded-md text-xs font-bold flex items-center space-x-1 transition shadow-2xs"
-              >
-                <Upload className="w-3.5 h-3.5" />
-                <span>Import Data Giá</span>
-              </button>
+          <button
+            onClick={() => setIsImportModalOpen(true)}
+            className="px-2.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border border-indigo-200 rounded-md text-xs font-bold flex items-center space-x-1 transition shadow-2xs"
+            title="Cấp 1 & Cấp 2 đều được quyền import bảng giá"
+          >
+            <Upload className="w-3.5 h-3.5" />
+            <span>Import Data Giá</span>
+          </button>
 
-              <button
-                onClick={handleOpenAddModal}
-                className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-xs font-bold flex items-center space-x-1 shadow-2xs transition active:scale-95"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                <span>+ Thêm Sản Phẩm</span>
-              </button>
-            </>
-          )}
+          <button
+            onClick={handleOpenAddModal}
+            className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-xs font-bold flex items-center space-x-1 shadow-2xs transition active:scale-95"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            <span>+ Thêm Sản Phẩm</span>
+          </button>
         </div>
       </div>
 

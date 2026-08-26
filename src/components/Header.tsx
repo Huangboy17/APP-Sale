@@ -7,21 +7,26 @@ import {
   Plus,
   FileSpreadsheet,
   RotateCcw,
-  Sparkles,
   ChevronDown,
-  Bell,
+  Cloud,
+  RefreshCw,
+  LogOut,
+  User as UserIcon,
 } from 'lucide-react';
 
 export const Header: React.FC = () => {
   const {
     currentUser,
     setCurrentUser,
+    logout,
     users,
     setIsCreateQuoteModalOpen,
     setSelectedQuoteForModal,
     setSelectedCustomerIdForQuote,
     resetDataToDefault,
     setActiveTab,
+    cloudSyncStatus,
+    syncAllToCloudNow,
   } = useApp();
 
   const getRoleBadge = () => {
@@ -57,14 +62,27 @@ export const Header: React.FC = () => {
 
   return (
     <header className="h-14 bg-white border-b border-slate-200 flex items-center justify-between px-4 sm:px-6 shrink-0 z-20">
-      {/* Left Title & System Badge */}
+      {/* Left Title & Google Cloud Firestore Badge */}
       <div className="flex items-center space-x-3">
         <h2 className="font-bold text-sm sm:text-base text-slate-800 tracking-tight">
           Hệ thống quản lý kinh doanh & Báo giá
         </h2>
-        <div className="hidden sm:inline-flex items-center space-x-1.5 bg-green-100 text-green-700 text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider">
-          <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></span>
-          <span>Live System</span>
+
+        {/* Google Cloud Firestore Status Indicator */}
+        <div
+          onClick={() => syncAllToCloudNow()}
+          className="hidden md:inline-flex items-center space-x-1.5 bg-emerald-50 text-emerald-700 border border-emerald-200 text-[11px] font-semibold px-2.5 py-1 rounded-full cursor-pointer hover:bg-emerald-100 transition shadow-2xs"
+          title="Google Cloud Firestore đang hoạt động theo thời gian thực. Bấm để ép đồng bộ lại."
+        >
+          {cloudSyncStatus === 'syncing' ? (
+            <RefreshCw className="w-3 h-3 text-emerald-600 animate-spin" />
+          ) : (
+            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+          )}
+          <span className="flex items-center space-x-1">
+            <span>Google Cloud</span>
+            <span className="font-normal text-emerald-600">| Firestore Live</span>
+          </span>
         </div>
       </div>
 
@@ -142,12 +160,19 @@ export const Header: React.FC = () => {
             <div className="pt-1.5 mt-1.5 border-t border-slate-100 flex items-center justify-between">
               <button
                 onClick={resetDataToDefault}
-                className="text-[10px] text-slate-500 hover:text-rose-600 flex items-center space-x-1 px-1.5 py-0.5"
+                className="text-[10px] text-slate-500 hover:text-amber-600 flex items-center space-x-1 px-1.5 py-1 rounded hover:bg-slate-50"
               >
                 <RotateCcw className="w-3 h-3" />
                 <span>Khôi phục mẫu</span>
               </button>
-              <span className="text-[9px] text-slate-400 font-mono">v2.4.0</span>
+
+              <button
+                onClick={logout}
+                className="text-[11px] font-semibold text-rose-600 hover:text-rose-700 flex items-center space-x-1 px-2 py-1 rounded bg-rose-50 hover:bg-rose-100 transition"
+              >
+                <LogOut className="w-3 h-3" />
+                <span>Đăng xuất</span>
+              </button>
             </div>
           </div>
         </div>

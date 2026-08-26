@@ -1,0 +1,175 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "User account information and role in the system",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "User ID" },
+        "name": { "type": "string", "description": "Full name" },
+        "email": { "type": "string", "description": "Email address" },
+        "role": { "type": "string", "description": "User role: super_admin, manager_c1, sales_c2", "enum": ["super_admin", "manager_c1", "sales_c2"] },
+        "status": { "type": "string", "description": "Account status: pending, active, rejected", "enum": ["pending", "active", "rejected"] },
+        "phone": { "type": "string", "description": "Phone number" },
+        "avatar": { "type": "string", "description": "Avatar URL" },
+        "managedBy": { "type": "string", "description": "ID of managing manager_c1 if sales_c2" },
+        "createdAt": { "type": "string", "description": "Creation date" }
+      },
+      "required": ["id", "name", "email", "role", "status"]
+    },
+    "Customer": {
+      "title": "Customer",
+      "description": "CRM Customer record",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Customer unique ID" },
+        "code": { "type": "string", "description": "Customer code (KH-xxxx)" },
+        "name": { "type": "string", "description": "Customer full name / Company name" },
+        "company": { "type": "string", "description": "Company name" },
+        "phone": { "type": "string", "description": "Phone number" },
+        "email": { "type": "string", "description": "Email address" },
+        "address": { "type": "string", "description": "Address" },
+        "source": { "type": "string", "description": "Lead source" },
+        "assignedTo": { "type": "string", "description": "Assigned Sales C2 User ID" },
+        "assignedName": { "type": "string", "description": "Assigned Sales C2 User Name" },
+        "stage": { "type": "string", "description": "Current pipeline stage" },
+        "estimatedValue": { "type": "number", "description": "Estimated deal value in VND" },
+        "notes": { "type": "string", "description": "Notes" },
+        "createdAt": { "type": "string", "description": "Creation timestamp" },
+        "updatedAt": { "type": "string", "description": "Update timestamp" }
+      },
+      "required": ["id", "code", "name", "phone", "stage", "assignedTo"]
+    },
+    "Product": {
+      "title": "Product",
+      "description": "Product Price Master item",
+      "type": "object",
+      "properties": {
+        "sku": { "type": "string", "description": "Product SKU code" },
+        "name": { "type": "string", "description": "Product name" },
+        "category": { "type": "string", "description": "Category" },
+        "brand": { "type": "string", "description": "Brand manufacturer" },
+        "color": { "type": "string", "description": "Color or spec" },
+        "size": { "type": "string", "description": "Size or dimensions" },
+        "unit": { "type": "string", "description": "Unit of measure" },
+        "listPrice": { "type": "number", "description": "List price in VND" },
+        "dpPrice": { "type": "number", "description": "Floor DP price in VND" },
+        "description": { "type": "string", "description": "Detailed description" },
+        "status": { "type": "string", "description": "Status: active or inactive" }
+      },
+      "required": ["sku", "name", "listPrice", "dpPrice"]
+    },
+    "Inventory": {
+      "title": "Inventory",
+      "description": "Warehouse stock record",
+      "type": "object",
+      "properties": {
+        "sku": { "type": "string", "description": "Product SKU" },
+        "name": { "type": "string", "description": "Product name" },
+        "unit": { "type": "string", "description": "Unit" },
+        "totalQuantity": { "type": "number", "description": "Physical in-stock quantity" },
+        "reservedQuantity": { "type": "number", "description": "Quantity reserved for contracts" },
+        "availableQuantity": { "type": "number", "description": "Available stock quantity" },
+        "warehouseLocation": { "type": "string", "description": "Warehouse shelf location" },
+        "updatedAt": { "type": "string", "description": "Last update timestamp" }
+      },
+      "required": ["sku", "name", "totalQuantity", "reservedQuantity", "availableQuantity"]
+    },
+    "Quotation": {
+      "title": "Quotation",
+      "description": "Sales quotation",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Quote ID" },
+        "code": { "type": "string", "description": "Quote code (BG-xxxx)" },
+        "customerId": { "type": "string", "description": "Customer ID" },
+        "customerName": { "type": "string", "description": "Customer name" },
+        "salesId": { "type": "string", "description": "Sales ID" },
+        "salesName": { "type": "string", "description": "Sales name" },
+        "title": { "type": "string", "description": "Project title" },
+        "subtotal": { "type": "number", "description": "Subtotal before VAT" },
+        "vatRate": { "type": "number", "description": "VAT percentage" },
+        "vatAmount": { "type": "number", "description": "VAT amount" },
+        "totalAmount": { "type": "number", "description": "Total amount after VAT" },
+        "status": { "type": "string", "description": "Quote status: draft, sent, approved, rejected, finalized" },
+        "validUntil": { "type": "string", "description": "Validity expiration date" },
+        "notes": { "type": "string", "description": "Notes" },
+        "createdAt": { "type": "string", "description": "Created date" },
+        "updatedAt": { "type": "string", "description": "Updated date" }
+      },
+      "required": ["id", "code", "customerId", "salesId", "totalAmount", "status"]
+    },
+    "Contract": {
+      "title": "Contract",
+      "description": "Customer contract",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Contract ID" },
+        "code": { "type": "string", "description": "Contract code (HD-xxxx)" },
+        "quotationId": { "type": "string", "description": "Referenced quote ID" },
+        "customerId": { "type": "string", "description": "Customer ID" },
+        "customerName": { "type": "string", "description": "Customer name" },
+        "salesId": { "type": "string", "description": "Sales ID" },
+        "salesName": { "type": "string", "description": "Sales name" },
+        "title": { "type": "string", "description": "Contract title" },
+        "totalAmount": { "type": "number", "description": "Total contract value" },
+        "paidAmount": { "type": "number", "description": "Paid amount so far" },
+        "remainingAmount": { "type": "number", "description": "Remaining debt amount" },
+        "status": { "type": "string", "description": "Contract status: draft, signed, executing, completed, cancelled" },
+        "deliveryStatus": { "type": "string", "description": "Delivery status: pending, partial, delivered" },
+        "signedDate": { "type": "string", "description": "Signed date" },
+        "deliveryDate": { "type": "string", "description": "Target delivery date" },
+        "createdAt": { "type": "string", "description": "Creation timestamp" }
+      },
+      "required": ["id", "code", "customerId", "salesId", "totalAmount", "status"]
+    },
+    "ReserveItem": {
+      "title": "ReserveItem",
+      "description": "Stock reserved for finalized contracts",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Reserve item ID" },
+        "contractId": { "type": "string", "description": "Contract ID" },
+        "contractCode": { "type": "string", "description": "Contract code" },
+        "customerName": { "type": "string", "description": "Customer name" },
+        "salesName": { "type": "string", "description": "Sales name" },
+        "sku": { "type": "string", "description": "Product SKU" },
+        "productName": { "type": "string", "description": "Product name" },
+        "unit": { "type": "string", "description": "Unit" },
+        "quantity": { "type": "number", "description": "Reserved quantity" },
+        "status": { "type": "string", "description": "Status: holding, dispatched, cancelled" },
+        "reservedAt": { "type": "string", "description": "Reservation timestamp" }
+      },
+      "required": ["id", "contractId", "sku", "quantity", "status"]
+    },
+    "OrderItem": {
+      "title": "OrderItem",
+      "description": "Purchase order requirement for items needing factory ordering",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Order item ID" },
+        "contractId": { "type": "string", "description": "Contract ID" },
+        "contractCode": { "type": "string", "description": "Contract code" },
+        "customerName": { "type": "string", "description": "Customer name" },
+        "salesName": { "type": "string", "description": "Sales name" },
+        "sku": { "type": "string", "description": "Product SKU" },
+        "productName": { "type": "string", "description": "Product name" },
+        "unit": { "type": "string", "description": "Unit" },
+        "quantity": { "type": "number", "description": "Required order quantity" },
+        "status": { "type": "string", "description": "Status: pending_order, ordered, arrived_in_stock, cancelled" },
+        "createdAt": { "type": "string", "description": "Creation timestamp" }
+      },
+      "required": ["id", "contractId", "sku", "quantity", "status"]
+    }
+  },
+  "firestore": {
+    "users": { "entity": "UserProfile", "description": "Users and accounts" },
+    "customers": { "entity": "Customer", "description": "CRM Customers" },
+    "products": { "entity": "Product", "description": "Product Master Data & Prices" },
+    "inventory": { "entity": "Inventory", "description": "Warehouse Stock Master" },
+    "quotations": { "entity": "Quotation", "description": "Price Quotations" },
+    "contracts": { "entity": "Contract", "description": "Customer Contracts" },
+    "reserveItems": { "entity": "ReserveItem", "description": "Stock Reservations" },
+    "orderItems": { "entity": "OrderItem", "description": "Factory Purchase Orders" }
+  }
+}

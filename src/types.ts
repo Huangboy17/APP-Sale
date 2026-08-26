@@ -6,10 +6,12 @@ export interface User {
   email: string;
   role: UserRole;
   phone: string;
+  password?: string; // Mật khẩu tài khoản
   avatar?: string;
   status: 'active' | 'pending_approval' | 'inactive';
   department?: string;
   managerId?: string; // For Cấp 2, which Cấp 1 manages them
+  createdBy?: string; // Which Cấp 1 or Super Admin created this user
   createdAt: string;
 }
 

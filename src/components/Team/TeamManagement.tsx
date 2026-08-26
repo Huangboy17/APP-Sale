@@ -17,6 +17,11 @@ import {
   ArrowRight,
   X,
   Lock,
+  Eye,
+  EyeOff,
+  KeyRound,
+  Copy,
+  Check,
 } from 'lucide-react';
 
 export const TeamManagement: React.FC = () => {
@@ -28,6 +33,7 @@ export const TeamManagement: React.FC = () => {
     quotations,
     addUser,
     approveUser,
+    resetPassword,
     setCurrentUser,
   } = useApp();
 
@@ -35,14 +41,33 @@ export const TeamManagement: React.FC = () => {
   const [newUserName, setNewUserName] = useState('');
   const [newUserEmail, setNewUserEmail] = useState('');
   const [newUserPhone, setNewUserPhone] = useState('');
+  const [newUserPassword, setNewUserPassword] = useState('123456');
+  const [showPassword, setShowPassword] = useState(false);
   const [newUserRole, setNewUserRole] = useState<UserRole>('sales_c2');
   const [newUserDepartment, setNewUserDepartment] = useState('Phòng Kinh Doanh 1');
+
+  // Reset Password Modal State for existing user
+  const [resetModalUser, setResetModalUser] = useState<User | null>(null);
+  const [modalNewPassword, setModalNewPassword] = useState('123456');
+  const [showModalNewPassword, setShowModalNewPassword] = useState(false);
+  const [resetSuccessMessage, setResetSuccessMessage] = useState<string | null>(null);
+
+  // Success Created Notification with Copy credentials
+  const [createdUserInfo, setCreatedUserInfo] = useState<{ name: string; email: string; pass: string; roleName: string } | null>(null);
+  const [copied, setCopied] = useState(false);
 
   const isSuperAdmin = currentUser.role === 'super_admin';
   const isManagerC1 = currentUser.role === 'manager_c1';
 
-  // Calculate statistics per Sales C2
-  const salesStaff = users.filter((u) => u.role === 'sales_c2');
+  // Calculate statistics per Sales C2 (C1 only sees C2s they created or manage)
+  const salesStaff = users.filter((u) => {
+    if (u.role !== 'sales_c2') return false;
+    if (isSuperAdmin) return true;
+    if (isManagerC1) {
+      return u.managerId === currentUser.id || u.createdBy === currentUser.id;
+    }
+    return false;
+  });
   const managersC1 = users.filter((u) => u.role === 'manager_c1');
 
   const handleCreateUser = (e: React.FormEvent) => {
@@ -52,22 +77,62 @@ export const TeamManagement: React.FC = () => {
       return;
     }
 
+    const assignedPass = newUserPassword.trim() || '123456';
+    const assignedRole = isManagerC1 ? 'sales_c2' : newUserRole;
+
     addUser({
       name: newUserName.trim(),
       email: newUserEmail.trim(),
       phone: newUserPhone.trim() || '0901234567',
-      role: newUserRole,
-      department: newUserDepartment,
+      password: assignedPass,
+      role: assignedRole,
+      department: newUserDepartment || (isManagerC1 ? currentUser.department || 'Phòng Kinh Doanh' : 'Phòng Dự Án'),
       managerId: isManagerC1 ? currentUser.id : undefined,
-      // If Super Admin creates C1, it can be approved directly. If C1 creates C2, it is active.
       status: 'active',
       avatar: `https://images.unsplash.com/photo-${1534528741775 + Math.floor(Math.random() * 50)}?w=120&auto=format&fit=crop&q=80`,
+    });
+
+    setCreatedUserInfo({
+      name: newUserName.trim(),
+      email: newUserEmail.trim(),
+      pass: assignedPass,
+      roleName: assignedRole === 'sales_c2' ? 'Nhân Viên Kinh Doanh (C2)' : 'Giám Đốc / Trưởng Phòng (C1)',
     });
 
     setIsAddUserModalOpen(false);
     setNewUserName('');
     setNewUserEmail('');
     setNewUserPhone('');
+    setNewUserPassword('123456');
+  };
+
+  const handleSaveResetPassword = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!resetModalUser) return;
+
+    if (!modalNewPassword.trim()) {
+      alert('Vui lòng nhập mật khẩu mới');
+      return;
+    }
+
+    const res = resetPassword(resetModalUser.email, modalNewPassword.trim());
+    if (res.success) {
+      setResetSuccessMessage(`Đã cập nhật mật khẩu mới cho ${resetModalUser.name} thành công!`);
+      setTimeout(() => {
+        setResetModalUser(null);
+        setResetSuccessMessage(null);
+      }, 1800);
+    } else {
+      alert(res.message);
+    }
+  };
+
+  const copyCreatedCredentials = () => {
+    if (!createdUserInfo) return;
+    const text = `Tài khoản SalesFlow CRM của bạn:\n- Họ tên: ${createdUserInfo.name}\n- Email: ${createdUserInfo.email}\n- Mật khẩu: ${createdUserInfo.pass}\n- Vai trò: ${createdUserInfo.roleName}`;
+    navigator.clipboard.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
   };
 
   return (
@@ -94,6 +159,49 @@ export const TeamManagement: React.FC = () => {
           </button>
         )}
       </div>
+
+      {/* Success Notification Banner for Newly Created User */}
+      {createdUserInfo && (
+        <div className="p-3.5 bg-emerald-50 border border-emerald-300 rounded-lg shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3 animate-in fade-in duration-200">
+          <div className="flex items-start space-x-2.5">
+            <div className="w-8 h-8 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0 mt-0.5">
+              <CheckCircle2 className="w-4 h-4" />
+            </div>
+            <div className="text-xs">
+              <div className="font-bold text-emerald-950 flex items-center space-x-2">
+                <span>Đã tạo tài khoản {createdUserInfo.roleName} thành công!</span>
+              </div>
+              <div className="text-emerald-800 mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
+                <span>Họ tên: <strong>{createdUserInfo.name}</strong></span>
+                <span>Email: <strong>{createdUserInfo.email}</strong></span>
+                <span className="bg-emerald-200/70 text-emerald-900 px-1.5 py-0.5 rounded font-mono font-bold">
+                  Mật khẩu: {createdUserInfo.pass}
+                </span>
+              </div>
+              <p className="text-[11px] text-emerald-700 mt-0.5">
+                Nhân viên có thể dùng Email và Mật khẩu trên để đăng nhập trực tiếp vào hệ thống.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center space-x-2 shrink-0">
+            <button
+              onClick={copyCreatedCredentials}
+              className="px-3 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white rounded text-xs font-bold flex items-center space-x-1.5 shadow-xs transition"
+            >
+              {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+              <span>{copied ? 'Đã sao chép!' : 'Sao chép thông tin'}</span>
+            </button>
+            <button
+              onClick={() => setCreatedUserInfo(null)}
+              className="p-1.5 text-emerald-700 hover:text-emerald-900 hover:bg-emerald-100 rounded"
+              title="Đóng thông báo"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Role Structure Hierarchy Banner */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
@@ -164,6 +272,19 @@ export const TeamManagement: React.FC = () => {
                       ✓ Đã Phê Duyệt
                     </span>
                   )}
+
+                  <button
+                    onClick={() => {
+                      setResetModalUser(mgr);
+                      setModalNewPassword('123456');
+                      setResetSuccessMessage(null);
+                    }}
+                    className="px-2 py-1 border border-slate-300 hover:bg-slate-100 text-slate-700 rounded-md text-xs font-semibold transition flex items-center space-x-1"
+                    title="Đặt lại mật khẩu cho tài khoản này"
+                  >
+                    <KeyRound className="w-3 h-3 text-slate-500" />
+                    <span>Đổi MK</span>
+                  </button>
 
                   <button
                     onClick={() => setCurrentUser(mgr)}
@@ -247,12 +368,26 @@ export const TeamManagement: React.FC = () => {
                       {formatVND(staffRevenue)}
                     </td>
                     <td className="px-3 py-2 text-center">
-                      <button
-                        onClick={() => setCurrentUser(staff)}
-                        className="px-2.5 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded text-xs font-semibold transition"
-                      >
-                        Đóng Vai Sale
-                      </button>
+                      <div className="flex items-center justify-center space-x-1.5">
+                        <button
+                          onClick={() => {
+                            setResetModalUser(staff);
+                            setModalNewPassword('123456');
+                            setResetSuccessMessage(null);
+                          }}
+                          className="px-2 py-1 border border-slate-300 hover:bg-slate-100 text-slate-700 rounded text-xs font-semibold transition flex items-center space-x-1"
+                          title="Cấp lại / Đổi mật khẩu cho sale này"
+                        >
+                          <KeyRound className="w-3 h-3 text-slate-500" />
+                          <span>Đổi MK</span>
+                        </button>
+                        <button
+                          onClick={() => setCurrentUser(staff)}
+                          className="px-2.5 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded text-xs font-semibold transition"
+                        >
+                          Đóng Vai Sale
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 );
@@ -267,8 +402,9 @@ export const TeamManagement: React.FC = () => {
         <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-lg max-w-md w-full shadow-2xl border border-slate-200 overflow-hidden animate-in fade-in zoom-in-95 duration-150">
             <div className="px-4 py-3 border-b border-slate-200 flex items-center justify-between bg-slate-50">
-              <h3 className="text-sm font-bold text-slate-900">
-                {isSuperAdmin ? 'Tạo Tài Khoản Mới (C1 / C2)' : 'Cấp 1 Tạo Nhân Viên Sale (C2)'}
+              <h3 className="text-sm font-bold text-slate-900 flex items-center space-x-2">
+                <UserPlus className="w-4 h-4 text-blue-600" />
+                <span>{isSuperAdmin ? 'Tạo Tài Khoản Mới (C1 / C2)' : 'Cấp 1 Tạo Tài Khoản Nhân Viên Sale (C2)'}</span>
               </h3>
               <button onClick={() => setIsAddUserModalOpen(false)} className="text-slate-400 hover:text-slate-600">
                 <X className="w-4 h-4" />
@@ -278,7 +414,7 @@ export const TeamManagement: React.FC = () => {
             <form onSubmit={handleCreateUser} className="p-4 space-y-3 text-xs">
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Họ Và Tên <span className="text-rose-500">*</span>
+                  Họ Và Tên Nhân Viên <span className="text-rose-500">*</span>
                 </label>
                 <input
                   type="text"
@@ -286,7 +422,7 @@ export const TeamManagement: React.FC = () => {
                   placeholder="VD: Trần Văn Bình"
                   value={newUserName}
                   onChange={(e) => setNewUserName(e.target.value)}
-                  className="w-full px-2.5 py-1.5 border border-slate-300 rounded"
+                  className="w-full px-2.5 py-1.5 border border-slate-300 rounded focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
                 />
               </div>
 
@@ -300,21 +436,66 @@ export const TeamManagement: React.FC = () => {
                   placeholder="binh.tran@salesflow.vn"
                   value={newUserEmail}
                   onChange={(e) => setNewUserEmail(e.target.value)}
-                  className="w-full px-2.5 py-1.5 border border-slate-300 rounded"
+                  className="w-full px-2.5 py-1.5 border border-slate-300 rounded focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
                 />
               </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Số Điện Thoại
-                </label>
-                <input
-                  type="text"
-                  placeholder="0918 234 567"
-                  value={newUserPhone}
-                  onChange={(e) => setNewUserPhone(e.target.value)}
-                  className="w-full px-2.5 py-1.5 border border-slate-300 rounded"
-                />
+              {/* Password configuration for newly created account */}
+              <div className="p-2.5 bg-blue-50/70 border border-blue-200 rounded-md">
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-xs font-bold text-blue-900 flex items-center space-x-1.5">
+                    <Lock className="w-3.5 h-3.5 text-blue-600" />
+                    <span>Mật Khẩu Đăng Nhập Cho Tài Khoản <span className="text-rose-500">*</span></span>
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="text-[11px] text-blue-700 hover:text-blue-900 font-medium flex items-center space-x-1"
+                  >
+                    {showPassword ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                    <span>{showPassword ? 'Ẩn' : 'Hiện'}</span>
+                  </button>
+                </div>
+                <div className="relative">
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    required
+                    placeholder="Mật khẩu tối thiểu 3 ký tự (VD: 123456)"
+                    value={newUserPassword}
+                    onChange={(e) => setNewUserPassword(e.target.value)}
+                    className="w-full px-2.5 py-1.5 bg-white border border-blue-300 rounded text-xs font-mono focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
+                  />
+                </div>
+                <p className="text-[10px] text-blue-700 mt-1">
+                  ℹ️ Cung cấp Email và Mật khẩu này cho nhân viên C2 để họ đăng nhập vào hệ thống.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Số Điện Thoại
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="0918 234 567"
+                    value={newUserPhone}
+                    onChange={(e) => setNewUserPhone(e.target.value)}
+                    className="w-full px-2.5 py-1.5 border border-slate-300 rounded focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Phòng Ban / Đội Nhóm
+                  </label>
+                  <input
+                    type="text"
+                    value={newUserDepartment}
+                    onChange={(e) => setNewUserDepartment(e.target.value)}
+                    className="w-full px-2.5 py-1.5 border border-slate-300 rounded focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
+                  />
+                </div>
               </div>
 
               {isSuperAdmin && (
@@ -325,25 +506,13 @@ export const TeamManagement: React.FC = () => {
                   <select
                     value={newUserRole}
                     onChange={(e) => setNewUserRole(e.target.value as any)}
-                    className="w-full px-2.5 py-1.5 border border-slate-300 rounded bg-white font-medium"
+                    className="w-full px-2.5 py-1.5 border border-slate-300 rounded bg-white font-medium focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
                   >
+                    <option value="sales_c2">Cấp 2: Nhân Viên Kinh Doanh (Sales Executive)</option>
                     <option value="manager_c1">Cấp 1: Giám Đốc / Trưởng Phòng Kinh Doanh</option>
-                    <option value="sales_c2">Cấp 2: Nhân Viên Kinh Doanh</option>
                   </select>
                 </div>
               )}
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Phòng Ban / Đội Nhóm
-                </label>
-                <input
-                  type="text"
-                  value={newUserDepartment}
-                  onChange={(e) => setNewUserDepartment(e.target.value)}
-                  className="w-full px-2.5 py-1.5 border border-slate-300 rounded"
-                />
-              </div>
 
               <div className="pt-2.5 border-t border-slate-200 flex items-center justify-end space-x-2">
                 <button
@@ -355,11 +524,98 @@ export const TeamManagement: React.FC = () => {
                 </button>
                 <button
                   type="submit"
-                  className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded shadow-2xs transition"
+                  className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded shadow-2xs transition flex items-center space-x-1.5 cursor-pointer"
                 >
-                  Tạo Tài Khoản
+                  <UserPlus className="w-3.5 h-3.5" />
+                  <span>Xác Nhận Tạo Tài Khoản</span>
                 </button>
               </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Reset / Update Password for Existing User */}
+      {resetModalUser && (
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-lg max-w-sm w-full shadow-2xl border border-slate-200 overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+            <div className="px-4 py-3 border-b border-slate-200 flex items-center justify-between bg-slate-50">
+              <h3 className="text-sm font-bold text-slate-900 flex items-center space-x-2">
+                <KeyRound className="w-4 h-4 text-blue-600" />
+                <span>Cấp Lại / Đổi Mật Khẩu</span>
+              </h3>
+              <button
+                onClick={() => {
+                  setResetModalUser(null);
+                  setResetSuccessMessage(null);
+                }}
+                className="text-slate-400 hover:text-slate-600"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveResetPassword} className="p-4 space-y-3 text-xs">
+              <div className="p-2.5 bg-slate-50 border border-slate-200 rounded">
+                <div className="font-bold text-slate-800 text-xs">{resetModalUser.name}</div>
+                <div className="text-[11px] text-slate-500">{resetModalUser.email}</div>
+                <div className="text-[10px] text-blue-600 font-semibold mt-0.5">
+                  {resetModalUser.role === 'manager_c1' ? 'Giám Đốc (C1)' : 'Nhân Viên Sales (C2)'} • {resetModalUser.department}
+                </div>
+              </div>
+
+              {resetSuccessMessage ? (
+                <div className="p-2.5 bg-emerald-50 border border-emerald-300 text-emerald-800 rounded text-xs font-semibold flex items-center space-x-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span>{resetSuccessMessage}</span>
+                </div>
+              ) : (
+                <>
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="block text-xs font-semibold text-slate-700">
+                        Mật khẩu mới <span className="text-rose-500">*</span>
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => setShowModalNewPassword(!showModalNewPassword)}
+                        className="text-[11px] text-blue-600 hover:text-blue-800 font-medium flex items-center space-x-1"
+                      >
+                        {showModalNewPassword ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                        <span>{showModalNewPassword ? 'Ẩn' : 'Hiện'}</span>
+                      </button>
+                    </div>
+                    <input
+                      type={showModalNewPassword ? 'text' : 'password'}
+                      required
+                      value={modalNewPassword}
+                      onChange={(e) => setModalNewPassword(e.target.value)}
+                      placeholder="Nhập mật khẩu mới"
+                      className="w-full px-2.5 py-1.5 border border-slate-300 rounded font-mono text-xs focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
+                    />
+                  </div>
+
+                  <p className="text-[11px] text-slate-500">
+                    Sau khi lưu, nhân viên có thể sử dụng mật khẩu mới này để đăng nhập ngay vào hệ thống.
+                  </p>
+
+                  <div className="pt-2.5 border-t border-slate-200 flex items-center justify-end space-x-2">
+                    <button
+                      type="button"
+                      onClick={() => setResetModalUser(null)}
+                      className="px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded"
+                    >
+                      Hủy
+                    </button>
+                    <button
+                      type="submit"
+                      className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded shadow-2xs transition"
+                    >
+                      Cập Nhật Mật Khẩu
+                    </button>
+                  </div>
+                </>
+              )}
             </form>
           </div>
         </div>

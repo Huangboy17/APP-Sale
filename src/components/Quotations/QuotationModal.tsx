@@ -427,18 +427,18 @@ export const QuotationModal: React.FC<QuotationModalProps> = ({
       customerObj = createdCust;
     }
 
-    let targetQuoteId = quotationToEdit?.id;
+    let targetQuote: Quotation;
 
-    if (!targetQuoteId) {
+    if (!quotationToEdit) {
       const savedQuote = createQuotation({
         quoteNumber,
         version,
         customerId,
-        customerName: customerObj!.name,
-        customerPhone: customerObj!.phone,
-        customerEmail: customerObj!.email,
-        customerCompany: customerObj!.company,
-        customerAddress: customerObj!.address,
+        customerName: customerObj?.name || newCustName || 'Khách Hàng',
+        customerPhone: customerObj?.phone || newCustPhone || '',
+        customerEmail: customerObj?.email || newCustEmail || '',
+        customerCompany: customerObj?.company || newCustCompany || '',
+        customerAddress: customerObj?.address || newCustAddress || '',
         salesRepId: currentUser.id,
         salesRepName: currentUser.name,
         salesRepPhone: currentUser.phone,
@@ -457,10 +457,16 @@ export const QuotationModal: React.FC<QuotationModalProps> = ({
         notes,
         termsAndConditions,
       });
-      targetQuoteId = savedQuote.id;
+      targetQuote = savedQuote;
     } else {
-      updateQuotation({
+      const updatedQuote: Quotation = {
         ...quotationToEdit,
+        customerId,
+        customerName: customerObj?.name || quotationToEdit.customerName,
+        customerPhone: customerObj?.phone || quotationToEdit.customerPhone,
+        customerEmail: customerObj?.email || quotationToEdit.customerEmail,
+        customerCompany: customerObj?.company || quotationToEdit.customerCompany,
+        customerAddress: customerObj?.address || quotationToEdit.customerAddress,
         items,
         subtotal,
         taxRate,
@@ -469,16 +475,25 @@ export const QuotationModal: React.FC<QuotationModalProps> = ({
         milestones,
         title,
         notes,
-      });
+        updatedAt: new Date().toISOString().split('T')[0],
+      };
+      updateQuotation(updatedQuote);
+      targetQuote = updatedQuote;
     }
 
-    // Call finalizeQuoteToContract
-    const result = finalizeQuoteToContract(targetQuoteId, {
-      deliveryDate,
-      deliveryAddress: deliveryAddress || customerObj?.address || 'Tại chân công trình',
-      customerTaxCode: customerObj?.taxCode,
-      customerCompany: customerObj?.company,
-    });
+    // Call finalizeQuoteToContract with override targetQuote
+    finalizeQuoteToContract(
+      targetQuote.id,
+      {
+        deliveryDate,
+        deliveryAddress: deliveryAddress || customerObj?.address || 'Tại chân công trình',
+        customerTaxCode: customerObj?.taxCode,
+        customerCompany: customerObj?.company,
+        customerName: customerObj?.name || targetQuote.customerName,
+        customerPhone: customerObj?.phone || targetQuote.customerPhone,
+      },
+      targetQuote
+    );
 
     // Launch confetti!
     confetti({

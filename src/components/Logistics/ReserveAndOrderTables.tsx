@@ -19,12 +19,12 @@ import * as XLSX from 'xlsx';
 
 export const ReserveAndOrderTables: React.FC = () => {
   const {
-    reserveItems,
-    orderItems,
+    filteredReserveItems,
+    filteredOrderItems,
     updateReserveStatus,
     updateOrderStatus,
     currentUser,
-    contracts,
+    filteredContracts,
   } = useApp();
 
   const [activeSubTab, setActiveSubTab] = useState<'reserve' | 'order'>('reserve');
@@ -32,7 +32,7 @@ export const ReserveAndOrderTables: React.FC = () => {
   const [contractFilter, setContractFilter] = useState<string>('all');
 
   // Filter reserve items
-  const filteredReserves = reserveItems.filter((r) => {
+  const filteredReserves = filteredReserveItems.filter((r) => {
     const matchSearch =
       r.sku.toLowerCase().includes(searchTerm.toLowerCase()) ||
       r.productName.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -43,7 +43,7 @@ export const ReserveAndOrderTables: React.FC = () => {
   });
 
   // Filter order items
-  const filteredOrders = orderItems.filter((o) => {
+  const filteredOrders = filteredOrderItems.filter((o) => {
     const matchSearch =
       o.sku.toLowerCase().includes(searchTerm.toLowerCase()) ||
       o.productName.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -142,7 +142,7 @@ export const ReserveAndOrderTables: React.FC = () => {
             <PackageCheck className="w-3.5 h-3.5" />
             <span>1. Bảng Giữ Hàng (Còn Tồn Kho)</span>
             <span className={`px-1.5 py-0.2 text-[10px] rounded-full ${activeSubTab === 'reserve' ? 'bg-white/20 text-white' : 'bg-slate-200 text-slate-700'}`}>
-              {reserveItems.length}
+              {filteredReserveItems.length}
             </span>
           </button>
 
@@ -157,7 +157,7 @@ export const ReserveAndOrderTables: React.FC = () => {
             <ShoppingCart className="w-3.5 h-3.5" />
             <span>2. Bảng Đặt Hàng (Thiếu/Hết Hàng)</span>
             <span className={`px-1.5 py-0.2 text-[10px] rounded-full ${activeSubTab === 'order' ? 'bg-white/20 text-white' : 'bg-slate-200 text-slate-700'}`}>
-              {orderItems.length}
+              {filteredOrderItems.length}
             </span>
           </button>
         </div>
@@ -180,8 +180,8 @@ export const ReserveAndOrderTables: React.FC = () => {
             onChange={(e) => setContractFilter(e.target.value)}
             className="px-2.5 py-1.5 text-xs border border-slate-300 rounded-md bg-white focus:ring-1 focus:ring-blue-500 outline-hidden"
           >
-            <option value="all">Tất cả hợp đồng</option>
-            {contracts.map((c) => (
+            <option value="all">Tất cả hợp đồng ({filteredContracts.length})</option>
+            {filteredContracts.map((c) => (
               <option key={c.id} value={c.id}>
                 {c.contractNumber}
               </option>

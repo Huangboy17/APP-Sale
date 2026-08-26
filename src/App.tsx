@@ -13,9 +13,11 @@ import { ProductPriceMaster } from './components/Products/ProductPriceMaster';
 import { InventoryMaster } from './components/Inventory/InventoryMaster';
 import { TeamManagement } from './components/Team/TeamManagement';
 import { PDFPreviewModal } from './components/PDF/PDFPreviewModal';
+import { AuthScreen } from './components/Auth/AuthScreen';
 
 const MainContent: React.FC = () => {
   const {
+    isAuthenticated,
     activeTab,
     isCreateCustomerModalOpen,
     setIsCreateCustomerModalOpen,
@@ -27,6 +29,11 @@ const MainContent: React.FC = () => {
     users,
     inventory,
   } = useApp();
+
+  // If not logged in, show Auth Screen (Login / Register / Forgot Password)
+  if (!isAuthenticated) {
+    return <AuthScreen />;
+  }
 
   return (
     <div className="flex h-screen w-full bg-[#F1F5F9] text-[#334155] font-sans overflow-hidden">

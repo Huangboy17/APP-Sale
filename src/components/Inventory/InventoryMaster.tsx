@@ -107,15 +107,14 @@ export const InventoryMaster: React.FC = () => {
             <span>Xuất Excel ({inventory.length})</span>
           </button>
 
-          {isManagerOrAdmin && (
-            <button
-              onClick={() => setIsImportModalOpen(true)}
-              className="px-2.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-xs font-bold flex items-center space-x-1 shadow-2xs transition"
-            >
-              <Upload className="w-3.5 h-3.5" />
-              <span>Import Tồn Kho</span>
-            </button>
-          )}
+          <button
+            onClick={() => setIsImportModalOpen(true)}
+            className="px-2.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-xs font-bold flex items-center space-x-1 shadow-2xs transition"
+            title="Cấp 1 & Cấp 2 đều có quyền import tồn kho"
+          >
+            <Upload className="w-3.5 h-3.5" />
+            <span>Import Tồn Kho</span>
+          </button>
         </div>
       </div>
 
