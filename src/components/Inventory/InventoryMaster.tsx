@@ -1,7 +1,8 @@
-import React, { useState, useRef } from 'react';
+import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { InventoryItem } from '../../types';
-import { exportInventoryToExcel, parseExcelFile, formatDate } from '../../utils/formatters';
+import { exportInventoryToExcel, downloadInventoryTemplateExcel, formatDate } from '../../utils/formatters';
+import { InventoryImportModal } from './InventoryImportModal';
 import {
   Boxes,
   Search,
@@ -13,6 +14,7 @@ import {
   AlertTriangle,
   CheckCircle2,
   Warehouse,
+  FileSpreadsheet,
   X,
 } from 'lucide-react';
 
@@ -21,7 +23,6 @@ export const InventoryMaster: React.FC = () => {
     inventory,
     updateInventoryItem,
     quickAdjustStock,
-    importInventory,
     currentUser,
   } = useApp();
 
@@ -29,10 +30,9 @@ export const InventoryMaster: React.FC = () => {
   const [stockStatusFilter, setStockStatusFilter] = useState<'all' | 'available' | 'low' | 'out_of_stock'>('all');
 
   const [editingItem, setEditingItem] = useState<InventoryItem | null>(null);
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [modalTotalQty, setModalTotalQty] = useState<number>(0);
   const [modalLocation, setModalLocation] = useState('');
-
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const isManagerOrAdmin = currentUser.role === 'super_admin' || currentUser.role === 'manager_c1';
 
@@ -74,50 +74,6 @@ export const InventoryMaster: React.FC = () => {
     setEditingItem(null);
   };
 
-  // Import Excel
-  const handleImportExcel = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    try {
-      const rows = await parseExcelFile(file);
-      const imported: InventoryItem[] = [];
-
-      rows.forEach((r: any) => {
-        const itemSku = r['Mã hàng (SKU)'] || r['Mã hàng'] || r['SKU'] || r['Ma_Hang'];
-        const itemName = r['Tên hàng hóa'] || r['Tên sản phẩm'] || r['Tên hàng'] || r['Name'];
-
-        if (itemSku && itemName) {
-          const total = Number(r['Tồn thực tế'] || r['Tồn kho'] || r['TotalQuantity'] || 0);
-          imported.push({
-            sku: String(itemSku).trim().toUpperCase(),
-            name: String(itemName).trim(),
-            unit: r['ĐVT'] || r['Đơn vị tính'] || r['Unit'] || 'Cái',
-            totalQuantity: total,
-            reservedQuantity: 0,
-            availableQuantity: total,
-            warehouseLocation: r['Vị trí kho'] || r['Warehouse'] || 'Kho Tổng',
-            updatedAt: new Date().toISOString().split('T')[0],
-          });
-        }
-      });
-
-      if (imported.length > 0) {
-        importInventory(imported);
-        alert(`Đã import thành công dữ liệu tồn kho của ${imported.length} sản phẩm!`);
-      } else {
-        alert('Không tìm thấy dữ liệu hợp lệ trong file Excel');
-      }
-    } catch (err) {
-      console.error(err);
-      alert('Lỗi khi đọc file Excel tồn kho');
-    }
-
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
-    }
-  };
-
   return (
     <div className="space-y-4">
       {/* Header */}
@@ -135,30 +91,30 @@ export const InventoryMaster: React.FC = () => {
         {/* Actions (Cấp 1) */}
         <div className="flex items-center space-x-1.5 self-start sm:self-auto">
           <button
+            onClick={downloadInventoryTemplateExcel}
+            className="px-2.5 py-1.5 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 rounded-md text-xs font-bold flex items-center space-x-1 shadow-2xs transition"
+            title="Tải file Excel mẫu tồn kho"
+          >
+            <Download className="w-3.5 h-3.5 text-slate-500" />
+            <span>Tải File Mẫu</span>
+          </button>
+
+          <button
             onClick={() => exportInventoryToExcel(inventory)}
             className="px-2.5 py-1.5 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 rounded-md text-xs font-bold flex items-center space-x-1 shadow-2xs transition"
           >
-            <Download className="w-3.5 h-3.5 text-slate-500" />
-            <span>Xuất Excel Tồn Kho</span>
+            <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
+            <span>Xuất Excel ({inventory.length})</span>
           </button>
 
           {isManagerOrAdmin && (
-            <>
-              <input
-                type="file"
-                ref={fileInputRef}
-                onChange={handleImportExcel}
-                accept=".xlsx,.xls,.csv"
-                className="hidden"
-              />
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                className="px-2.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-xs font-bold flex items-center space-x-1 shadow-2xs transition"
-              >
-                <Upload className="w-3.5 h-3.5" />
-                <span>Import Tồn Kho</span>
-              </button>
-            </>
+            <button
+              onClick={() => setIsImportModalOpen(true)}
+              className="px-2.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-xs font-bold flex items-center space-x-1 shadow-2xs transition"
+            >
+              <Upload className="w-3.5 h-3.5" />
+              <span>Import Tồn Kho</span>
+            </button>
           )}
         </div>
       </div>
@@ -353,6 +309,12 @@ export const InventoryMaster: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Import Inventory Modal */}
+      <InventoryImportModal
+        isOpen={isImportModalOpen}
+        onClose={() => setIsImportModalOpen(false)}
+      />
     </div>
   );
 };

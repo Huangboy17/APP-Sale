@@ -172,6 +172,55 @@ export const exportProductsToExcel = (products: ProductPriceItem[]) => {
   XLSX.writeFile(workbook, `Data_Gia_San_Pham_${new Date().toISOString().split('T')[0]}.xlsx`);
 };
 
+export const downloadProductTemplateExcel = () => {
+  const sampleData = [
+    {
+      'STT': 1,
+      'Mã hàng (SKU)': 'LED-DL-01-W',
+      'Tên hàng hóa / Sản phẩm': 'Đèn Downlight Âm Trần COB 12W Viền Trắng',
+      'Phân loại': 'Đèn chiếu sáng',
+      'Hãng sản xuất': 'Philips',
+      'Màu sắc': 'Trắng 3000K',
+      'Kích thước / Quy cách': 'D110xH65mm (Lỗ khoét D90mm)',
+      'Đơn vị tính': 'Bộ',
+      'Giá niêm yết (VNĐ)': 450000,
+      'Giá DP (Giá sàn tối thiểu)': 320000,
+      'Mô tả chi tiết': 'Chíp Bridgelux USA, CRI>90, bảo hành 36 tháng',
+    },
+    {
+      'STT': 2,
+      'Mã hàng (SKU)': 'SW-SCH-01-BK',
+      'Tên hàng hóa / Sản phẩm': 'Công Tắc 3 Phím AvatarOn Mặt Vuông',
+      'Phân loại': 'Thiết bị điện',
+      'Hãng sản xuất': 'Schneider',
+      'Màu sắc': 'Đen Ánh Kim',
+      'Kích thước / Quy cách': '86x86mm chuẩn Vuông',
+      'Đơn vị tính': 'Cái',
+      'Giá niêm yết (VNĐ)': 290000,
+      'Giá DP (Giá sàn tối thiểu)': 215000,
+      'Mô tả chi tiết': 'Dòng AvatarOn cao cấp, tiếp điểm bạc chống hồ quang',
+    },
+    {
+      'STT': 3,
+      'Mã hàng (SKU)': 'LED-PANEL-6060',
+      'Tên hàng hóa / Sản phẩm': 'Đèn Panel Tấm Âm Trần 600x600 48W',
+      'Phân loại': 'Đèn chiếu sáng',
+      'Hãng sản xuất': 'Paragon',
+      'Màu sắc': 'Trắng 4000K',
+      'Kích thước / Quy cách': '600x600mm',
+      'Đơn vị tính': 'Bộ',
+      'Giá niêm yết (VNĐ)': 850000,
+      'Giá DP (Giá sàn tối thiểu)': 620000,
+      'Mô tả chi tiết': 'Khung nhôm sơn tĩnh điện siêu mỏng, nguồn Driver Meanwell',
+    },
+  ];
+
+  const worksheet = XLSX.utils.json_to_sheet(sampleData);
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, worksheet, 'Mau_Data_Gia');
+  XLSX.writeFile(workbook, 'Mau_Import_Data_Gia_San_Pham.xlsx');
+};
+
 export const exportInventoryToExcel = (inventory: InventoryItem[]) => {
   const data = inventory.map((i, idx) => ({
     'STT': idx + 1,
@@ -191,6 +240,43 @@ export const exportInventoryToExcel = (inventory: InventoryItem[]) => {
   XLSX.writeFile(workbook, `Bang_Ton_Kho_${new Date().toISOString().split('T')[0]}.xlsx`);
 };
 
+export const downloadInventoryTemplateExcel = () => {
+  const sampleData = [
+    {
+      'STT': 1,
+      'Mã hàng (SKU)': 'LED-DL-01-W',
+      'Tên hàng hóa': 'Đèn Downlight Âm Trần COB 12W Viền Trắng',
+      'ĐVT': 'Bộ',
+      'Tồn thực tế': 150,
+      'Vị trí kho': 'Kho Tổng HCM (Kệ A1-01)',
+      'Ghi chú': 'Hàng có sẵn tại kho',
+    },
+    {
+      'STT': 2,
+      'Mã hàng (SKU)': 'SW-SCH-01-BK',
+      'Tên hàng hóa': 'Công Tắc 3 Phím AvatarOn Mặt Vuông',
+      'ĐVT': 'Cái',
+      'Tồn thực tế': 80,
+      'Vị trí kho': 'Kho Tổng HCM (Kệ B2-05)',
+      'Ghi chú': 'Hàng nhập khẩu chính hãng',
+    },
+    {
+      'STT': 3,
+      'Mã hàng (SKU)': 'LED-PANEL-6060',
+      'Tên hàng hóa': 'Đèn Panel Tấm Âm Trần 600x600 48W',
+      'ĐVT': 'Bộ',
+      'Tồn thực tế': 25,
+      'Vị trí kho': 'Kho Hà Nội (Kệ C3-02)',
+      'Ghi chú': 'Sẵn sàng giao dự án',
+    },
+  ];
+
+  const worksheet = XLSX.utils.json_to_sheet(sampleData);
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, worksheet, 'Mau_Ton_Kho');
+  XLSX.writeFile(workbook, 'Mau_Import_Ton_Kho.xlsx');
+};
+
 export const parseExcelFile = async (file: File): Promise<any[]> => {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -200,7 +286,7 @@ export const parseExcelFile = async (file: File): Promise<any[]> => {
         const workbook = XLSX.read(data, { type: 'array' });
         const firstSheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[firstSheetName];
-        const json = XLSX.utils.sheet_to_json(worksheet);
+        const json = XLSX.utils.sheet_to_json(worksheet, { defval: '' });
         resolve(json);
       } catch (err) {
         reject(err);

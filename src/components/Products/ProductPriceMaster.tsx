@@ -1,7 +1,8 @@
-import React, { useState, useRef } from 'react';
+import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { ProductPriceItem } from '../../types';
-import { formatVND, formatNumber, exportProductsToExcel, parseExcelFile } from '../../utils/formatters';
+import { formatVND, formatNumber, exportProductsToExcel, downloadProductTemplateExcel } from '../../utils/formatters';
+import { ProductImportModal } from './ProductImportModal';
 import {
   Tag,
   Plus,
@@ -10,23 +11,20 @@ import {
   Download,
   Edit2,
   Trash2,
-  AlertCircle,
-  CheckCircle2,
   FileSpreadsheet,
   X,
 } from 'lucide-react';
 
 export const ProductPriceMaster: React.FC = () => {
-  const { products, addProduct, updateProduct, deleteProduct, importProducts, currentUser } = useApp();
+  const { products, addProduct, updateProduct, deleteProduct, currentUser } = useApp();
 
   const [searchTerm, setSearchTerm] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
   const [brandFilter, setBrandFilter] = useState<string>('all');
 
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [productToEdit, setProductToEdit] = useState<ProductPriceItem | null>(null);
-
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   // Form State for Single Product Add/Edit
   const [sku, setSku] = useState('');
@@ -125,52 +123,6 @@ export const ProductPriceMaster: React.FC = () => {
     setIsEditModalOpen(false);
   };
 
-  // Import Excel handler
-  const handleImportExcel = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    try {
-      const rows = await parseExcelFile(file);
-      const imported: ProductPriceItem[] = [];
-
-      rows.forEach((r: any) => {
-        const itemSku = r['Mã hàng (SKU)'] || r['Mã hàng'] || r['SKU'] || r['Ma_Hang'];
-        const itemName = r['Tên hàng hóa / Sản phẩm'] || r['Tên hàng'] || r['Ten_Hang'] || r['Name'];
-
-        if (itemSku && itemName) {
-          imported.push({
-            sku: String(itemSku).trim().toUpperCase(),
-            name: String(itemName).trim(),
-            category: r['Phân loại'] || r['Category'] || 'Chung',
-            brand: r['Hãng sản xuất'] || r['Hãng'] || r['Brand'] || 'Khác',
-            color: r['Màu sắc'] || r['Color'] || 'Tiêu chuẩn',
-            size: r['Kích thước / Quy cách'] || r['Size'] || 'Tiêu chuẩn',
-            unit: r['Đơn vị tính'] || r['ĐVT'] || r['Unit'] || 'Cái',
-            listPrice: Number(r['Giá niêm yết (VNĐ)'] || r['Giá niêm yết'] || r['ListPrice'] || 0),
-            dpPrice: Number(r['Giá DP (Giá sàn tối thiểu)'] || r['Giá DP'] || r['DpPrice'] || 0),
-            description: r['Mô tả chi tiết'] || '',
-            status: 'active',
-          });
-        }
-      });
-
-      if (imported.length > 0) {
-        importProducts(imported);
-        alert(`Đã import thành công ${imported.length} sản phẩm vào Master Data Giá!`);
-      } else {
-        alert('Không tìm thấy dữ liệu hợp lệ trong file Excel. Vui lòng kiểm tra tiêu đề cột!');
-      }
-    } catch (err) {
-      console.error(err);
-      alert('Lỗi đọc file Excel. Vui lòng kiểm tra định dạng file!');
-    }
-
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
-    }
-  };
-
   return (
     <div className="space-y-4">
       {/* Header */}
@@ -188,28 +140,30 @@ export const ProductPriceMaster: React.FC = () => {
         {/* Action buttons (Cấp 1 & Admin) */}
         <div className="flex items-center space-x-1.5 self-start sm:self-auto">
           <button
+            onClick={downloadProductTemplateExcel}
+            className="px-2.5 py-1.5 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 rounded-md text-xs font-bold flex items-center space-x-1 shadow-2xs transition"
+            title="Tải file Excel mẫu có định dạng chuẩn"
+          >
+            <Download className="w-3.5 h-3.5 text-slate-500" />
+            <span>Tải File Mẫu</span>
+          </button>
+
+          <button
             onClick={() => exportProductsToExcel(products)}
             className="px-2.5 py-1.5 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 rounded-md text-xs font-bold flex items-center space-x-1 shadow-2xs transition"
           >
-            <Download className="w-3.5 h-3.5 text-slate-500" />
-            <span>Xuất Excel Mẫu</span>
+            <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
+            <span>Xuất Excel ({products.length})</span>
           </button>
 
           {isManagerOrAdmin && (
             <>
-              <input
-                type="file"
-                ref={fileInputRef}
-                onChange={handleImportExcel}
-                accept=".xlsx,.xls,.csv"
-                className="hidden"
-              />
               <button
-                onClick={() => fileInputRef.current?.click()}
-                className="px-2.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border border-indigo-200 rounded-md text-xs font-bold flex items-center space-x-1 transition"
+                onClick={() => setIsImportModalOpen(true)}
+                className="px-2.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border border-indigo-200 rounded-md text-xs font-bold flex items-center space-x-1 transition shadow-2xs"
               >
                 <Upload className="w-3.5 h-3.5" />
-                <span>Import Excel</span>
+                <span>Import Data Giá</span>
               </button>
 
               <button
@@ -531,6 +485,12 @@ export const ProductPriceMaster: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Import Modal */}
+      <ProductImportModal
+        isOpen={isImportModalOpen}
+        onClose={() => setIsImportModalOpen(false)}
+      />
     </div>
   );
 };
