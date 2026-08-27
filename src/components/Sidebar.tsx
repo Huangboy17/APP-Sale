@@ -11,6 +11,7 @@ import {
   UserPlus,
   PackageCheck,
   Building2,
+  Trash2,
 } from 'lucide-react';
 
 export const Sidebar: React.FC = () => {
@@ -24,6 +25,8 @@ export const Sidebar: React.FC = () => {
     filteredReserveItems,
     filteredOrderItems,
     users,
+    setIsClearDataModalOpen,
+    logout,
   } = useApp();
 
   const isSuperAdmin = currentUser.role === 'super_admin';
@@ -272,17 +275,28 @@ export const Sidebar: React.FC = () => {
             </div>
           </div>
 
-          {/* Sign out button */}
-          <button
-            type="button"
-            onClick={useApp().logout}
-            className="p-1.5 rounded-md hover:bg-rose-500/20 hover:text-rose-300 text-slate-400 border border-slate-700 hover:border-rose-500/40 transition cursor-pointer shrink-0"
-            title="Đăng xuất khỏi hệ thống"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-            </svg>
-          </button>
+          {/* Quick action buttons */}
+          <div className="flex items-center space-x-1 shrink-0">
+            <button
+              type="button"
+              onClick={() => setIsClearDataModalOpen(true)}
+              className="p-1.5 rounded-md hover:bg-rose-500/20 text-slate-400 hover:text-rose-300 border border-slate-700 hover:border-rose-500/40 transition cursor-pointer"
+              title="Xoá dữ liệu: Khách hàng, Data giá, Báo giá, Tồn kho..."
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+
+            <button
+              type="button"
+              onClick={logout}
+              className="p-1.5 rounded-md hover:bg-slate-700 hover:text-slate-200 text-slate-400 border border-slate-700 transition cursor-pointer"
+              title="Đăng xuất khỏi hệ thống"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+              </svg>
+            </button>
+          </div>
         </div>
       </div>
     </aside>

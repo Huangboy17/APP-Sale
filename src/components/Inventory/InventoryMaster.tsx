@@ -1,42 +1,83 @@
 import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
-import { InventoryItem } from '../../types';
+import { InventoryItem, ReserveItem, OrderItem, Contract, Customer } from '../../types';
 import { exportInventoryToExcel, downloadInventoryTemplateExcel, formatDate } from '../../utils/formatters';
 import { InventoryImportModal } from './InventoryImportModal';
+import { ItemReservationsModal } from './ItemReservationsModal';
+import { WarehouseOverviewStats } from './WarehouseOverviewStats';
+import { ReservedItemsWarehouseTable } from './ReservedItemsWarehouseTable';
+import { ContractOrdersWarehouseTable } from './ContractOrdersWarehouseTable';
+import { ReorderAlertsTable } from './ReorderAlertsTable';
+import { DispatchConfirmModal } from './DispatchConfirmModal';
+import { ReceiveOrderModal } from './ReceiveOrderModal';
+import { AddEditInventoryModal } from './AddEditInventoryModal';
 import {
   Boxes,
+  Layers,
+  ShoppingCart,
+  AlertTriangle,
   Search,
   Upload,
   Download,
   Plus,
   Minus,
   Edit2,
-  AlertTriangle,
-  CheckCircle2,
-  Warehouse,
+  Trash2,
+  Eye,
   FileSpreadsheet,
-  X,
+  Warehouse,
+  ShieldCheck,
+  PackageCheck,
+  CheckCircle2,
+  RefreshCw,
 } from 'lucide-react';
 
 export const InventoryMaster: React.FC = () => {
   const {
     inventory,
+    reserveItems,
+    orderItems,
+    customers,
+    contracts,
+    quotations,
     updateInventoryItem,
+    deleteInventoryItem,
     quickAdjustStock,
+    updateReserveStatus,
+    updateOrderStatus,
+    receiveOrderToWarehouseAndReserve,
+    setPdfPreviewData,
     currentUser,
   } = useApp();
 
-  const [searchTerm, setSearchTerm] = useState('');
-  const [stockStatusFilter, setStockStatusFilter] = useState<'all' | 'available' | 'low' | 'out_of_stock'>('all');
+  // Navigation tab inside Inventory & Warehouse module
+  const [activeSubTab, setActiveSubTab] = useState<
+    'all_inventory' | 'holding_reserves' | 'contract_orders' | 'critical_alerts'
+  >('all_inventory');
 
+  // Search & Filter for All Inventory Tab
+  const [searchTerm, setSearchTerm] = useState('');
+  const [stockStatusFilter, setStockStatusFilter] = useState<'all' | 'available' | 'holding' | 'low' | 'out_of_stock'>('all');
+  const [locationFilter, setLocationFilter] = useState<string>('all');
+
+  // Modals state
+  const [isAddEditModalOpen, setIsAddEditModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<InventoryItem | null>(null);
+  const [selectedItemForHoldModal, setSelectedItemForHoldModal] = useState<InventoryItem | null>(null);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
-  const [modalTotalQty, setModalTotalQty] = useState<number>(0);
-  const [modalLocation, setModalLocation] = useState('');
+
+  // Dispatch & Receive Order modals
+  const [dispatchModalItem, setDispatchModalItem] = useState<ReserveItem | null>(null);
+  const [receiveModalOrder, setReceiveModalOrder] = useState<OrderItem | null>(null);
 
   const isManagerOrAdmin = currentUser.role === 'super_admin' || currentUser.role === 'manager_c1';
 
-  // Filtering
+  // Extract distinct warehouse locations
+  const locationList = Array.from(
+    new Set(inventory.map((i) => i.warehouseLocation || 'Kho Tổng TP.HCM').filter(Boolean))
+  );
+
+  // Filtered inventory list
   const displayedInventory = inventory.filter((item) => {
     const matchSearch =
       item.sku.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -46,62 +87,97 @@ export const InventoryMaster: React.FC = () => {
     let matchStock = true;
     if (stockStatusFilter === 'available') {
       matchStock = item.availableQuantity > 5;
+    } else if (stockStatusFilter === 'holding') {
+      matchStock = item.reservedQuantity > 0;
     } else if (stockStatusFilter === 'low') {
       matchStock = item.availableQuantity > 0 && item.availableQuantity <= 5;
     } else if (stockStatusFilter === 'out_of_stock') {
       matchStock = item.availableQuantity === 0;
     }
 
-    return matchSearch && matchStock;
+    const matchLocation =
+      locationFilter === 'all' || (item.warehouseLocation || 'Kho Tổng TP.HCM') === locationFilter;
+
+    return matchSearch && matchStock && matchLocation;
   });
 
-  const handleOpenEdit = (item: InventoryItem) => {
-    setEditingItem(item);
-    setModalTotalQty(item.totalQuantity);
-    setModalLocation(item.warehouseLocation || 'Kho Tổng');
-  };
-
-  const handleSaveModal = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!editingItem) return;
-
-    updateInventoryItem({
-      ...editingItem,
-      totalQuantity: Number(modalTotalQty) || 0,
-      warehouseLocation: modalLocation,
-    });
-
+  // Action handlers
+  const handleOpenAddModal = () => {
     setEditingItem(null);
+    setIsAddEditModalOpen(true);
   };
+
+  const handleOpenEditModal = (item: InventoryItem) => {
+    setEditingItem(item);
+    setIsAddEditModalOpen(true);
+  };
+
+  const handleDeleteItem = (sku: string, name: string, reservedQty: number) => {
+    if (reservedQty > 0) {
+      alert(`Không thể xóa mặt hàng này vì đang có ${reservedQty} sản phẩm bị giữ cho hợp đồng!`);
+      return;
+    }
+    if (window.confirm(`Bạn có chắc chắn muốn xóa mã SKU ${sku} (${name}) khỏi danh mục kho?`)) {
+      deleteInventoryItem(sku);
+    }
+  };
+
+  const handleOpenContractPdf = (contractId: string) => {
+    const contract = contracts.find((c) => c.id === contractId);
+    if (contract) {
+      setPdfPreviewData({ type: 'contract', data: contract });
+    }
+  };
+
+  const handleConfirmDispatch = (
+    reserveId: string,
+    dispatchData: { receiverName: string; receiverPhone: string; notes: string; dispatchDate: string }
+  ) => {
+    updateReserveStatus(reserveId, 'dispatched');
+    setDispatchModalItem(null);
+  };
+
+  const handleConfirmReceiveOrder = (orderId: string, warehouseLocation: string) => {
+    receiveOrderToWarehouseAndReserve(orderId, warehouseLocation);
+    setReceiveModalOrder(null);
+  };
+
+  // Holding & Pending Order counts
+  const activeReservesCount = reserveItems.filter((r) => r.status === 'holding').length;
+  const activeOrdersCount = orderItems.filter((o) => o.status === 'pending_order' || o.status === 'ordered').length;
+  const criticalCount = inventory.filter((i) => i.availableQuantity <= 5).length;
 
   return (
     <div className="space-y-4">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-3.5 rounded-lg border border-slate-200 shadow-xs">
+      {/* Top Header */}
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 bg-white p-4 rounded-xl border border-slate-200 shadow-2xs">
         <div>
-          <h1 className="text-base sm:text-lg font-bold text-slate-900 flex items-center space-x-2">
-            <Boxes className="w-5 h-5 text-blue-600" />
-            <span>Quản Lý Bảng Dữ Liệu Tồn Kho (Inventory Master)</span>
+          <h1 className="text-lg font-bold text-slate-900 flex items-center space-x-2.5">
+            <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center text-white shadow-2xs">
+              <Warehouse className="w-4 h-4" />
+            </div>
+            <span>Trung Tâm Quản Lý Kho Hàng & Tồn Kho (Warehouse Center)</span>
           </h1>
-          <p className="text-xs text-slate-500">
-            Khóa giữ hàng tự động khi chốt hợp đồng. Tồn khả dụng = Tồn thực tế - Đang giữ hàng.
+          <p className="text-xs text-slate-500 mt-1">
+            Dashboard quản lý xuất nhập tồn, tra cứu hàng đang giữ theo Sale & Khách hàng, theo dõi đơn cần đặt theo hợp đồng ký kết.
           </p>
         </div>
 
-        {/* Actions (Cấp 1) */}
-        <div className="flex items-center space-x-1.5 self-start sm:self-auto">
+        {/* Global Warehouse Action Buttons */}
+        <div className="flex flex-wrap items-center gap-1.5 self-start lg:self-auto">
           <button
             onClick={downloadInventoryTemplateExcel}
-            className="px-2.5 py-1.5 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 rounded-md text-xs font-bold flex items-center space-x-1 shadow-2xs transition"
-            title="Tải file Excel mẫu tồn kho"
+            className="px-2.5 py-1.5 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 rounded-lg text-xs font-bold flex items-center space-x-1 shadow-2xs transition cursor-pointer"
+            title="Tải file mẫu nhập tồn kho Excel"
           >
             <Download className="w-3.5 h-3.5 text-slate-500" />
-            <span>Tải File Mẫu</span>
+            <span className="hidden sm:inline">File Mẫu</span>
           </button>
 
           <button
             onClick={() => exportInventoryToExcel(inventory)}
-            className="px-2.5 py-1.5 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 rounded-md text-xs font-bold flex items-center space-x-1 shadow-2xs transition"
+            className="px-2.5 py-1.5 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 rounded-lg text-xs font-bold flex items-center space-x-1 shadow-2xs transition cursor-pointer"
+            title="Xuất danh mục tồn kho Excel"
           >
             <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
             <span>Xuất Excel ({inventory.length})</span>
@@ -109,210 +185,368 @@ export const InventoryMaster: React.FC = () => {
 
           <button
             onClick={() => setIsImportModalOpen(true)}
-            className="px-2.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-xs font-bold flex items-center space-x-1 shadow-2xs transition"
-            title="Cấp 1 & Cấp 2 đều có quyền import tồn kho"
+            className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-900 text-white rounded-lg text-xs font-bold flex items-center space-x-1 shadow-2xs transition cursor-pointer"
+            title="Import tồn kho từ file Excel"
           >
             <Upload className="w-3.5 h-3.5" />
-            <span>Import Tồn Kho</span>
+            <span>Import Excel</span>
           </button>
+
+          {isManagerOrAdmin && (
+            <button
+              onClick={handleOpenAddModal}
+              className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold flex items-center space-x-1 shadow-2xs transition cursor-pointer"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>+ Thêm Mã Hàng</span>
+            </button>
+          )}
         </div>
       </div>
 
-      {/* Filter bar */}
-      <div className="bg-white p-3 rounded-lg border border-slate-200 shadow-xs flex flex-col md:flex-row items-center justify-between gap-2.5">
-        <div className="relative w-full md:w-80">
-          <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5" />
-          <input
-            type="text"
-            placeholder="Tìm theo mã SKU, tên hàng, vị trí kho..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full pl-8 pr-3 py-1.5 text-xs border border-slate-300 rounded-md focus:ring-1 focus:ring-blue-500 outline-hidden bg-slate-50/50"
-          />
-        </div>
+      {/* DASHBOARD KPI OVERVIEW STRIP */}
+      <WarehouseOverviewStats
+        inventory={inventory}
+        reserveItems={reserveItems}
+        orderItems={orderItems}
+        onSelectTab={(tabKey) => setActiveSubTab(tabKey)}
+      />
 
-        <div className="flex items-center space-x-2 w-full md:w-auto">
-          <select
-            value={stockStatusFilter}
-            onChange={(e) => setStockStatusFilter(e.target.value as any)}
-            className="px-2.5 py-1.5 text-xs border border-slate-300 rounded-md bg-white focus:ring-1 focus:ring-blue-500 outline-hidden font-medium text-slate-700"
+      {/* TABS NAVIGATION */}
+      <div className="bg-white rounded-xl border border-slate-200 p-1.5 flex flex-wrap items-center gap-1 shadow-2xs">
+        {/* Tab 1: All Inventory Master */}
+        <button
+          onClick={() => setActiveSubTab('all_inventory')}
+          className={`px-3.5 py-2 rounded-lg text-xs font-bold transition flex items-center space-x-2 cursor-pointer ${
+            activeSubTab === 'all_inventory'
+              ? 'bg-blue-600 text-white shadow-2xs'
+              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+          }`}
+        >
+          <Boxes className="w-4 h-4" />
+          <span>Danh Mục Tồn Kho ({inventory.length})</span>
+        </button>
+
+        {/* Tab 2: Holding Reserves (Who is holding what) */}
+        <button
+          onClick={() => setActiveSubTab('holding_reserves')}
+          className={`px-3.5 py-2 rounded-lg text-xs font-bold transition flex items-center space-x-2 cursor-pointer ${
+            activeSubTab === 'holding_reserves'
+              ? 'bg-amber-600 text-white shadow-2xs'
+              : 'text-slate-600 hover:text-slate-900 hover:bg-amber-50'
+          }`}
+        >
+          <Layers className="w-4 h-4" />
+          <span>Hàng Đang Giữ Cho Sale & Khách</span>
+          <span
+            className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono ${
+              activeSubTab === 'holding_reserves'
+                ? 'bg-amber-800 text-amber-100'
+                : 'bg-amber-100 text-amber-900 border border-amber-300'
+            }`}
           >
-            <option value="all">Tất cả tình trạng kho ({inventory.length})</option>
-            <option value="available">Tồn kho khả dụng dồi dào (&gt;5)</option>
-            <option value="low">Sắp hết hàng (1-5)</option>
-            <option value="out_of_stock">Hết hàng tồn (0)</option>
-          </select>
-        </div>
+            {activeReservesCount}
+          </span>
+        </button>
+
+        {/* Tab 3: Contract PO Orders */}
+        <button
+          onClick={() => setActiveSubTab('contract_orders')}
+          className={`px-3.5 py-2 rounded-lg text-xs font-bold transition flex items-center space-x-2 cursor-pointer ${
+            activeSubTab === 'contract_orders'
+              ? 'bg-indigo-600 text-white shadow-2xs'
+              : 'text-slate-600 hover:text-slate-900 hover:bg-indigo-50'
+          }`}
+        >
+          <ShoppingCart className="w-4 h-4" />
+          <span>Hàng Cần Đặt Theo HĐ Ký Khách</span>
+          <span
+            className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono ${
+              activeSubTab === 'contract_orders'
+                ? 'bg-indigo-800 text-indigo-100'
+                : 'bg-indigo-100 text-indigo-900 border border-indigo-300'
+            }`}
+          >
+            {activeOrdersCount}
+          </span>
+        </button>
+
+        {/* Tab 4: Critical Reorder Alerts */}
+        <button
+          onClick={() => setActiveSubTab('critical_alerts')}
+          className={`px-3.5 py-2 rounded-lg text-xs font-bold transition flex items-center space-x-2 cursor-pointer ${
+            activeSubTab === 'critical_alerts'
+              ? 'bg-rose-600 text-white shadow-2xs'
+              : 'text-slate-600 hover:text-slate-900 hover:bg-rose-50'
+          }`}
+        >
+          <AlertTriangle className="w-4 h-4" />
+          <span>Cảnh Báo Hết Hàng & Nhu Cầu BG</span>
+          {criticalCount > 0 && (
+            <span
+              className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono ${
+                activeSubTab === 'critical_alerts'
+                  ? 'bg-rose-800 text-rose-100'
+                  : 'bg-rose-100 text-rose-900 border border-rose-300'
+              }`}
+            >
+              {criticalCount}
+            </span>
+          )}
+        </button>
       </div>
 
-      {/* Inventory Table */}
-      <div className="bg-white rounded-lg border border-slate-200 overflow-hidden shadow-xs">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs">
-            <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-bold uppercase tracking-wider text-[11px]">
-              <tr>
-                <th className="px-3 py-2.5">Mã Hàng (SKU)</th>
-                <th className="px-3 py-2.5">Tên Hàng Hóa</th>
-                <th className="px-3 py-2.5 text-center">ĐVT</th>
-                <th className="px-3 py-2.5 text-center">Tồn Thực Tế</th>
-                <th className="px-3 py-2.5 text-center bg-amber-50/70 text-amber-900">Đang Giữ (Đã Chốt HĐ)</th>
-                <th className="px-3 py-2.5 text-center bg-emerald-50/70 text-emerald-900 font-bold">
-                  Tồn Khả Dụng Để Bán
-                </th>
-                <th className="px-3 py-2.5">Vị Trí Kho</th>
-                <th className="px-3 py-2.5">Cập Nhật</th>
-                {isManagerOrAdmin && <th className="px-3 py-2.5 text-center">Điều Chỉnh Kho</th>}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100 text-slate-700">
-              {displayedInventory.length === 0 ? (
-                <tr>
-                  <td colSpan={9} className="px-4 py-8 text-center text-slate-400">
-                    Không tìm thấy dữ liệu tồn kho nào phù hợp
-                  </td>
-                </tr>
-              ) : (
-                displayedInventory.map((item) => (
-                  <tr key={item.sku} className="hover:bg-slate-50 transition-colors">
-                    <td className="px-3 py-2 font-mono font-bold text-blue-700">{item.sku}</td>
-                    <td className="px-3 py-2 font-bold text-slate-900">{item.name}</td>
-                    <td className="px-3 py-2 text-center font-medium text-slate-600">{item.unit}</td>
-                    <td className="px-3 py-2 text-center font-bold text-slate-900 font-mono">
-                      {item.totalQuantity}
-                    </td>
-                    <td className="px-3 py-2 text-center font-bold text-amber-800 bg-amber-50/50 font-mono">
-                      {item.reservedQuantity}
-                    </td>
-                    <td className="px-3 py-2 text-center">
-                      <span
-                        className={`px-2 py-0.5 rounded font-bold text-xs inline-block font-mono ${
-                          item.availableQuantity === 0
-                            ? 'bg-rose-100 text-rose-800'
-                            : item.availableQuantity <= 5
-                            ? 'bg-amber-100 text-amber-800'
-                            : 'bg-emerald-100 text-emerald-800'
-                        }`}
-                      >
-                        {item.availableQuantity} {item.unit}
-                      </span>
-                    </td>
-                    <td className="px-3 py-2 text-slate-600 font-medium">
-                      {item.warehouseLocation || 'Kho Tổng'}
-                    </td>
-                    <td className="px-3 py-2 text-slate-500 text-[10px] whitespace-nowrap">{formatDate(item.updatedAt)}</td>
-                    {isManagerOrAdmin && (
-                      <td className="px-3 py-2 text-center">
-                        <div className="flex items-center justify-center space-x-1">
-                          <button
-                            onClick={() => quickAdjustStock(item.sku, -5)}
-                            className="px-1.5 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 text-[10px] font-bold"
-                            title="Trừ 5 tồn thực tế"
-                          >
-                            -5
-                          </button>
-                          <button
-                            onClick={() => quickAdjustStock(item.sku, 10)}
-                            className="px-1.5 py-0.5 rounded bg-blue-50 hover:bg-blue-100 text-blue-700 text-[10px] font-bold"
-                            title="Cộng 10 hàng nhập kho mới"
-                          >
-                            +10
-                          </button>
-                          <button
-                            onClick={() => handleOpenEdit(item)}
-                            className="p-1 text-slate-400 hover:text-blue-600 rounded hover:bg-slate-100"
-                            title="Sửa chi tiết"
-                          >
-                            <Edit2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      </td>
-                    )}
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {/* Edit Inventory Modal */}
-      {editingItem && (
-        <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-lg max-w-md w-full shadow-2xl border border-slate-200 overflow-hidden animate-in fade-in zoom-in-95 duration-150">
-            <div className="px-4 py-3 border-b border-slate-200 flex items-center justify-between bg-slate-50">
-              <div>
-                <h3 className="text-sm font-bold text-slate-900">Cập Nhật Tồn Kho</h3>
-                <p className="text-xs text-slate-500 font-mono font-bold text-blue-700">{editingItem.sku}</p>
-              </div>
-              <button onClick={() => setEditingItem(null)} className="text-slate-400 hover:text-slate-600">
-                <X className="w-4 h-4" />
-              </button>
+      {/* TAB CONTENT AREAS */}
+      {activeSubTab === 'all_inventory' && (
+        <div className="space-y-3">
+          {/* Search & Filter Bar */}
+          <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-2xs flex flex-col md:flex-row items-center justify-between gap-2.5">
+            <div className="relative w-full md:w-80">
+              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5" />
+              <input
+                type="text"
+                placeholder="Tìm theo mã SKU, tên sản phẩm, vị trí kho..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full pl-9 pr-3 py-1.5 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-hidden bg-slate-50/50"
+              />
             </div>
 
-            <form onSubmit={handleSaveModal} className="p-4 space-y-3 text-xs">
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Tên Hàng Hóa
-                </label>
-                <div className="font-bold text-slate-900 p-2 bg-slate-50 rounded border border-slate-200">
-                  {editingItem.name}
-                </div>
-              </div>
+            <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
+              <select
+                value={stockStatusFilter}
+                onChange={(e) => setStockStatusFilter(e.target.value as any)}
+                className="px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg bg-white focus:ring-2 focus:ring-blue-500 outline-hidden font-medium text-slate-700"
+              >
+                <option value="all">Tất cả tình trạng kho ({inventory.length})</option>
+                <option value="available">Tồn khả dụng dồi dào (&gt;5)</option>
+                <option value="holding">Đang có hợp đồng giữ</option>
+                <option value="low">Sắp hết hàng (1-5)</option>
+                <option value="out_of_stock">Hết hàng tồn (0)</option>
+              </select>
 
-              <div>
-                <label className="block text-xs font-bold text-slate-900 mb-1">
-                  Tồn Thực Tế Tại Kho ({editingItem.unit}) <span className="text-rose-500">*</span>
-                </label>
-                <input
-                  type="number"
-                  required
-                  min={editingItem.reservedQuantity}
-                  value={modalTotalQty}
-                  onChange={(e) => setModalTotalQty(Number(e.target.value))}
-                  className="w-full px-2.5 py-1.5 text-xs font-bold border border-slate-300 rounded"
-                />
-                <div className="text-[10px] text-slate-500 mt-0.5">
-                  Hiện đang có <strong>{editingItem.reservedQuantity}</strong> {editingItem.unit} được giữ bởi các hợp đồng đã chốt.
-                </div>
-              </div>
+              <select
+                value={locationFilter}
+                onChange={(e) => setLocationFilter(e.target.value)}
+                className="px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg bg-white focus:ring-2 focus:ring-blue-500 outline-hidden font-medium text-slate-700"
+              >
+                <option value="all">Tất cả vị trí kho ({locationList.length})</option>
+                {locationList.map((loc) => (
+                  <option key={loc} value={loc}>
+                    {loc}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Vị Trí / Kệ Kho
-                </label>
-                <input
-                  type="text"
-                  placeholder="VD: Kho Tổng TP.HCM (Kệ A1-03)"
-                  value={modalLocation}
-                  onChange={(e) => setModalLocation(e.target.value)}
-                  className="w-full px-2.5 py-1.5 border border-slate-300 rounded"
-                />
-              </div>
+          {/* Master Inventory Table */}
+          <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-2xs">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-bold uppercase tracking-wider text-[11px]">
+                  <tr>
+                    <th className="px-3.5 py-3">Mã Hàng (SKU)</th>
+                    <th className="px-3.5 py-3">Tên Hàng Hóa</th>
+                    <th className="px-3 py-3 text-center">ĐVT</th>
+                    <th className="px-3.5 py-3 text-center">Tồn Thực Tế</th>
+                    <th
+                      className="px-3.5 py-3 text-center bg-amber-50/90 text-amber-950 border-x border-amber-200 cursor-pointer"
+                      title="Bấm vào số lượng để xem chi tiết Sale nào đang giữ và giữ cho khách hàng nào"
+                    >
+                      <div className="flex items-center justify-center space-x-1">
+                        <span>Đang Giữ Cho HĐ</span>
+                        <Layers className="w-3.5 h-3.5 text-amber-600" />
+                      </div>
+                    </th>
+                    <th className="px-3.5 py-3 text-center bg-emerald-50/80 text-emerald-950 font-bold">
+                      Tồn Khả Dụng Để Bán
+                    </th>
+                    <th className="px-3.5 py-3">Vị Trí Kệ Lưu Kho</th>
+                    <th className="px-3.5 py-3 text-center">Cập Nhật</th>
+                    {isManagerOrAdmin && <th className="px-3.5 py-3 text-center">Kiểm Kê Nhanh & Thao Tác</th>}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 text-slate-700">
+                  {displayedInventory.length === 0 ? (
+                    <tr>
+                      <td colSpan={9} className="px-4 py-12 text-center text-slate-400">
+                        <div className="flex flex-col items-center justify-center space-y-2">
+                          <Boxes className="w-8 h-8 text-slate-300" />
+                          <p className="font-semibold text-sm">Không tìm thấy dữ liệu tồn kho nào phù hợp</p>
+                          <p className="text-xs text-slate-400">Thử thay đổi từ khóa tìm kiếm hoặc điều kiện lọc</p>
+                        </div>
+                      </td>
+                    </tr>
+                  ) : (
+                    displayedInventory.map((item) => (
+                      <tr key={item.sku} className="hover:bg-slate-50/80 transition-colors">
+                        <td className="px-3.5 py-2.5 font-mono font-bold text-blue-700">{item.sku}</td>
+                        <td className="px-3.5 py-2.5 font-bold text-slate-900 line-clamp-1" title={item.name}>
+                          {item.name}
+                        </td>
+                        <td className="px-3 py-2.5 text-center font-medium text-slate-600">{item.unit}</td>
+                        <td className="px-3.5 py-2.5 text-center font-bold text-slate-900 font-mono">
+                          {item.totalQuantity}
+                        </td>
 
-              <div className="pt-2.5 border-t border-slate-200 flex items-center justify-end space-x-2">
-                <button
-                  type="button"
-                  onClick={() => setEditingItem(null)}
-                  className="px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded"
-                >
-                  Hủy
-                </button>
-                <button
-                  type="submit"
-                  className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded shadow-2xs transition"
-                >
-                  Lưu Tồn Kho
-                </button>
-              </div>
-            </form>
+                        {/* RESERVED COLUMN: Clickable to view details */}
+                        <td className="px-3.5 py-2.5 text-center bg-amber-50/40 border-x border-amber-100">
+                          <button
+                            type="button"
+                            onClick={() => setSelectedItemForHoldModal(item)}
+                            title={`Bấm để xem danh sách Sale đang giữ ${item.reservedQuantity} ${item.unit} cho khách hàng nào`}
+                            className={`px-2.5 py-1 rounded-md font-mono font-bold text-xs transition inline-flex items-center space-x-1 cursor-pointer group ${
+                              item.reservedQuantity > 0
+                                ? 'bg-amber-100 hover:bg-amber-200 text-amber-950 border border-amber-300 shadow-2xs'
+                                : 'text-slate-400 hover:text-slate-700 hover:bg-slate-100'
+                            }`}
+                          >
+                            {item.reservedQuantity > 0 && (
+                              <Layers className="w-3 h-3 text-amber-600 group-hover:scale-110 transition-transform shrink-0" />
+                            )}
+                            <span>{item.reservedQuantity}</span>
+                            {item.reservedQuantity > 0 && (
+                              <Eye className="w-2.5 h-2.5 text-amber-600 opacity-0 group-hover:opacity-100 transition-opacity ml-0.5" />
+                            )}
+                          </button>
+                        </td>
+
+                        {/* AVAILABLE COLUMN */}
+                        <td className="px-3.5 py-2.5 text-center bg-emerald-50/20">
+                          <span
+                            className={`px-2 py-0.5 rounded-md font-bold text-xs inline-block font-mono ${
+                              item.availableQuantity === 0
+                                ? 'bg-rose-100 text-rose-800 border border-rose-200'
+                                : item.availableQuantity <= 5
+                                ? 'bg-amber-100 text-amber-800 border border-amber-200'
+                                : 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                            }`}
+                          >
+                            {item.availableQuantity} {item.unit}
+                          </span>
+                        </td>
+
+                        {/* Location */}
+                        <td className="px-3.5 py-2.5 text-slate-700 font-medium">
+                          <span className="px-2 py-0.5 bg-slate-100 rounded text-[11px] font-semibold text-slate-800 border border-slate-200 inline-block">
+                            {item.warehouseLocation || 'Kho Tổng TP.HCM'}
+                          </span>
+                        </td>
+
+                        {/* Updated At */}
+                        <td className="px-3.5 py-2.5 text-slate-500 text-[11px] text-center whitespace-nowrap">
+                          {formatDate(item.updatedAt)}
+                        </td>
+
+                        {/* Management Actions */}
+                        {isManagerOrAdmin && (
+                          <td className="px-3.5 py-2.5 text-center">
+                            <div className="flex items-center justify-center space-x-1">
+                              <button
+                                onClick={() => quickAdjustStock(item.sku, -5)}
+                                className="px-1.5 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 text-[10px] font-bold cursor-pointer"
+                                title="Trừ 5 tồn thực tế"
+                              >
+                                -5
+                              </button>
+                              <button
+                                onClick={() => quickAdjustStock(item.sku, 10)}
+                                className="px-1.5 py-0.5 rounded bg-blue-50 hover:bg-blue-100 text-blue-700 text-[10px] font-bold cursor-pointer"
+                                title="Cộng 10 hàng nhập kho mới"
+                              >
+                                +10
+                              </button>
+                              <button
+                                onClick={() => handleOpenEditModal(item)}
+                                className="p-1 text-slate-400 hover:text-blue-600 rounded hover:bg-slate-100 cursor-pointer"
+                                title="Chỉnh sửa thông tin tồn kho"
+                              >
+                                <Edit2 className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                onClick={() => handleDeleteItem(item.sku, item.name, item.reservedQuantity)}
+                                className="p-1 text-slate-400 hover:text-rose-600 rounded hover:bg-slate-100 cursor-pointer"
+                                title="Xóa mã SKU khỏi kho"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </td>
+                        )}
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       )}
 
-      {/* Import Inventory Modal */}
+      {/* TAB 2: HOLDING RESERVES */}
+      {activeSubTab === 'holding_reserves' && (
+        <ReservedItemsWarehouseTable
+          reserveItems={reserveItems}
+          customers={customers}
+          contracts={contracts}
+          onOpenDispatchModal={(resItem) => setDispatchModalItem(resItem)}
+          onOpenContractPdf={handleOpenContractPdf}
+        />
+      )}
+
+      {/* TAB 3: CONTRACT ORDERS NEEDED */}
+      {activeSubTab === 'contract_orders' && (
+        <ContractOrdersWarehouseTable
+          orderItems={orderItems}
+          contracts={contracts}
+          customers={customers}
+          onOpenReceiveModal={(order) => setReceiveModalOrder(order)}
+          onUpdateOrderStatus={updateOrderStatus}
+          onOpenContractPdf={handleOpenContractPdf}
+        />
+      )}
+
+      {/* TAB 4: CRITICAL REORDER ALERTS */}
+      {activeSubTab === 'critical_alerts' && (
+        <ReorderAlertsTable
+          inventory={inventory}
+          quotations={quotations}
+          onOpenEditItem={handleOpenEditModal}
+          onQuickAdjust={quickAdjustStock}
+        />
+      )}
+
+      {/* MODALS */}
+      <AddEditInventoryModal
+        isOpen={isAddEditModalOpen}
+        itemToEdit={editingItem}
+        onClose={() => setIsAddEditModalOpen(false)}
+      />
+
       <InventoryImportModal
         isOpen={isImportModalOpen}
         onClose={() => setIsImportModalOpen(false)}
+      />
+
+      <ItemReservationsModal
+        item={selectedItemForHoldModal}
+        onClose={() => setSelectedItemForHoldModal(null)}
+      />
+
+      <DispatchConfirmModal
+        item={dispatchModalItem}
+        customer={customers.find((c) => c.id === dispatchModalItem?.customerId)}
+        contract={contracts.find((c) => c.id === dispatchModalItem?.contractId)}
+        onClose={() => setDispatchModalItem(null)}
+        onConfirm={handleConfirmDispatch}
+      />
+
+      <ReceiveOrderModal
+        order={receiveModalOrder}
+        contract={contracts.find((c) => c.id === receiveModalOrder?.contractId)}
+        onClose={() => setReceiveModalOrder(null)}
+        onConfirm={handleConfirmReceiveOrder}
       />
     </div>
   );

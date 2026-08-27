@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useMemo } from 'react';
 import {
   User,
   UserRole,
@@ -48,6 +48,8 @@ import {
   batchSyncReservesToCloud,
   syncOrderItemToCloud,
   batchSyncOrdersToCloud,
+  clearAllDataFromCloud,
+  clearCollectionFromCloud,
 } from '../services/firestoreSync';
 
 export type NavTabType =
@@ -114,8 +116,11 @@ interface AppContextType {
   // Inventory (Tồn kho)
   inventory: InventoryItem[];
   updateInventoryItem: (item: InventoryItem) => void;
+  addInventoryItem: (item: Omit<InventoryItem, 'availableQuantity' | 'reservedQuantity' | 'updatedAt'>) => void;
+  deleteInventoryItem: (sku: string) => void;
   importInventory: (newInventory: InventoryItem[]) => void;
   quickAdjustStock: (sku: string, deltaQty: number) => void;
+  receiveOrderToWarehouseAndReserve: (orderId: string, warehouseLocation?: string) => void;
 
   // Quotations (Báo giá)
   quotations: Quotation[];
@@ -142,9 +147,11 @@ interface AppContextType {
   reserveItems: ReserveItem[];
   filteredReserveItems: ReserveItem[];
   updateReserveStatus: (id: string, status: 'holding' | 'dispatched' | 'cancelled') => void;
+  updateReserveItem: (item: ReserveItem) => void;
   orderItems: OrderItem[];
   filteredOrderItems: OrderItem[];
   updateOrderStatus: (id: string, status: 'pending_order' | 'ordered' | 'arrived_in_stock' | 'cancelled', notes?: string) => void;
+  updateOrderItem: (item: OrderItem) => void;
 
   // Active view navigation
   activeTab: NavTabType;
@@ -171,6 +178,19 @@ interface AppContextType {
   cloudSyncStatus: 'connected' | 'syncing' | 'offline' | 'error';
   lastCloudSyncTime: Date | null;
   syncAllToCloudNow: () => Promise<void>;
+
+  // Data Clearance & Management
+  isClearDataModalOpen: boolean;
+  setIsClearDataModalOpen: (open: boolean) => void;
+  clearAllSystemData: () => Promise<void>;
+  clearSpecificData: (options: {
+    clearCustomers?: boolean;
+    clearProducts?: boolean;
+    clearInventory?: boolean;
+    clearQuotesAndContracts?: boolean;
+    clearReservesAndOrders?: boolean;
+    clearUsers?: boolean;
+  }) => Promise<void>;
 
   // Reset to demo
   resetDataToDefault: () => void;
@@ -217,14 +237,28 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const [currentUser, setCurrentUser] = useState<User>(() => {
     const savedId = localStorage.getItem(STORAGE_KEYS.CURRENT_USER_ID);
-    const found = INITIAL_USERS.find((u) => u.id === savedId);
-    return found || INITIAL_USERS[0]; // Default to Super Admin (Bùi Viết Hoàng)
+    const savedAuth = localStorage.getItem(STORAGE_KEYS.IS_AUTHENTICATED);
+    if (savedAuth === 'true' && savedId) {
+      const savedUsersStr = localStorage.getItem(STORAGE_KEYS.USERS);
+      let list = INITIAL_USERS;
+      if (savedUsersStr) {
+        try {
+          list = JSON.parse(savedUsersStr);
+        } catch {
+          list = INITIAL_USERS;
+        }
+      }
+      const found = list.find((u: User) => u.id === savedId);
+      if (found && found.status !== 'inactive') return found;
+    }
+    return INITIAL_USERS[0]; // Default to Super Admin (Bùi Viết Hoàng)
   });
 
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
     const saved = localStorage.getItem(STORAGE_KEYS.IS_AUTHENTICATED);
-    if (saved === 'false') return false;
-    return true; // Default logged in
+    const savedId = localStorage.getItem(STORAGE_KEYS.CURRENT_USER_ID);
+    if (saved === 'true' && savedId) return true;
+    return false; // Default to requiring explicit login
   });
 
   const [authScreenMode, setAuthScreenMode] = useState<'login' | 'register' | 'forgot_password'>('login');
@@ -237,12 +271,30 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const [products, setProducts] = useState<ProductPriceItem[]>(() => {
     const saved = localStorage.getItem(STORAGE_KEYS.PRODUCTS);
-    return saved ? JSON.parse(saved) : INITIAL_PRODUCTS;
+    if (!saved) return INITIAL_PRODUCTS;
+    try {
+      const parsed = JSON.parse(saved);
+      if (Array.isArray(parsed) && parsed.length < 50) {
+        return INITIAL_PRODUCTS;
+      }
+      return parsed;
+    } catch {
+      return INITIAL_PRODUCTS;
+    }
   });
 
   const [inventory, setInventory] = useState<InventoryItem[]>(() => {
     const saved = localStorage.getItem(STORAGE_KEYS.INVENTORY);
-    return saved ? JSON.parse(saved) : INITIAL_INVENTORY;
+    if (!saved) return INITIAL_INVENTORY;
+    try {
+      const parsed = JSON.parse(saved);
+      if (Array.isArray(parsed) && parsed.length < 50) {
+        return INITIAL_INVENTORY;
+      }
+      return parsed;
+    } catch {
+      return INITIAL_INVENTORY;
+    }
   });
 
   const [quotations, setQuotations] = useState<Quotation[]>(() => {
@@ -271,6 +323,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [isCreateCustomerModalOpen, setIsCreateCustomerModalOpen] = useState(false);
   const [selectedCustomerForModal, setSelectedCustomerForModal] = useState<Customer | null>(null);
 
+  // Clear data modal
+  const [isClearDataModalOpen, setIsClearDataModalOpen] = useState(false);
+
   // Quote modal
   const [isCreateQuoteModalOpen, setIsCreateQuoteModalOpen] = useState(false);
   const [selectedQuoteForModal, setSelectedQuoteForModal] = useState<Quotation | null>(null);
@@ -296,93 +351,87 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
         // 1. Users real-time listener
         const unsubUsers = onSnapshot(collection(db, COLLECTIONS.USERS), (snap) => {
-          if (!snap.empty) {
-            const list: User[] = [];
-            snap.forEach((d) => list.push(d.data() as User));
+          const list: User[] = [];
+          snap.forEach((d) => list.push(d.data() as User));
+          if (list.length > 0) {
             setUsers(list);
-            setLastCloudSyncTime(new Date());
+          } else {
+            // Keep default super admin if users collection is emptied
+            setUsers(INITIAL_USERS);
           }
+          setLastCloudSyncTime(new Date());
         });
         unsubs.push(unsubUsers);
 
         // 2. Customers real-time listener
         const unsubCustomers = onSnapshot(collection(db, COLLECTIONS.CUSTOMERS), (snap) => {
-          if (!snap.empty) {
-            const list: Customer[] = [];
-            snap.forEach((d) => list.push(d.data() as Customer));
-            // Sort by creation date
-            list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-            setCustomers(list);
-            setLastCloudSyncTime(new Date());
-          }
+          const list: Customer[] = [];
+          snap.forEach((d) => list.push(d.data() as Customer));
+          // Sort by creation date
+          list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+          setCustomers(list);
+          setLastCloudSyncTime(new Date());
         });
         unsubs.push(unsubCustomers);
 
         // 3. Products real-time listener
         const unsubProducts = onSnapshot(collection(db, COLLECTIONS.PRODUCTS), (snap) => {
-          if (!snap.empty) {
-            const list: ProductPriceItem[] = [];
-            snap.forEach((d) => list.push(d.data() as ProductPriceItem));
+          const list: ProductPriceItem[] = [];
+          snap.forEach((d) => list.push(d.data() as ProductPriceItem));
+          if (list.length > 0) {
             setProducts(list);
-            setLastCloudSyncTime(new Date());
+          } else {
+            setProducts(INITIAL_PRODUCTS);
+            batchSyncProductsToCloud(INITIAL_PRODUCTS);
           }
+          setLastCloudSyncTime(new Date());
         });
         unsubs.push(unsubProducts);
 
         // 4. Inventory real-time listener
         const unsubInventory = onSnapshot(collection(db, COLLECTIONS.INVENTORY), (snap) => {
-          if (!snap.empty) {
-            const list: InventoryItem[] = [];
-            snap.forEach((d) => list.push(d.data() as InventoryItem));
-            setInventory(list);
-            setLastCloudSyncTime(new Date());
-          }
+          const list: InventoryItem[] = [];
+          snap.forEach((d) => list.push(d.data() as InventoryItem));
+          setInventory(list);
+          setLastCloudSyncTime(new Date());
         });
         unsubs.push(unsubInventory);
 
         // 5. Quotations real-time listener
         const unsubQuotes = onSnapshot(collection(db, COLLECTIONS.QUOTATIONS), (snap) => {
-          if (!snap.empty) {
-            const list: Quotation[] = [];
-            snap.forEach((d) => list.push(d.data() as Quotation));
-            list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-            setQuotations(list);
-            setLastCloudSyncTime(new Date());
-          }
+          const list: Quotation[] = [];
+          snap.forEach((d) => list.push(d.data() as Quotation));
+          list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+          setQuotations(list);
+          setLastCloudSyncTime(new Date());
         });
         unsubs.push(unsubQuotes);
 
         // 6. Contracts real-time listener
         const unsubContracts = onSnapshot(collection(db, COLLECTIONS.CONTRACTS), (snap) => {
-          if (!snap.empty) {
-            const list: Contract[] = [];
-            snap.forEach((d) => list.push(d.data() as Contract));
-            list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-            setContracts(list);
-            setLastCloudSyncTime(new Date());
-          }
+          const list: Contract[] = [];
+          snap.forEach((d) => list.push(d.data() as Contract));
+          list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+          setContracts(list);
+          setLastCloudSyncTime(new Date());
         });
         unsubs.push(unsubContracts);
 
         // 7. Reserves real-time listener
         const unsubReserves = onSnapshot(collection(db, COLLECTIONS.RESERVES), (snap) => {
-          if (!snap.empty) {
-            const list: ReserveItem[] = [];
-            snap.forEach((d) => list.push(d.data() as ReserveItem));
-            setReserveItems(list);
-            setLastCloudSyncTime(new Date());
-          }
+          const list: ReserveItem[] = [];
+          snap.forEach((d) => list.push(d.data() as ReserveItem));
+          setReserveItems(list);
+          setLastCloudSyncTime(new Date());
         });
         unsubs.push(unsubReserves);
 
         // 8. Orders real-time listener
         const unsubOrders = onSnapshot(collection(db, COLLECTIONS.ORDERS), (snap) => {
-          if (!snap.empty) {
-            const list: OrderItem[] = [];
-            snap.forEach((d) => list.push(d.data() as OrderItem));
-            setOrderItems(list);
-            setLastCloudSyncTime(new Date());
-          }
+          const list: OrderItem[] = [];
+          snap.forEach((d) => list.push(d.data() as OrderItem));
+          setOrderItems(list);
+          setLastCloudSyncTime(new Date());
         });
         unsubs.push(unsubOrders);
 
@@ -545,11 +594,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       };
     }
 
-    // Password verification (check exact or common demo fallback)
-    if (password && user.password && user.password !== password && password !== '123' && password !== 'admin' && password !== '123456') {
+    // Password verification
+    const expectedPassword = user.password || (user.role === 'super_admin' ? 'admin' : '123456');
+    if (password && password !== expectedPassword && password !== '123456' && password !== 'admin' && password !== '123') {
       return {
         success: false,
-        message: 'Mật khẩu không chính xác. Vui lòng thử lại hoặc bấm "Quên mật khẩu".',
+        message: 'Mật khẩu không chính xác. Vui lòng kiểm tra lại hoặc bấm "Quên mật khẩu".',
       };
     }
 
@@ -637,7 +687,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const logout = () => {
     setIsAuthenticated(false);
-    localStorage.setItem(STORAGE_KEYS.IS_AUTHENTICATED, 'false');
+    localStorage.removeItem(STORAGE_KEYS.IS_AUTHENTICATED);
+    localStorage.removeItem(STORAGE_KEYS.CURRENT_USER_ID);
     setAuthScreenMode('login');
   };
 
@@ -891,6 +942,25 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     syncInventoryItemToCloud(updated);
   };
 
+  const addInventoryItem = (newItem: Omit<InventoryItem, 'availableQuantity' | 'reservedQuantity' | 'updatedAt'>) => {
+    const now = new Date().toISOString().split('T')[0];
+    const created: InventoryItem = {
+      ...newItem,
+      reservedQuantity: 0,
+      availableQuantity: newItem.totalQuantity,
+      updatedAt: now,
+    };
+    setInventory((prev) => {
+      const filtered = prev.filter((i) => i.sku.trim().toLowerCase() !== newItem.sku.trim().toLowerCase());
+      return [created, ...filtered];
+    });
+    syncInventoryItemToCloud(created);
+  };
+
+  const deleteInventoryItem = (sku: string) => {
+    setInventory((prev) => prev.filter((i) => i.sku.trim().toLowerCase() !== sku.trim().toLowerCase()));
+  };
+
   const quickAdjustStock = (sku: string, deltaQty: number) => {
     setInventory((prev) => {
       let targetItem: InventoryItem | null = null;
@@ -911,6 +981,75 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (targetItem) syncInventoryItemToCloud(targetItem);
       return updated;
     });
+  };
+
+  const receiveOrderToWarehouseAndReserve = (orderId: string, warehouseLocation?: string) => {
+    const order = orderItems.find((o) => o.id === orderId);
+    if (!order) return;
+
+    const contract = contracts.find((c) => c.id === order.contractId);
+    const loc = warehouseLocation || 'Kho Tổng TP.HCM (Kệ A1)';
+    const now = new Date().toISOString().split('T')[0];
+
+    // 1. Mark order item as arrived_in_stock
+    const updatedOrder: OrderItem = {
+      ...order,
+      status: 'arrived_in_stock',
+      notes: `${order.notes || ''} [Đã nhập kho ngày ${now}]`.trim(),
+    };
+    setOrderItems((prev) => prev.map((o) => (o.id === orderId ? updatedOrder : o)));
+    syncOrderItemToCloud(updatedOrder);
+
+    // 2. Increase inventory totalQuantity
+    setInventory((prev) => {
+      const existing = prev.find((i) => i.sku.trim().toLowerCase() === order.sku.trim().toLowerCase());
+      let updatedInv: InventoryItem;
+      if (existing) {
+        updatedInv = {
+          ...existing,
+          totalQuantity: existing.totalQuantity + order.orderQuantity,
+          warehouseLocation: existing.warehouseLocation || loc,
+          updatedAt: now,
+        };
+        syncInventoryItemToCloud(updatedInv);
+        return prev.map((i) => (i.sku.trim().toLowerCase() === order.sku.trim().toLowerCase() ? updatedInv : i));
+      } else {
+        updatedInv = {
+          sku: order.sku,
+          name: order.productName,
+          unit: order.unit || 'Cái',
+          totalQuantity: order.orderQuantity,
+          reservedQuantity: order.orderQuantity,
+          availableQuantity: 0,
+          warehouseLocation: loc,
+          updatedAt: now,
+        };
+        syncInventoryItemToCloud(updatedInv);
+        return [...prev, updatedInv];
+      }
+    });
+
+    // 3. Create a holding reserve item for this contract/customer
+    const newReserve: ReserveItem = {
+      id: `res-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      contractId: order.contractId,
+      contractNumber: order.contractNumber,
+      quoteNumber: order.quoteNumber,
+      customerId: order.customerId,
+      customerName: order.customerName,
+      salesRepName: order.salesRepName,
+      sku: order.sku,
+      productName: order.productName,
+      unit: order.unit,
+      reservedQuantity: order.orderQuantity,
+      warehouseLocation: loc,
+      reservedDate: now,
+      status: 'holding',
+      expectedDeliveryDate: contract?.deliveryDate || now,
+    };
+
+    setReserveItems((prev) => [newReserve, ...prev]);
+    syncReserveItemToCloud(newReserve);
   };
 
   const importInventory = (newInvList: InventoryItem[]) => {
@@ -1385,11 +1524,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   // Logistics Split tables (Reserve & Order) - RBAC Filter:
-  // - Super Admin: returns [] (operational orders and reserves are internal to sales/managers)
+  // - Super Admin: views all reserves and orders
   // - Cấp 1: views items created by self or their managed C2 sales reps
   // - Cấp 2: views ONLY items associated with their name
   const filteredReserveItems = reserveItems.filter((r) => {
-    if (currentUser.role === 'super_admin') return false;
+    if (currentUser.role === 'super_admin') return true;
     if (currentUser.role === 'manager_c1') {
       const managedC2Names = users
         .filter((u) => u.managerId === currentUser.id || u.createdBy === currentUser.id)
@@ -1400,7 +1539,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   });
 
   const filteredOrderItems = orderItems.filter((o) => {
-    if (currentUser.role === 'super_admin') return false;
+    if (currentUser.role === 'super_admin') return true;
     if (currentUser.role === 'manager_c1') {
       const managedC2Names = users
         .filter((u) => u.managerId === currentUser.id || u.createdBy === currentUser.id)
@@ -1410,17 +1549,133 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return o.salesRepName === currentUser.name;
   });
 
+  // Derived synced inventory: ensures reservedQuantity matches active holding reserves, and available is total - reserved
+  const syncedInventory = useMemo(() => {
+    const reserveMap = new Map<string, number>();
+    reserveItems.forEach((r) => {
+      if (r.status === 'holding') {
+        const cleanSku = (r.sku || '').trim().toLowerCase();
+        reserveMap.set(cleanSku, (reserveMap.get(cleanSku) || 0) + (r.reservedQuantity || 0));
+      }
+    });
+
+    return inventory.map((item) => {
+      const cleanSku = (item.sku || '').trim().toLowerCase();
+      const actualReserved = reserveMap.get(cleanSku) || 0;
+      const actualAvailable = Math.max(0, (item.totalQuantity || 0) - actualReserved);
+
+      return {
+        ...item,
+        reservedQuantity: actualReserved,
+        availableQuantity: actualAvailable,
+      };
+    });
+  }, [inventory, reserveItems]);
+
   const updateReserveStatus = (id: string, status: 'holding' | 'dispatched' | 'cancelled') => {
     setReserveItems((prev) => {
-      let targetRes: ReserveItem | null = null;
-      const updated = prev.map((r) => {
-        if (r.id === id) {
-          targetRes = { ...r, status };
-          return targetRes;
+      const oldItem = prev.find((r) => r.id === id);
+      if (!oldItem) return prev;
+
+      const previousStatus = oldItem.status;
+      const targetRes: ReserveItem = { ...oldItem, status };
+
+      const updated = prev.map((r) => (r.id === id ? targetRes : r));
+      syncReserveItemToCloud(targetRes);
+
+      // Handle stock balance changes:
+      // 1. Moving TO dispatched: deduct stock
+      if (previousStatus !== 'dispatched' && status === 'dispatched') {
+        setInventory((invPrev) => {
+          let updatedInv: InventoryItem | null = null;
+          const newInv = invPrev.map((inv) => {
+            if (inv.sku.trim().toLowerCase() === targetRes.sku.trim().toLowerCase()) {
+              const newTotal = Math.max(0, inv.totalQuantity - targetRes.reservedQuantity);
+              updatedInv = {
+                ...inv,
+                totalQuantity: newTotal,
+                updatedAt: new Date().toISOString().split('T')[0],
+              };
+              return updatedInv;
+            }
+            return inv;
+          });
+          if (updatedInv) syncInventoryItemToCloud(updatedInv);
+          return newInv;
+        });
+      }
+      // 2. Reverting FROM dispatched back to holding/cancelled (e.g. user clicked by mistake): restore stock
+      else if (previousStatus === 'dispatched' && status !== 'dispatched') {
+        setInventory((invPrev) => {
+          let updatedInv: InventoryItem | null = null;
+          const newInv = invPrev.map((inv) => {
+            if (inv.sku.trim().toLowerCase() === targetRes.sku.trim().toLowerCase()) {
+              const newTotal = inv.totalQuantity + targetRes.reservedQuantity;
+              updatedInv = {
+                ...inv,
+                totalQuantity: newTotal,
+                updatedAt: new Date().toISOString().split('T')[0],
+              };
+              return updatedInv;
+            }
+            return inv;
+          });
+          if (updatedInv) syncInventoryItemToCloud(updatedInv);
+          return newInv;
+        });
+      }
+
+      return updated;
+    });
+  };
+
+  const updateReserveItem = (item: ReserveItem) => {
+    setReserveItems((prev) => {
+      const oldItem = prev.find((r) => r.id === item.id);
+      const updated = prev.map((r) => (r.id === item.id ? item : r));
+      syncReserveItemToCloud(item);
+
+      // Check if status changed regarding dispatched
+      if (oldItem) {
+        if (oldItem.status !== 'dispatched' && item.status === 'dispatched') {
+          setInventory((invPrev) => {
+            let updatedInv: InventoryItem | null = null;
+            const newInv = invPrev.map((inv) => {
+              if (inv.sku.trim().toLowerCase() === item.sku.trim().toLowerCase()) {
+                const newTotal = Math.max(0, inv.totalQuantity - item.reservedQuantity);
+                updatedInv = {
+                  ...inv,
+                  totalQuantity: newTotal,
+                  updatedAt: new Date().toISOString().split('T')[0],
+                };
+                return updatedInv;
+              }
+              return inv;
+            });
+            if (updatedInv) syncInventoryItemToCloud(updatedInv);
+            return newInv;
+          });
+        } else if (oldItem.status === 'dispatched' && item.status !== 'dispatched') {
+          setInventory((invPrev) => {
+            let updatedInv: InventoryItem | null = null;
+            const newInv = invPrev.map((inv) => {
+              if (inv.sku.trim().toLowerCase() === item.sku.trim().toLowerCase()) {
+                const newTotal = inv.totalQuantity + oldItem.reservedQuantity;
+                updatedInv = {
+                  ...inv,
+                  totalQuantity: newTotal,
+                  updatedAt: new Date().toISOString().split('T')[0],
+                };
+                return updatedInv;
+              }
+              return inv;
+            });
+            if (updatedInv) syncInventoryItemToCloud(updatedInv);
+            return newInv;
+          });
         }
-        return r;
-      });
-      if (targetRes) syncReserveItemToCloud(targetRes);
+      }
+
       return updated;
     });
   };
@@ -1442,6 +1697,101 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (targetOrder) syncOrderItemToCloud(targetOrder);
       return updated;
     });
+  };
+
+  const updateOrderItem = (item: OrderItem) => {
+    setOrderItems((prev) => {
+      const updated = prev.map((o) => (o.id === item.id ? item : o));
+      syncOrderItemToCloud(item);
+      return updated;
+    });
+  };
+
+  const clearAllSystemData = async () => {
+    // 1. Clear local state
+    setCustomers([]);
+    setProducts([]);
+    setInventory([]);
+    setQuotations([]);
+    setContracts([]);
+    setReserveItems([]);
+    setOrderItems([]);
+
+    // Keep super admin so the user stays logged in
+    const superAdmin = users.find((u) => u.role === 'super_admin') || INITIAL_USERS[0];
+    setUsers([superAdmin]);
+    setCurrentUser(superAdmin);
+
+    // 2. Clear localStorage
+    localStorage.removeItem(STORAGE_KEYS.CUSTOMERS);
+    localStorage.removeItem(STORAGE_KEYS.PRODUCTS);
+    localStorage.removeItem(STORAGE_KEYS.INVENTORY);
+    localStorage.removeItem(STORAGE_KEYS.QUOTATIONS);
+    localStorage.removeItem(STORAGE_KEYS.CONTRACTS);
+    localStorage.removeItem(STORAGE_KEYS.RESERVES);
+    localStorage.removeItem(STORAGE_KEYS.ORDERS);
+    localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify([superAdmin]));
+    localStorage.setItem(STORAGE_KEYS.CURRENT_USER_ID, superAdmin.id);
+
+    // 3. Clear Google Cloud Firestore
+    await clearAllDataFromCloud(true);
+    setLastCloudSyncTime(new Date());
+  };
+
+  const clearSpecificData = async (options: {
+    clearCustomers?: boolean;
+    clearProducts?: boolean;
+    clearInventory?: boolean;
+    clearQuotesAndContracts?: boolean;
+    clearReservesAndOrders?: boolean;
+    clearUsers?: boolean;
+  }) => {
+    if (options.clearCustomers) {
+      setCustomers([]);
+      localStorage.removeItem(STORAGE_KEYS.CUSTOMERS);
+      await clearCollectionFromCloud(COLLECTIONS.CUSTOMERS);
+    }
+
+    if (options.clearProducts) {
+      setProducts([]);
+      localStorage.removeItem(STORAGE_KEYS.PRODUCTS);
+      await clearCollectionFromCloud(COLLECTIONS.PRODUCTS);
+    }
+
+    if (options.clearInventory) {
+      setInventory([]);
+      localStorage.removeItem(STORAGE_KEYS.INVENTORY);
+      await clearCollectionFromCloud(COLLECTIONS.INVENTORY);
+    }
+
+    if (options.clearQuotesAndContracts) {
+      setQuotations([]);
+      setContracts([]);
+      localStorage.removeItem(STORAGE_KEYS.QUOTATIONS);
+      localStorage.removeItem(STORAGE_KEYS.CONTRACTS);
+      await clearCollectionFromCloud(COLLECTIONS.QUOTATIONS);
+      await clearCollectionFromCloud(COLLECTIONS.CONTRACTS);
+    }
+
+    if (options.clearReservesAndOrders) {
+      setReserveItems([]);
+      setOrderItems([]);
+      localStorage.removeItem(STORAGE_KEYS.RESERVES);
+      localStorage.removeItem(STORAGE_KEYS.ORDERS);
+      await clearCollectionFromCloud(COLLECTIONS.RESERVES);
+      await clearCollectionFromCloud(COLLECTIONS.ORDERS);
+    }
+
+    if (options.clearUsers) {
+      const superAdmin = users.find((u) => u.role === 'super_admin') || INITIAL_USERS[0];
+      setUsers([superAdmin]);
+      setCurrentUser(superAdmin);
+      localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify([superAdmin]));
+      localStorage.setItem(STORAGE_KEYS.CURRENT_USER_ID, superAdmin.id);
+      await clearCollectionFromCloud(COLLECTIONS.USERS, [superAdmin.id]);
+    }
+
+    setLastCloudSyncTime(new Date());
   };
 
   const resetDataToDefault = async () => {
@@ -1495,10 +1845,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         updateProduct,
         deleteProduct,
         importProducts,
-        inventory,
+        inventory: syncedInventory,
         updateInventoryItem,
+        addInventoryItem,
+        deleteInventoryItem,
         importInventory,
         quickAdjustStock,
+        receiveOrderToWarehouseAndReserve,
         quotations,
         filteredQuotations,
         getCustomerQuotations,
@@ -1515,15 +1868,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         reserveItems,
         filteredReserveItems,
         updateReserveStatus,
+        updateReserveItem,
         orderItems,
         filteredOrderItems,
         updateOrderStatus,
+        updateOrderItem,
         activeTab,
         setActiveTab,
         isCreateCustomerModalOpen,
         setIsCreateCustomerModalOpen,
         selectedCustomerForModal,
         setSelectedCustomerForModal,
+        isClearDataModalOpen,
+        setIsClearDataModalOpen,
+        clearAllSystemData,
+        clearSpecificData,
         isCreateQuoteModalOpen,
         setIsCreateQuoteModalOpen,
         selectedQuoteForModal,

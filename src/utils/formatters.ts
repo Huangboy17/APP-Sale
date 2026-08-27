@@ -151,20 +151,31 @@ export const getQuotationStatusConfig = (status: QuotationStatus) => {
 };
 
 // Excel Helpers
-export const exportProductsToExcel = (products: ProductPriceItem[]) => {
-  const data = products.map((p, idx) => ({
-    'STT': idx + 1,
-    'Mã hàng (SKU)': p.sku,
-    'Tên hàng hóa / Sản phẩm': p.name,
-    'Phân loại': p.category,
-    'Hãng sản xuất': p.brand,
-    'Màu sắc': p.color,
-    'Kích thước / Quy cách': p.size,
-    'Đơn vị tính': p.unit,
-    'Giá niêm yết (VNĐ)': p.listPrice,
-    'Giá DP (Giá sàn tối thiểu)': p.dpPrice,
-    'Mô tả chi tiết': p.description || '',
-  }));
+export const exportProductsToExcel = (products: ProductPriceItem[], inventory?: InventoryItem[]) => {
+  const invMap = new Map<string, InventoryItem>();
+  if (inventory) {
+    inventory.forEach((inv) => invMap.set(inv.sku.trim().toLowerCase(), inv));
+  }
+
+  const data = products.map((p, idx) => {
+    const inv = invMap.get(p.sku.trim().toLowerCase());
+    return {
+      'STT': idx + 1,
+      'Mã hàng (SKU)': p.sku,
+      'Tên hàng hóa / Sản phẩm': p.name,
+      'Phân loại': p.category,
+      'Hãng sản xuất': p.brand,
+      'Màu sắc': p.color,
+      'Kích thước / Quy cách': p.size,
+      'Đơn vị tính': p.unit,
+      'Tồn Thực Tế': inv ? inv.totalQuantity : 0,
+      'Đang Giữ Hàng (HĐ)': inv ? inv.reservedQuantity : 0,
+      'Tồn Khả Dụng Để Bán': inv ? inv.availableQuantity : 0,
+      'Giá niêm yết (VNĐ)': p.listPrice,
+      'Giá DP (Giá sàn tối thiểu)': p.dpPrice,
+      'Mô tả chi tiết': p.description || '',
+    };
+  });
 
   const worksheet = XLSX.utils.json_to_sheet(data);
   const workbook = XLSX.utils.book_new();

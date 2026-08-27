@@ -163,9 +163,14 @@ export const AuthScreen: React.FC = () => {
     }, 300);
   };
 
-  const handleQuickRoleSelect = (roleOrUserId: string) => {
-    setAlert(null);
-    quickDemoLogin(roleOrUserId);
+  const handleFillCredentials = (email: string, pass: string) => {
+    setLoginEmail(email);
+    setLoginPassword(pass);
+    setAlert({
+      type: 'info',
+      message: `Đã điền thông tin tài khoản: ${email}. Nhấn "Đăng Nhập Vào Hệ Thống" bên dưới để đăng nhập.`,
+    });
+    setAuthScreenMode('login');
   };
 
   return (
@@ -273,56 +278,63 @@ export const AuthScreen: React.FC = () => {
               </div>
             </div>
 
-            {/* Fast Demo One-Click Access */}
+            {/* Account Suggestions Guide */}
             <div className="p-3.5 rounded-xl bg-blue-950/40 border border-blue-800/50">
-              <div className="text-xs font-bold text-blue-300 flex items-center justify-between mb-2">
-                <span>⚡ Đăng nhập nhanh 1-Chạm (Tài khoản mẫu):</span>
+              <div className="text-xs font-bold text-blue-300 flex items-center justify-between mb-1">
+                <span>🔑 Tài khoản mẫu (Bấm để điền thông tin đăng nhập):</span>
               </div>
+              <p className="text-[10px] text-slate-400 mb-2">
+                Hệ thống yêu cầu đăng nhập độc lập cho từng tài khoản với mật khẩu riêng biệt.
+              </p>
               <div className="grid grid-cols-2 gap-2">
                 <button
                   type="button"
-                  onClick={() => handleQuickRoleSelect('user-super-admin')}
+                  onClick={() => handleFillCredentials('buiviethoangktxd@gmail.com', 'admin')}
                   className="px-2.5 py-1.5 rounded-lg bg-purple-900/40 hover:bg-purple-900/70 border border-purple-700/60 text-purple-200 text-xs font-semibold flex items-center justify-between transition cursor-pointer text-left"
+                  title="Điền tài khoản Super Admin (Mật khẩu: admin)"
                 >
                   <div className="truncate">
                     <div className="font-bold text-[11px]">Bùi Viết Hoàng</div>
-                    <div className="text-[9px] text-purple-300">Super Admin</div>
+                    <div className="text-[9px] text-purple-300">Super Admin (L0) • pass: admin</div>
                   </div>
                   <ArrowRight className="w-3 h-3 text-purple-400 shrink-0 ml-1" />
                 </button>
 
                 <button
                   type="button"
-                  onClick={() => handleQuickRoleSelect('user-mgr-1')}
+                  onClick={() => handleFillCredentials('hung.nguyen@salesflow.vn', '123456')}
                   className="px-2.5 py-1.5 rounded-lg bg-blue-900/40 hover:bg-blue-900/70 border border-blue-700/60 text-blue-200 text-xs font-semibold flex items-center justify-between transition cursor-pointer text-left"
+                  title="Điền tài khoản Giám Đốc C1 (Mật khẩu: 123456)"
                 >
                   <div className="truncate">
                     <div className="font-bold text-[11px]">Nguyễn Văn Hùng</div>
-                    <div className="text-[9px] text-blue-300">Giám Đốc (C1)</div>
+                    <div className="text-[9px] text-blue-300">Giám Đốc (C1) • pass: 123456</div>
                   </div>
                   <ArrowRight className="w-3 h-3 text-blue-400 shrink-0 ml-1" />
                 </button>
 
                 <button
                   type="button"
-                  onClick={() => handleQuickRoleSelect('user-sales-1')}
+                  onClick={() => handleFillCredentials('toan.tran@salesflow.vn', '123456')}
                   className="px-2.5 py-1.5 rounded-lg bg-emerald-900/40 hover:bg-emerald-900/70 border border-emerald-700/60 text-emerald-200 text-xs font-semibold flex items-center justify-between transition cursor-pointer text-left"
+                  title="Điền tài khoản Sales C2 (Mật khẩu: 123456)"
                 >
                   <div className="truncate">
                     <div className="font-bold text-[11px]">Trần Đức Toàn</div>
-                    <div className="text-[9px] text-emerald-300">Sales Dự Án (C2)</div>
+                    <div className="text-[9px] text-emerald-300">Sales Dự Án (C2) • pass: 123456</div>
                   </div>
                   <ArrowRight className="w-3 h-3 text-emerald-400 shrink-0 ml-1" />
                 </button>
 
                 <button
                   type="button"
-                  onClick={() => handleQuickRoleSelect('user-sales-3')}
+                  onClick={() => handleFillCredentials('bao.dang@salesflow.vn', '123456')}
                   className="px-2.5 py-1.5 rounded-lg bg-amber-900/40 hover:bg-amber-900/70 border border-amber-700/60 text-amber-200 text-xs font-semibold flex items-center justify-between transition cursor-pointer text-left"
+                  title="Điền tài khoản Sales C2 (Mật khẩu: 123456)"
                 >
                   <div className="truncate">
                     <div className="font-bold text-[11px]">Đặng Quốc Bảo</div>
-                    <div className="text-[9px] text-amber-300">Sales Bán Lẻ (C2)</div>
+                    <div className="text-[9px] text-amber-300">Sales Bán Lẻ (C2) • pass: 123456</div>
                   </div>
                   <ArrowRight className="w-3 h-3 text-amber-400 shrink-0 ml-1" />
                 </button>
@@ -430,7 +442,7 @@ export const AuthScreen: React.FC = () => {
                   <div>
                     <div className="flex items-center justify-between mb-1.5">
                       <label className="block text-xs font-semibold text-slate-300">
-                        Mật khẩu
+                        Mật khẩu <span className="text-rose-400">*</span>
                       </label>
                       <button
                         type="button"
@@ -439,7 +451,7 @@ export const AuthScreen: React.FC = () => {
                           setForgotEmail(loginEmail);
                           setAuthScreenMode('forgot_password');
                         }}
-                        className="text-xs text-blue-400 hover:text-blue-300 transition font-medium"
+                        className="text-xs text-blue-400 hover:text-blue-300 transition font-medium cursor-pointer"
                       >
                         Quên mật khẩu?
                       </button>
@@ -450,7 +462,8 @@ export const AuthScreen: React.FC = () => {
                         type={showLoginPassword ? 'text' : 'password'}
                         value={loginPassword}
                         onChange={(e) => setLoginPassword(e.target.value)}
-                        placeholder="Nhập mật khẩu (hoặc để trống để đăng nhập nhanh)"
+                        placeholder="Nhập mật khẩu tài khoản (vd: 123456 hoặc admin)"
+                        required
                         className="w-full pl-10 pr-10 py-2.5 bg-slate-900/80 border border-slate-700 rounded-xl text-sm text-white placeholder-slate-500 focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:border-transparent transition"
                       />
                       <button

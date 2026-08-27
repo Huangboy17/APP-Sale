@@ -155,11 +155,15 @@ export async function syncProductToCloud(product: ProductPriceItem) {
 
 export async function batchSyncProductsToCloud(products: ProductPriceItem[]) {
   try {
-    const batch = writeBatch(db);
-    products.forEach((p) => {
-      batch.set(doc(db, COLLECTIONS.PRODUCTS, p.sku), p, { merge: true });
-    });
-    await batch.commit();
+    const CHUNK_SIZE = 400;
+    for (let i = 0; i < products.length; i += CHUNK_SIZE) {
+      const chunk = products.slice(i, i + CHUNK_SIZE);
+      const batch = writeBatch(db);
+      chunk.forEach((p) => {
+        batch.set(doc(db, COLLECTIONS.PRODUCTS, p.sku), p, { merge: true });
+      });
+      await batch.commit();
+    }
   } catch (err) {
     console.error('[Firestore] Error batch saving products:', err);
   }
@@ -253,10 +257,64 @@ export async function batchSyncOrdersToCloud(orders: OrderItem[]) {
   try {
     const batch = writeBatch(db);
     orders.forEach((o) => {
-      batch.set(doc(db, COLLECTIONS.ORDERS, o.id), o, { merge: true });
+      batch.set(doc(db, COLLECTIONS.ORDERS, o.id), orderItemDoc(o), { merge: true });
     });
     await batch.commit();
   } catch (err) {
     console.error('[Firestore] Error batch saving orders:', err);
+  }
+}
+
+function orderItemDoc(o: OrderItem) {
+  return { ...o };
+}
+
+// Clear a specific collection completely from Firestore
+export async function clearCollectionFromCloud(collectionName: string, exceptIds: string[] = []) {
+  try {
+    const snapshot = await getDocs(collection(db, collectionName));
+    if (snapshot.empty) return;
+
+    const batch = writeBatch(db);
+    let count = 0;
+    snapshot.docs.forEach((d) => {
+      if (!exceptIds.includes(d.id)) {
+        batch.delete(d.ref);
+        count++;
+      }
+    });
+    if (count > 0) {
+      await batch.commit();
+    }
+  } catch (err) {
+    console.error(`[Firestore] Error clearing collection ${collectionName}:`, err);
+  }
+}
+
+// Clear all data from Google Cloud Firestore
+export async function clearAllDataFromCloud(keepSuperAdmin = true) {
+  try {
+    console.log('[Firestore] Clearing all data collections...');
+    const superAdminId = 'user-super-admin';
+    const collectionsToClear = [
+      COLLECTIONS.CUSTOMERS,
+      COLLECTIONS.PRODUCTS,
+      COLLECTIONS.INVENTORY,
+      COLLECTIONS.QUOTATIONS,
+      COLLECTIONS.CONTRACTS,
+      COLLECTIONS.RESERVES,
+      COLLECTIONS.ORDERS,
+    ];
+
+    for (const colName of collectionsToClear) {
+      await clearCollectionFromCloud(colName);
+    }
+
+    // Clear Users (keep Super Admin if requested)
+    await clearCollectionFromCloud(COLLECTIONS.USERS, keepSuperAdmin ? [superAdminId] : []);
+
+    console.log('[Firestore] All collections cleared successfully!');
+  } catch (err) {
+    console.error('[Firestore] Error clearing all data:', err);
   }
 }

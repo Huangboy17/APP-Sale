@@ -14,6 +14,7 @@ import { InventoryMaster } from './components/Inventory/InventoryMaster';
 import { TeamManagement } from './components/Team/TeamManagement';
 import { PDFPreviewModal } from './components/PDF/PDFPreviewModal';
 import { AuthScreen } from './components/Auth/AuthScreen';
+import { ClearDataModal } from './components/Modals/ClearDataModal';
 
 const MainContent: React.FC = () => {
   const {
@@ -89,6 +90,7 @@ const MainContent: React.FC = () => {
       />
 
       <PDFPreviewModal />
+      <ClearDataModal />
     </div>
   );
 };

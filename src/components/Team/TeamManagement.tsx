@@ -34,7 +34,6 @@ export const TeamManagement: React.FC = () => {
     addUser,
     approveUser,
     resetPassword,
-    setCurrentUser,
   } = useApp();
 
   const [isAddUserModalOpen, setIsAddUserModalOpen] = useState(false);
@@ -279,18 +278,11 @@ export const TeamManagement: React.FC = () => {
                       setModalNewPassword('123456');
                       setResetSuccessMessage(null);
                     }}
-                    className="px-2 py-1 border border-slate-300 hover:bg-slate-100 text-slate-700 rounded-md text-xs font-semibold transition flex items-center space-x-1"
+                    className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-md text-xs font-semibold transition flex items-center space-x-1.5 cursor-pointer"
                     title="Đặt lại mật khẩu cho tài khoản này"
                   >
                     <KeyRound className="w-3 h-3 text-slate-500" />
-                    <span>Đổi MK</span>
-                  </button>
-
-                  <button
-                    onClick={() => setCurrentUser(mgr)}
-                    className="px-2.5 py-1 border border-slate-300 hover:bg-slate-100 text-slate-700 rounded-md text-xs font-semibold transition"
-                  >
-                    Chuyển Quyền C1
+                    <span>Cấp Lại Mật Khẩu</span>
                   </button>
                 </div>
               </div>
@@ -375,17 +367,11 @@ export const TeamManagement: React.FC = () => {
                             setModalNewPassword('123456');
                             setResetSuccessMessage(null);
                           }}
-                          className="px-2 py-1 border border-slate-300 hover:bg-slate-100 text-slate-700 rounded text-xs font-semibold transition flex items-center space-x-1"
+                          className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded text-xs font-semibold transition flex items-center space-x-1 cursor-pointer"
                           title="Cấp lại / Đổi mật khẩu cho sale này"
                         >
                           <KeyRound className="w-3 h-3 text-slate-500" />
-                          <span>Đổi MK</span>
-                        </button>
-                        <button
-                          onClick={() => setCurrentUser(staff)}
-                          className="px-2.5 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded text-xs font-semibold transition"
-                        >
-                          Đóng Vai Sale
+                          <span>Cấp Lại Mật Khẩu</span>
                         </button>
                       </div>
                     </td>

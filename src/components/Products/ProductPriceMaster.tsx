@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useApp } from '../../context/AppContext';
-import { ProductPriceItem } from '../../types';
-import { formatVND, formatNumber, exportProductsToExcel, downloadProductTemplateExcel } from '../../utils/formatters';
+import { ProductPriceItem, InventoryItem } from '../../types';
+import { formatVND, exportProductsToExcel, downloadProductTemplateExcel } from '../../utils/formatters';
 import { ProductImportModal } from './ProductImportModal';
+import { ItemReservationsModal } from '../Inventory/ItemReservationsModal';
 import {
   Tag,
   Plus,
@@ -13,18 +14,36 @@ import {
   Trash2,
   FileSpreadsheet,
   X,
+  Boxes,
+  Layers,
+  Eye,
+  CheckCircle2,
+  AlertTriangle,
+  XCircle,
 } from 'lucide-react';
 
 export const ProductPriceMaster: React.FC = () => {
-  const { products, addProduct, updateProduct, deleteProduct, currentUser } = useApp();
+  const {
+    products,
+    inventory,
+    addProduct,
+    updateProduct,
+    deleteProduct,
+    clearSpecificData,
+    currentUser,
+  } = useApp();
 
   const [searchTerm, setSearchTerm] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
   const [brandFilter, setBrandFilter] = useState<string>('all');
+  const [stockStatusFilter, setStockStatusFilter] = useState<'all' | 'available' | 'low' | 'out_of_stock'>('all');
+  const [currentPage, setCurrentPage] = useState<number>(1);
+  const [pageSize, setPageSize] = useState<number>(50);
 
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [productToEdit, setProductToEdit] = useState<ProductPriceItem | null>(null);
+  const [selectedItemForHoldModal, setSelectedItemForHoldModal] = useState<InventoryItem | null>(null);
 
   // Form State for Single Product Add/Edit
   const [sku, setSku] = useState('');
@@ -40,23 +59,55 @@ export const ProductPriceMaster: React.FC = () => {
 
   const isManagerOrAdmin = currentUser.role === 'super_admin' || currentUser.role === 'manager_c1';
 
+  // Fast inventory lookup map by normalized SKU
+  const inventoryMap = useMemo(() => {
+    const map = new Map<string, InventoryItem>();
+    inventory.forEach((inv) => {
+      if (inv.sku) {
+        map.set(inv.sku.trim().toLowerCase(), inv);
+      }
+    });
+    return map;
+  }, [inventory]);
+
   // Categories and Brands list
-  const categories = Array.from(new Set(products.map((p) => p.category))).filter(Boolean);
-  const brands = Array.from(new Set(products.map((p) => p.brand))).filter(Boolean);
+  const categories = useMemo(() => Array.from(new Set(products.map((p) => p.category))).filter(Boolean), [products]);
+  const brands = useMemo(() => Array.from(new Set(products.map((p) => p.brand))).filter(Boolean), [products]);
 
   // Filter products
-  const displayedProducts = products.filter((p) => {
-    const matchSearch =
-      p.sku.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      p.brand.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      p.category.toLowerCase().includes(searchTerm.toLowerCase());
+  const displayedProducts = useMemo(() => {
+    return products.filter((p) => {
+      const cleanSku = (p.sku || '').trim().toLowerCase();
+      const inv = inventoryMap.get(cleanSku);
+      const avail = inv ? inv.availableQuantity : 0;
+      const total = inv ? inv.totalQuantity : 0;
 
-    const matchCat = categoryFilter === 'all' || p.category === categoryFilter;
-    const matchBrand = brandFilter === 'all' || p.brand === brandFilter;
+      const matchSearch =
+        p.sku.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        p.brand.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        p.category.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (p.color && p.color.toLowerCase().includes(searchTerm.toLowerCase())) ||
+        (p.size && p.size.toLowerCase().includes(searchTerm.toLowerCase()));
 
-    return matchSearch && matchCat && matchBrand;
-  });
+      const matchCat = categoryFilter === 'all' || p.category === categoryFilter;
+      const matchBrand = brandFilter === 'all' || p.brand === brandFilter;
+
+      let matchStock = true;
+      if (stockStatusFilter === 'available') {
+        matchStock = avail > 5;
+      } else if (stockStatusFilter === 'low') {
+        matchStock = avail > 0 && avail <= 5;
+      } else if (stockStatusFilter === 'out_of_stock') {
+        matchStock = total === 0 || avail <= 0;
+      }
+
+      return matchSearch && matchCat && matchBrand && matchStock;
+    });
+  }, [products, searchTerm, categoryFilter, brandFilter, stockStatusFilter, inventoryMap]);
+
+  const totalPages = Math.ceil(displayedProducts.length / pageSize) || 1;
+  const paginatedProducts = displayedProducts.slice((currentPage - 1) * pageSize, currentPage * pageSize);
 
   const handleOpenAddModal = () => {
     setProductToEdit(null);
@@ -86,6 +137,21 @@ export const ProductPriceMaster: React.FC = () => {
     setDpPrice(prod.dpPrice);
     setDescription(prod.description || '');
     setIsEditModalOpen(true);
+  };
+
+  const handleOpenHoldDetails = (prod: ProductPriceItem) => {
+    const cleanSku = (prod.sku || '').trim().toLowerCase();
+    const inv = inventoryMap.get(cleanSku) || {
+      sku: prod.sku,
+      name: prod.name,
+      unit: prod.unit,
+      totalQuantity: 0,
+      reservedQuantity: 0,
+      availableQuantity: 0,
+      warehouseLocation: 'Kho Tổng',
+      updatedAt: new Date().toISOString().split('T')[0],
+    };
+    setSelectedItemForHoldModal(inv);
   };
 
   const handleSaveProduct = (e: React.FormEvent) => {
@@ -130,18 +196,18 @@ export const ProductPriceMaster: React.FC = () => {
         <div>
           <h1 className="text-base sm:text-lg font-bold text-slate-900 flex items-center space-x-2">
             <Tag className="w-5 h-5 text-blue-600" />
-            <span>Quản Lý Data Giá & Giá DP (Master Data)</span>
+            <span>Quản Lý Data Giá, Giá DP & Tồn Kho (Master Data)</span>
           </h1>
           <p className="text-xs text-slate-500">
-            Dữ liệu sản phẩm gốc: Mã hàng (SKU xuyên suốt), Tên hàng, Phân loại, Hãng, Màu sắc, Kích thước, Giá niêm yết, Giá DP (giá thấp nhất được phép bán).
+            Tổng hợp dữ liệu sản phẩm: Mã hàng (SKU), Giá niêm yết, Giá DP sàn bán, <strong>Tồn thực tế</strong>, <strong>Đang giữ hàng</strong> và <strong>Tồn khả dụng bán</strong>.
           </p>
         </div>
 
-        {/* Action buttons (Cấp 1 & Cấp 2 đều được quyền import & khai thác bảng giá) */}
-        <div className="flex items-center space-x-1.5 self-start sm:self-auto">
+        {/* Action buttons */}
+        <div className="flex items-center space-x-1.5 self-start sm:self-auto flex-wrap gap-y-1.5">
           <button
             onClick={downloadProductTemplateExcel}
-            className="px-2.5 py-1.5 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 rounded-md text-xs font-bold flex items-center space-x-1 shadow-2xs transition"
+            className="px-2.5 py-1.5 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 rounded-md text-xs font-bold flex items-center space-x-1 shadow-2xs transition cursor-pointer"
             title="Tải file Excel mẫu có định dạng chuẩn"
           >
             <Download className="w-3.5 h-3.5 text-slate-500" />
@@ -149,8 +215,9 @@ export const ProductPriceMaster: React.FC = () => {
           </button>
 
           <button
-            onClick={() => exportProductsToExcel(products)}
-            className="px-2.5 py-1.5 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 rounded-md text-xs font-bold flex items-center space-x-1 shadow-2xs transition"
+            onClick={() => exportProductsToExcel(products, inventory)}
+            className="px-2.5 py-1.5 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 rounded-md text-xs font-bold flex items-center space-x-1 shadow-2xs transition cursor-pointer"
+            title="Xuất file Excel đầy đủ Data Giá kèm Số Lượng Tồn Kho & Giữ Hàng"
           >
             <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
             <span>Xuất Excel ({products.length})</span>
@@ -158,16 +225,33 @@ export const ProductPriceMaster: React.FC = () => {
 
           <button
             onClick={() => setIsImportModalOpen(true)}
-            className="px-2.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border border-indigo-200 rounded-md text-xs font-bold flex items-center space-x-1 transition shadow-2xs"
-            title="Cấp 1 & Cấp 2 đều được quyền import bảng giá"
+            className="px-2.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border border-indigo-200 rounded-md text-xs font-bold flex items-center space-x-1 transition shadow-2xs cursor-pointer"
+            title="Import bảng giá sản phẩm mới hoặc cập nhật giá niêm yết/giá DP"
           >
             <Upload className="w-3.5 h-3.5" />
             <span>Import Data Giá</span>
           </button>
 
           <button
+            onClick={() => {
+              if (products.length === 0) {
+                alert('Không có dữ liệu giá nào để xoá.');
+                return;
+              }
+              if (window.confirm(`Bạn có chắc chắn muốn xoá toàn bộ ${products.length} sản phẩm trong Data Giá không? Hành động này sẽ xoá trên cả máy và Cloud Firestore.`)) {
+                clearSpecificData({ clearProducts: true });
+              }
+            }}
+            className="px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-md text-xs font-bold flex items-center space-x-1 shadow-2xs transition cursor-pointer"
+            title="Xoá toàn bộ danh sách sản phẩm trong Data Giá"
+          >
+            <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+            <span>Xoá Hết Data Giá</span>
+          </button>
+
+          <button
             onClick={handleOpenAddModal}
-            className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-xs font-bold flex items-center space-x-1 shadow-2xs transition active:scale-95"
+            className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-xs font-bold flex items-center space-x-1 shadow-2xs transition active:scale-95 cursor-pointer"
           >
             <Plus className="w-3.5 h-3.5" />
             <span>+ Thêm Sản Phẩm</span>
@@ -183,15 +267,36 @@ export const ProductPriceMaster: React.FC = () => {
             type="text"
             placeholder="Tìm theo mã hàng (SKU), tên hàng, hãng..."
             value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
+            onChange={(e) => {
+              setSearchTerm(e.target.value);
+              setCurrentPage(1);
+            }}
             className="w-full pl-8 pr-3 py-1.5 text-xs border border-slate-300 rounded-md focus:ring-1 focus:ring-blue-500 outline-hidden bg-slate-50/50"
           />
         </div>
 
         <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
+          {/* Stock Filter */}
+          <select
+            value={stockStatusFilter}
+            onChange={(e) => {
+              setStockStatusFilter(e.target.value as any);
+              setCurrentPage(1);
+            }}
+            className="px-2.5 py-1.5 text-xs border border-slate-300 rounded-md bg-white focus:ring-1 focus:ring-blue-500 outline-hidden font-medium text-slate-700"
+          >
+            <option value="all">📦 Tất cả trạng thái kho</option>
+            <option value="available">🟢 Còn tồn khả dụng ({'>'}5)</option>
+            <option value="low">🟡 Tồn ít (1 - 5)</option>
+            <option value="out_of_stock">🔴 Hết tồn / Cần đặt hàng</option>
+          </select>
+
           <select
             value={categoryFilter}
-            onChange={(e) => setCategoryFilter(e.target.value)}
+            onChange={(e) => {
+              setCategoryFilter(e.target.value);
+              setCurrentPage(1);
+            }}
             className="px-2.5 py-1.5 text-xs border border-slate-300 rounded-md bg-white focus:ring-1 focus:ring-blue-500 outline-hidden font-medium text-slate-700"
           >
             <option value="all">Tất cả phân loại ({categories.length})</option>
@@ -204,7 +309,10 @@ export const ProductPriceMaster: React.FC = () => {
 
           <select
             value={brandFilter}
-            onChange={(e) => setBrandFilter(e.target.value)}
+            onChange={(e) => {
+              setBrandFilter(e.target.value);
+              setCurrentPage(1);
+            }}
             className="px-2.5 py-1.5 text-xs border border-slate-300 rounded-md bg-white focus:ring-1 focus:ring-blue-500 outline-hidden font-medium text-slate-700"
           >
             <option value="all">Tất cả hãng ({brands.length})</option>
@@ -217,6 +325,39 @@ export const ProductPriceMaster: React.FC = () => {
         </div>
       </div>
 
+      {/* Quick Brand Badges */}
+      {brands.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1.5 pt-1">
+          <button
+            onClick={() => { setBrandFilter('all'); setCurrentPage(1); }}
+            className={`px-2.5 py-1 rounded-full text-xs font-semibold transition cursor-pointer ${
+              brandFilter === 'all'
+                ? 'bg-blue-600 text-white shadow-xs'
+                : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-50'
+            }`}
+          >
+            Tất cả ({products.length})
+          </button>
+          {brands.map((b) => {
+            const count = products.filter((p) => p.brand === b).length;
+            const isSelected = brandFilter === b;
+            return (
+              <button
+                key={b}
+                onClick={() => { setBrandFilter(b); setCurrentPage(1); }}
+                className={`px-2.5 py-1 rounded-full text-xs font-semibold transition cursor-pointer ${
+                  isSelected
+                    ? 'bg-blue-600 text-white shadow-xs'
+                    : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-50'
+                }`}
+              >
+                {b} <span className="opacity-75 font-normal">({count})</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+
       {/* Product Master Table */}
       <div className="bg-white rounded-lg border border-slate-200 overflow-hidden shadow-xs">
         <div className="overflow-x-auto">
@@ -228,6 +369,27 @@ export const ProductPriceMaster: React.FC = () => {
                 <th className="px-3 py-2.5">Phân Loại & Hãng</th>
                 <th className="px-3 py-2.5">Màu Sắc & Quy Cách</th>
                 <th className="px-3 py-2.5 text-center">ĐVT</th>
+                <th className="px-3 py-2.5 text-center bg-slate-100/70 text-slate-800 border-l border-slate-200">
+                  <div className="flex items-center justify-center space-x-1" title="Tổng số lượng tồn thực tế có trong kho">
+                    <Boxes className="w-3 h-3 text-slate-600" />
+                    <span>Tồn Thực Tế</span>
+                  </div>
+                </th>
+                <th
+                  className="px-3 py-2.5 text-center bg-amber-50/90 text-amber-900 cursor-help border-x border-amber-200"
+                  title="Bấm vào số lượng để xem chi tiết Sale nào đang giữ và giữ cho khách hàng nào"
+                >
+                  <div className="flex items-center justify-center space-x-1">
+                    <span>Đang Giữ (Chốt HĐ)</span>
+                    <Layers className="w-3 h-3 text-amber-600" />
+                  </div>
+                </th>
+                <th
+                  className="px-3 py-2.5 text-center bg-emerald-50/90 text-emerald-900 font-bold border-r border-emerald-200"
+                  title="Số lượng tồn kho còn lại thực tế để Sale có thể chào bán ngay"
+                >
+                  <span>Tồn Khả Dụng</span>
+                </th>
                 <th className="px-3 py-2.5 text-right">Giá Niêm Yết</th>
                 <th className="px-3 py-2.5 text-right bg-amber-50/70 text-amber-900 font-bold">
                   Giá DP (Sàn Bán)
@@ -239,14 +401,20 @@ export const ProductPriceMaster: React.FC = () => {
             <tbody className="divide-y divide-slate-100 text-slate-700">
               {displayedProducts.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="px-4 py-8 text-center text-slate-400">
+                  <td colSpan={isManagerOrAdmin ? 12 : 11} className="px-4 py-8 text-center text-slate-400">
                     Không tìm thấy sản phẩm nào phù hợp
                   </td>
                 </tr>
               ) : (
-                displayedProducts.map((p) => {
+                paginatedProducts.map((p) => {
                   const maxDiscountPercent =
                     p.listPrice > 0 ? (((p.listPrice - p.dpPrice) / p.listPrice) * 100).toFixed(1) : 0;
+
+                  const cleanSku = (p.sku || '').trim().toLowerCase();
+                  const inv = inventoryMap.get(cleanSku);
+                  const totalQty = inv ? inv.totalQuantity : 0;
+                  const reservedQty = inv ? inv.reservedQuantity : 0;
+                  const availableQty = inv ? inv.availableQuantity : 0;
 
                   return (
                     <tr key={p.sku} className="hover:bg-slate-50 transition-colors">
@@ -264,6 +432,56 @@ export const ProductPriceMaster: React.FC = () => {
                         <div className="text-[10px] text-slate-500">{p.size}</div>
                       </td>
                       <td className="px-3 py-2 text-center font-medium">{p.unit}</td>
+
+                      {/* Tồn Thực Tế */}
+                      <td className="px-3 py-2 text-center font-bold text-slate-900 font-mono bg-slate-50/50 border-l border-slate-100">
+                        {totalQty}
+                      </td>
+
+                      {/* Đang Giữ Hàng */}
+                      <td className="px-3 py-2 text-center bg-amber-50/40 border-x border-amber-100">
+                        <button
+                          type="button"
+                          onClick={() => handleOpenHoldDetails(p)}
+                          title={`Bấm để xem danh sách Sale đang giữ ${reservedQty} ${p.unit} cho khách hàng nào`}
+                          className={`px-2.5 py-1 rounded-md font-mono font-bold text-xs transition inline-flex items-center space-x-1 cursor-pointer group ${
+                            reservedQty > 0
+                              ? 'bg-amber-100 hover:bg-amber-200 text-amber-900 border border-amber-300 shadow-2xs'
+                              : 'text-slate-400 hover:text-slate-700 hover:bg-slate-100'
+                          }`}
+                        >
+                          {reservedQty > 0 && (
+                            <Layers className="w-3 h-3 text-amber-600 group-hover:scale-110 transition-transform shrink-0" />
+                          )}
+                          <span>{reservedQty}</span>
+                          {reservedQty > 0 && (
+                            <Eye className="w-2.5 h-2.5 text-amber-600 opacity-0 group-hover:opacity-100 transition-opacity ml-0.5" />
+                          )}
+                        </button>
+                      </td>
+
+                      {/* Tồn Khả Dụng */}
+                      <td className="px-3 py-2 text-center border-r border-emerald-100">
+                        <span
+                          className={`px-2.5 py-1 rounded-md text-xs font-mono font-bold inline-flex items-center space-x-1 ${
+                            availableQty > 5
+                              ? 'bg-emerald-100 text-emerald-900 border border-emerald-200'
+                              : availableQty > 0
+                              ? 'bg-amber-100 text-amber-900 border border-amber-200'
+                              : 'bg-rose-100 text-rose-800 border border-rose-200'
+                          }`}
+                        >
+                          {availableQty > 5 ? (
+                            <CheckCircle2 className="w-3 h-3 text-emerald-600 shrink-0" />
+                          ) : availableQty > 0 ? (
+                            <AlertTriangle className="w-3 h-3 text-amber-600 shrink-0" />
+                          ) : (
+                            <XCircle className="w-3 h-3 text-rose-600 shrink-0" />
+                          )}
+                          <span>{availableQty}</span>
+                        </span>
+                      </td>
+
                       <td className="px-3 py-2 text-right font-bold text-slate-900 font-mono">
                         {formatVND(p.listPrice)}
                       </td>
@@ -278,7 +496,7 @@ export const ProductPriceMaster: React.FC = () => {
                           <div className="flex items-center justify-center space-x-1">
                             <button
                               onClick={() => handleOpenEditModal(p)}
-                              className="p-1 text-slate-400 hover:text-blue-600 rounded hover:bg-slate-100 transition"
+                              className="p-1 text-slate-400 hover:text-blue-600 rounded hover:bg-slate-100 transition cursor-pointer"
                               title="Chỉnh sửa"
                             >
                               <Edit2 className="w-3.5 h-3.5" />
@@ -289,7 +507,7 @@ export const ProductPriceMaster: React.FC = () => {
                                   deleteProduct(p.sku);
                                 }
                               }}
-                              className="p-1 text-slate-400 hover:text-rose-600 rounded hover:bg-slate-100 transition"
+                              className="p-1 text-slate-400 hover:text-rose-600 rounded hover:bg-slate-100 transition cursor-pointer"
                               title="Xóa"
                             >
                               <Trash2 className="w-3.5 h-3.5" />
@@ -304,6 +522,56 @@ export const ProductPriceMaster: React.FC = () => {
             </tbody>
           </table>
         </div>
+
+        {/* Pagination Footer */}
+        {displayedProducts.length > 0 && (
+          <div className="px-3.5 py-2.5 bg-slate-50 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-slate-600">
+            <div className="flex items-center space-x-2">
+              <span>
+                Hiển thị{' '}
+                <strong className="text-slate-900">
+                  {Math.min((currentPage - 1) * pageSize + 1, displayedProducts.length)} -{' '}
+                  {Math.min(currentPage * pageSize, displayedProducts.length)}
+                </strong>{' '}
+                trên tổng số <strong className="text-slate-900">{displayedProducts.length}</strong> sản phẩm
+              </span>
+              <select
+                value={pageSize}
+                onChange={(e) => {
+                  setPageSize(Number(e.target.value));
+                  setCurrentPage(1);
+                }}
+                className="px-2 py-1 bg-white border border-slate-300 rounded text-xs text-slate-700 font-medium"
+              >
+                <option value={25}>25 / trang</option>
+                <option value={50}>50 / trang</option>
+                <option value={100}>100 / trang</option>
+                <option value={250}>250 / trang</option>
+                <option value={1000}>Tất cả ({displayedProducts.length})</option>
+              </select>
+            </div>
+
+            <div className="flex items-center space-x-1">
+              <button
+                onClick={() => setCurrentPage((p) => Math.max(p - 1, 1))}
+                disabled={currentPage <= 1}
+                className="px-2.5 py-1 bg-white border border-slate-300 rounded hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed font-semibold text-slate-700 shadow-2xs cursor-pointer"
+              >
+                Trước
+              </button>
+              <div className="px-2 font-mono font-bold text-slate-800">
+                {currentPage} / {totalPages}
+              </div>
+              <button
+                onClick={() => setCurrentPage((p) => Math.min(p + 1, totalPages))}
+                disabled={currentPage >= totalPages}
+                className="px-2.5 py-1 bg-white border border-slate-300 rounded hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed font-semibold text-slate-700 shadow-2xs cursor-pointer"
+              >
+                Sau
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Add / Edit Product Modal */}
@@ -314,7 +582,7 @@ export const ProductPriceMaster: React.FC = () => {
               <h3 className="text-sm font-bold text-slate-900">
                 {productToEdit ? 'Chỉnh Sửa Data Giá Sản Phẩm' : 'Thêm Sản Phẩm Mới Vào Master Data'}
               </h3>
-              <button onClick={() => setIsEditModalOpen(false)} className="text-slate-400 hover:text-slate-600">
+              <button onClick={() => setIsEditModalOpen(false)} className="text-slate-400 hover:text-slate-600 cursor-pointer">
                 <X className="w-4 h-4" />
               </button>
             </div>
@@ -467,13 +735,13 @@ export const ProductPriceMaster: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setIsEditModalOpen(false)}
-                  className="px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded"
+                  className="px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded cursor-pointer"
                 >
                   Hủy
                 </button>
                 <button
                   type="submit"
-                  className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded shadow-2xs transition"
+                  className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded shadow-2xs transition cursor-pointer"
                 >
                   Lưu Sản Phẩm
                 </button>
@@ -487,6 +755,12 @@ export const ProductPriceMaster: React.FC = () => {
       <ProductImportModal
         isOpen={isImportModalOpen}
         onClose={() => setIsImportModalOpen(false)}
+      />
+
+      {/* Item Hold / Reservation Details Modal */}
+      <ItemReservationsModal
+        item={selectedItemForHoldModal}
+        onClose={() => setSelectedItemForHoldModal(null)}
       />
     </div>
   );
