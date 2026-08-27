@@ -1,5 +1,6 @@
 import React from 'react';
-import { Building2, User, MapPin, Phone, Mail, Globe, FileText, Calendar, Sparkles, Check, RotateCcw, HelpCircle } from 'lucide-react';
+import { useApp } from '../../context/AppContext';
+import { Building2, User, MapPin, Phone, Mail, Globe, FileText, Calendar, Sparkles, Check, RotateCcw, HelpCircle, Image as ImageIcon, ShieldCheck } from 'lucide-react';
 
 export interface HeaderFooterConfigState {
   quoteTitle: string;
@@ -19,6 +20,7 @@ export interface HeaderFooterConfigState {
   companyHotline: string;
   companyWebsite: string;
   companyEmail: string;
+  companyLogo?: string;
   salesRepName: string;
   salesRepPhone: string;
   salesRepEmail: string;
@@ -49,6 +51,9 @@ export const QuotationHeaderFooterConfig: React.FC<QuotationHeaderFooterConfigPr
   onApplyHHGTemplate,
   onApplyDefaultTemplate,
 }) => {
+  const { companyInfo, currentUser } = useApp();
+  const activeLogo = config.companyLogo || companyInfo?.logoUrl || companyInfo?.logo;
+
   const updateField = (field: keyof HeaderFooterConfigState, value: string) => {
     onChange({
       ...config,
@@ -218,9 +223,37 @@ export const QuotationHeaderFooterConfig: React.FC<QuotationHeaderFooterConfigPr
 
           {/* Cột Bên Bán / Đơn Vị Báo Giá */}
           <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 space-y-2.5">
-            <div className="font-bold text-blue-900 text-xs flex items-center space-x-1.5">
-              <Building2 className="w-3.5 h-3.5 text-blue-600" />
-              <span>CỘT PHẢI: BÊN BÁN / CÔNG TY & PHỤ TRÁCH</span>
+            <div className="flex items-center justify-between">
+              <div className="font-bold text-blue-900 text-xs flex items-center space-x-1.5">
+                <Building2 className="w-3.5 h-3.5 text-blue-600" />
+                <span>CỘT PHẢI: BÊN BÁN / CÔNG TY & PHỤ TRÁCH</span>
+              </div>
+              <span className="text-[10px] font-semibold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200 flex items-center space-x-1">
+                <ShieldCheck className="w-3 h-3" />
+                <span>Đồng bộ từ Cấp 1</span>
+              </span>
+            </div>
+
+            {/* Logo Display & Sync Preview */}
+            <div className="p-2 bg-white rounded-lg border border-slate-200 flex items-center space-x-3">
+              {activeLogo ? (
+                <div className="h-10 w-24 bg-slate-50 border border-slate-200 rounded flex items-center justify-center p-1 overflow-hidden shrink-0">
+                  <img src={activeLogo} alt="Company Logo" className="max-h-full max-w-full object-contain" />
+                </div>
+              ) : (
+                <div className="h-10 w-10 bg-slate-900 text-amber-400 font-black rounded flex items-center justify-center text-xs shrink-0">
+                  {config.companyName?.includes('HHG') ? 'HHG' : 'SF'}
+                </div>
+              )}
+              <div className="text-[10.5px] leading-tight">
+                <div className="font-bold text-slate-800 flex items-center space-x-1">
+                  <span>Logo Báo Giá:</span>
+                  <span className="text-blue-700 font-semibold">{activeLogo ? 'Đã cài đặt logo' : 'Chưa có logo (dùng chữ viết tắt)'}</span>
+                </div>
+                <div className="text-[9.5px] text-slate-500 mt-0.5">
+                  Logo được lấy tự động từ phần thông tin tài khoản Cấp 1 và hiển thị trên đầu báo giá A4 & Hợp đồng.
+                </div>
+              </div>
             </div>
 
             <div>

@@ -60,7 +60,7 @@ export const StandardQuotationDocument: React.FC<StandardQuotationDocumentProps>
   const companyWebsite = customConfig?.companyWebsite || quote?.companyWebsite || globalCompany?.website || 'www.hhg.vn';
   const companyEmail = customConfig?.companyEmail || quote?.companyEmail || globalCompany?.email || 'info@hhg.vn';
   const companyTaxCode = quote?.companyTaxCode || globalCompany?.taxCode || '0108999888';
-  const companyLogo = quote?.companyLogo || globalCompany?.logo;
+  const companyLogo = customConfig?.companyLogo || quote?.companyLogo || quote?.companyLogoUrl || globalCompany?.logoUrl || globalCompany?.logo;
 
   const salesRepName = customConfig?.salesRepName || quote?.salesRepName || appContext?.currentUser?.name || 'Nguyễn Thị Hương';
   const salesRepPhone = customConfig?.salesRepPhone || quote?.salesRepPhone || appContext?.currentUser?.phone || '0978 322 208';
@@ -142,14 +142,19 @@ export const StandardQuotationDocument: React.FC<StandardQuotationDocumentProps>
       <div className="border-b-2 border-slate-900 pb-3 page-break-inside-avoid">
         <div className="flex justify-between items-start gap-4">
           {/* Company Brand Logo & Info */}
-          <div className="flex items-start space-x-3 max-w-[490px]">
+          <div className="flex items-start space-x-3 max-w-[500px]">
             {companyLogo ? (
-              <div className="w-12 h-12 rounded-lg overflow-hidden border border-slate-200 bg-white shrink-0 flex items-center justify-center p-0.5 shadow-2xs">
-                <img src={companyLogo} alt={companyName} className="w-full h-full object-contain" />
+              <div className="h-12 min-w-12 max-w-[140px] rounded-lg overflow-hidden border border-slate-200 bg-white shrink-0 flex items-center justify-center p-1 shadow-2xs">
+                <img
+                  src={companyLogo}
+                  alt={companyName}
+                  className="max-h-full max-w-full object-contain"
+                  referrerPolicy="no-referrer"
+                />
               </div>
             ) : (
               <div className="w-11 h-11 rounded-lg bg-slate-900 text-amber-400 flex items-center justify-center font-black text-lg shadow-xs border border-slate-800 shrink-0">
-                {companyName.includes('HHG') ? 'HHG' : 'SF'}
+                {companyName.includes('HHG') ? 'HHG' : companyName.substring(0, 3).toUpperCase()}
               </div>
             )}
             <div className="space-y-0.5">

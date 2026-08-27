@@ -23,7 +23,10 @@ export interface CompanyInfo {
   address: string; // Trụ sở / Showroom
   taxCode: string; // Mã số thuế (MST)
   logoUrl?: string; // Logo (Base64 hoặc URL)
+  logo?: string; // Alias for logoUrl
+  industry?: string;
   phone: string; // Hotline / Điện thoại
+  hotline?: string;
   email: string; // Email công ty
   website: string; // Website
   bankName?: string; // Tên ngân hàng
@@ -138,6 +141,7 @@ export interface Quotation {
   companyAddress?: string; // Địa chỉ công ty
   companyTaxCode?: string; // Mã số thuế
   companyLogo?: string; // Logo công ty
+  companyLogoUrl?: string; // Alias for company logo
   companyHotline?: string; // Hotline
   companyWebsite?: string; // Website
   companyEmail?: string; // Email công ty
@@ -192,6 +196,7 @@ export interface Contract {
   companyEmail?: string;
   companyWebsite?: string;
   companyLogo?: string;
+  companyLogoUrl?: string;
   salesRepId: string;
   salesRepName: string;
   salesRepPhone?: string;

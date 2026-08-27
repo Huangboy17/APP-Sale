@@ -645,7 +645,7 @@ export const QuotationModal: React.FC<QuotationModalProps> = ({
       companyWebsite: headerFooterConfig.companyWebsite || companyInfo?.website,
       companyEmail: headerFooterConfig.companyEmail || companyInfo?.email,
       companyTaxCode: companyInfo?.taxCode,
-      companyLogo: companyInfo?.logo,
+      companyLogo: headerFooterConfig.companyLogo || companyInfo?.logoUrl || companyInfo?.logo || '',
       orderCode: headerFooterConfig.orderCode || quoteNumber,
       projectLocation: headerFooterConfig.projectLocation || deliveryAddress || selectedCustomer?.address || '',
       contactPerson: headerFooterConfig.contactPerson || selectedCustomer?.name || '',

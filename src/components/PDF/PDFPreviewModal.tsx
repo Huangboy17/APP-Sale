@@ -30,13 +30,13 @@ export const PDFPreviewModal: React.FC = () => {
   const quoteData = isQuote ? (pdfPreviewData.data as Quotation) : null;
   const contractData = !isQuote ? (pdfPreviewData.data as Contract) : null;
 
-  const activeCompanyName = contractData?.companyName || companyInfo?.name || 'CÔNG TY TNHH HHG HOLDINGS';
-  const activeCompanyAddress = contractData?.companyAddress || companyInfo?.address || 'Số 5-6-7 The Premier, Tôn Thất Thuyết, Cầu Giấy, Hà Nội';
-  const activeCompanyTaxCode = contractData?.companyTaxCode || companyInfo?.taxCode || '0108999888';
-  const activeCompanyPhone = contractData?.companyPhone || companyInfo?.phone || companyInfo?.hotline || '+84 243 821 6666';
-  const activeCompanyEmail = contractData?.companyEmail || companyInfo?.email || 'info@hhg.vn';
-  const activeCompanyWebsite = contractData?.companyWebsite || companyInfo?.website || 'www.hhg.vn';
-  const activeCompanyLogo = contractData?.companyLogo || companyInfo?.logo;
+  const activeCompanyName = contractData?.companyName || quoteData?.companyName || companyInfo?.name || 'CÔNG TY TNHH HHG HOLDINGS';
+  const activeCompanyAddress = contractData?.companyAddress || quoteData?.companyAddress || companyInfo?.address || 'Số 5-6-7 The Premier, Tôn Thất Thuyết, Cầu Giấy, Hà Nội';
+  const activeCompanyTaxCode = contractData?.companyTaxCode || quoteData?.companyTaxCode || companyInfo?.taxCode || '0108999888';
+  const activeCompanyPhone = contractData?.companyPhone || quoteData?.companyHotline || companyInfo?.phone || companyInfo?.hotline || '+84 243 821 6666';
+  const activeCompanyEmail = contractData?.companyEmail || quoteData?.companyEmail || companyInfo?.email || 'info@hhg.vn';
+  const activeCompanyWebsite = contractData?.companyWebsite || quoteData?.companyWebsite || companyInfo?.website || 'www.hhg.vn';
+  const activeCompanyLogo = contractData?.companyLogo || contractData?.companyLogoUrl || quoteData?.companyLogo || quoteData?.companyLogoUrl || companyInfo?.logoUrl || companyInfo?.logo;
 
   // Download PDF using html2canvas and jsPDF
   const handleDownloadPDF = async () => {

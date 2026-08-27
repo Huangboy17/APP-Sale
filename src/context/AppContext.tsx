@@ -468,8 +468,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           if (!snap.empty) {
             const data = snap.docs[0].data() as CompanyInfo;
             if (data && data.name) {
-              setCompanyInfo(data);
-              localStorage.setItem(STORAGE_KEYS.COMPANY, JSON.stringify(data));
+              const normalizedData: CompanyInfo = {
+                ...data,
+                logoUrl: data.logoUrl || data.logo || '',
+                logo: data.logoUrl || data.logo || '',
+              };
+              setCompanyInfo(normalizedData);
+              localStorage.setItem(STORAGE_KEYS.COMPANY, JSON.stringify(normalizedData));
             }
           }
           setLastCloudSyncTime(new Date());
@@ -570,9 +575,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const updateCompanyInfo = async (info: Partial<CompanyInfo>) => {
+    const effectiveLogo = info.logoUrl || info.logo || (info.logoUrl === '' ? '' : companyInfo.logoUrl || companyInfo.logo || '');
     const updated: CompanyInfo = {
       ...companyInfo,
       ...info,
+      logoUrl: effectiveLogo,
+      logo: effectiveLogo,
       updatedAt: new Date().toISOString(),
     };
     setCompanyInfo(updated);
@@ -1407,7 +1415,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       companyPhone: quote.companyHotline || companyInfo.phone || companyInfo.hotline,
       companyEmail: quote.companyEmail || companyInfo.email,
       companyWebsite: quote.companyWebsite || companyInfo.website,
-      companyLogo: quote.companyLogo || companyInfo.logo,
+      companyLogo: quote.companyLogo || companyInfo.logoUrl || companyInfo.logo,
       salesRepId: quote.salesRepId,
       salesRepName: quote.salesRepName,
       salesRepPhone: quote.salesRepPhone,
