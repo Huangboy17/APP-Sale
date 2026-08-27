@@ -14,14 +14,19 @@ import {
   KeyRound,
   Mail,
   Building,
+  Building2,
   Phone,
   Shield,
+  User as UserIcon,
+  Sparkles,
 } from 'lucide-react';
 import { ChangePasswordModal } from './Modals/ChangePasswordModal';
+import { UserProfileCompanyModal } from './Modals/UserProfileCompanyModal';
 
 export const Header: React.FC = () => {
   const {
     currentUser,
+    companyInfo,
     logout,
     setIsCreateQuoteModalOpen,
     setSelectedQuoteForModal,
@@ -31,10 +36,16 @@ export const Header: React.FC = () => {
     setActiveTab,
     cloudSyncStatus,
     syncAllToCloudNow,
+    isProfileModalOpen,
+    setIsProfileModalOpen,
+    profileModalInitialTab,
+    setProfileModalInitialTab,
   } = useApp();
 
   const [isChangePassOpen, setIsChangePassOpen] = useState(false);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
+
+  const isTier1OrAdmin = currentUser.role === 'super_admin' || currentUser.role === 'manager_c1';
 
   const getRoleBadge = () => {
     switch (currentUser.role) {
@@ -68,13 +79,19 @@ export const Header: React.FC = () => {
     setIsCreateQuoteModalOpen(true);
   };
 
+  const handleOpenProfileModal = (tab: 'profile' | 'company') => {
+    setProfileModalInitialTab(tab);
+    setIsProfileModalOpen(true);
+    setIsProfileOpen(false);
+  };
+
   return (
     <>
       <header className="h-14 bg-white border-b border-slate-200 flex items-center justify-between px-4 sm:px-6 shrink-0 z-20">
         {/* Left Title & Google Cloud Firestore Badge */}
         <div className="flex items-center space-x-3">
-          <h2 className="font-bold text-sm sm:text-base text-slate-800 tracking-tight">
-            Hệ thống quản lý kinh doanh & Báo giá
+          <h2 className="font-bold text-sm sm:text-base text-slate-800 tracking-tight flex items-center space-x-2">
+            <span>Hệ thống quản lý kinh doanh & Báo giá</span>
           </h2>
 
           {/* Google Cloud Firestore Status Indicator */}
@@ -96,22 +113,41 @@ export const Header: React.FC = () => {
         </div>
 
         {/* Right Quick Actions & Profile */}
-        <div className="flex items-center space-x-2.5">
+        <div className="flex items-center space-x-2">
+          {/* Quick Company Brand Button for Level 1 & Admin */}
+          <button
+            onClick={() => handleOpenProfileModal('company')}
+            className={`hidden lg:inline-flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition border cursor-pointer ${
+              isTier1OrAdmin
+                ? 'bg-amber-50 hover:bg-amber-100 text-amber-900 border-amber-300 shadow-2xs'
+                : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200'
+            }`}
+            title="Thông tin công ty & Nhận diện thương hiệu (Tên, MST, Địa chỉ, Logo cấp cho Cấp 2 và Báo giá/Hợp đồng)"
+          >
+            <Building2 className={`w-3.5 h-3.5 ${isTier1OrAdmin ? 'text-amber-700' : 'text-slate-500'}`} />
+            <span>{isTier1OrAdmin ? 'Cấu hình Thương hiệu Công ty' : 'Thương hiệu Công ty'}</span>
+            {isTier1OrAdmin && (
+              <span className="px-1.5 py-0.2 rounded-full text-[9px] bg-amber-200 text-amber-900 font-bold">
+                Cấp 1
+              </span>
+            )}
+          </button>
+
           {/* Quick Import Data Shortcut (For Admin & C1) */}
           {currentUser.role !== 'sales_c2' && (
             <button
               onClick={() => setActiveTab('products')}
-              className="hidden md:inline-flex items-center space-x-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-1.5 rounded text-xs font-medium transition-colors border border-slate-200"
+              className="hidden md:inline-flex items-center space-x-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors border border-slate-200"
             >
               <FileSpreadsheet className="w-3.5 h-3.5 text-slate-500" />
-              <span>Import Data Giá & Kho</span>
+              <span>Import Data Giá</span>
             </button>
           )}
 
           {/* Quick Clear Data Button */}
           <button
             onClick={() => setIsClearDataModalOpen(true)}
-            className="inline-flex items-center space-x-1 px-2.5 py-1.5 rounded text-xs font-semibold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 transition shadow-2xs cursor-pointer"
+            className="inline-flex items-center space-x-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 transition shadow-2xs cursor-pointer"
             title="Xoá toàn bộ dữ liệu: Khách hàng, Data giá, Báo giá, Tồn kho..."
           >
             <Trash2 className="w-3.5 h-3.5 text-rose-600" />
@@ -122,13 +158,13 @@ export const Header: React.FC = () => {
           <button
             id="header-create-quote-btn"
             onClick={handleOpenNewQuote}
-            className="bg-blue-600 text-white px-3 py-1.5 rounded text-xs font-medium hover:bg-blue-700 transition-colors flex items-center space-x-1 shadow-xs"
+            className="bg-blue-600 text-white px-3 py-1.5 rounded-lg text-xs font-semibold hover:bg-blue-700 transition-colors flex items-center space-x-1.5 shadow-xs"
           >
             <Plus className="w-3.5 h-3.5" />
-            <span>+ Tạo Báo Giá Mới</span>
+            <span>+ Tạo Báo Giá</span>
           </button>
 
-          <div className="h-5 w-px bg-slate-200 mx-1"></div>
+          <div className="h-5 w-px bg-slate-200 mx-0.5"></div>
 
           {/* Authenticated User Profile Menu */}
           <div className="relative">
@@ -137,7 +173,11 @@ export const Header: React.FC = () => {
               className="flex items-center space-x-2 px-2.5 py-1 rounded-lg border border-slate-200 hover:border-slate-300 bg-slate-50 hover:bg-slate-100 cursor-pointer transition text-left"
             >
               <div className="w-7 h-7 rounded-full bg-blue-600/15 border border-blue-200 text-blue-700 font-bold flex items-center justify-center text-xs shrink-0">
-                {currentUser.name.charAt(0)}
+                {currentUser.avatar ? (
+                  <img src={currentUser.avatar} alt={currentUser.name} className="w-full h-full rounded-full object-cover" />
+                ) : (
+                  currentUser.name.charAt(0)
+                )}
               </div>
               <div className="text-left hidden sm:block">
                 <div className="flex items-center space-x-1.5">
@@ -159,11 +199,15 @@ export const Header: React.FC = () => {
                   className="fixed inset-0 z-40"
                   onClick={() => setIsProfileOpen(false)}
                 />
-                <div className="absolute right-0 mt-1.5 w-80 bg-white rounded-xl shadow-2xl border border-slate-200 p-3.5 z-50 animate-in fade-in zoom-in-95 duration-100">
+                <div className="absolute right-0 mt-1.5 w-84 bg-white rounded-xl shadow-2xl border border-slate-200 p-3.5 z-50 animate-in fade-in zoom-in-95 duration-100">
                   {/* User details header */}
                   <div className="flex items-start space-x-3 pb-3 border-b border-slate-100">
                     <div className="w-10 h-10 rounded-full bg-blue-600/15 border border-blue-200 text-blue-700 font-bold flex items-center justify-center text-sm shrink-0">
-                      {currentUser.name.charAt(0)}
+                      {currentUser.avatar ? (
+                        <img src={currentUser.avatar} alt={currentUser.name} className="w-full h-full rounded-full object-cover" />
+                      ) : (
+                        currentUser.name.charAt(0)
+                      )}
                     </div>
                     <div className="min-w-0 flex-1">
                       <h4 className="font-bold text-xs text-slate-900 truncate">{currentUser.name}</h4>
@@ -192,13 +236,44 @@ export const Header: React.FC = () => {
                     </div>
                   </div>
 
-                  {/* Security notice */}
-                  <div className="my-2.5 px-2.5 py-2 rounded-lg bg-slate-50 border border-slate-200 text-[10px] text-slate-600 flex items-center space-x-2">
-                    <Shield className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                    <span>Phiên làm việc độc lập & bảo mật. Để chuyển tài khoản, vui lòng đăng xuất.</span>
+                  {/* Quick Profile & Company Management Actions */}
+                  <div className="py-2 border-b border-slate-100 space-y-1">
+                    <button
+                      type="button"
+                      onClick={() => handleOpenProfileModal('profile')}
+                      className="w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-xs text-slate-800 hover:bg-blue-50 hover:text-blue-700 transition font-semibold cursor-pointer"
+                    >
+                      <div className="flex items-center space-x-2">
+                        <UserIcon className="w-4 h-4 text-blue-600" />
+                        <span>Hồ sơ & Thông tin cá nhân</span>
+                      </div>
+                      <span className="text-[10px] text-slate-400">Xem/Sửa</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => handleOpenProfileModal('company')}
+                      className={`w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-xs transition font-semibold cursor-pointer ${
+                        isTier1OrAdmin
+                          ? 'bg-amber-50/70 hover:bg-amber-100/80 text-amber-950 border border-amber-200/60'
+                          : 'text-slate-800 hover:bg-slate-100'
+                      }`}
+                    >
+                      <div className="flex items-center space-x-2">
+                        <Building2 className={`w-4 h-4 ${isTier1OrAdmin ? 'text-amber-600' : 'text-slate-500'}`} />
+                        <span>Thông tin Công ty & Logo</span>
+                      </div>
+                      {isTier1OrAdmin ? (
+                        <span className="text-[9.5px] px-1.5 py-0.2 rounded bg-amber-200 text-amber-900 font-bold">
+                          Cấp 1 Cài Đặt
+                        </span>
+                      ) : (
+                        <span className="text-[10px] text-slate-400">Xem</span>
+                      )}
+                    </button>
                   </div>
 
-                  {/* Actions */}
+                  {/* System Actions */}
                   <div className="space-y-1 pt-1">
                     <button
                       type="button"
@@ -209,7 +284,7 @@ export const Header: React.FC = () => {
                       className="w-full flex items-center space-x-2 px-2.5 py-2 rounded-lg text-xs text-slate-700 hover:bg-slate-100 transition font-medium cursor-pointer"
                     >
                       <KeyRound className="w-3.5 h-3.5 text-slate-500" />
-                      <span>Đổi mật khẩu cá nhân</span>
+                      <span>Đổi mật khẩu tài khoản</span>
                     </button>
 
                     <button
@@ -258,6 +333,17 @@ export const Header: React.FC = () => {
         </div>
       </header>
 
+      {/* User Profile & Company Identity Modal */}
+      <UserProfileCompanyModal
+        isOpen={isProfileModalOpen}
+        onClose={() => setIsProfileModalOpen(false)}
+        initialTab={profileModalInitialTab}
+        onOpenChangePassword={() => {
+          setIsProfileModalOpen(false);
+          setIsChangePassOpen(true);
+        }}
+      />
+
       {/* Change Password Modal */}
       <ChangePasswordModal
         isOpen={isChangePassOpen}
@@ -266,3 +352,4 @@ export const Header: React.FC = () => {
     </>
   );
 };
+

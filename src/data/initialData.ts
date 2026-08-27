@@ -1,5 +1,24 @@
-import { User, Customer, ProductPriceItem, InventoryItem, Quotation, Contract, ReserveItem, OrderItem } from '../types';
+import { User, CompanyInfo, Customer, ProductPriceItem, InventoryItem, Quotation, Contract, ReserveItem, OrderItem } from '../types';
 import { IMPORTED_PRODUCTS } from './importedProducts';
+
+export const INITIAL_COMPANY_INFO: CompanyInfo = {
+  id: 'company-master',
+  name: 'CÔNG TY CỔ PHẦN CÔNG NGHỆ & THIẾT BỊ SALESFLOW',
+  legalName: 'CÔNG TY CỔ PHẦN CÔNG NGHỆ & THIẾT BỊ SALESFLOW',
+  address: 'Tòa nhà Bitexco Financial Tower, Số 2 Hải Triều, Bến Nghé, Quận 1, TP.HCM',
+  taxCode: '0318999888',
+  logoUrl: '',
+  phone: '1900 6868 - (028) 3822 9999',
+  email: 'contact@salesflow.vn',
+  website: 'www.salesflow.vn',
+  bankName: 'Ngân hàng TMCP Ngoại Thương Việt Nam (Vietcombank) - Chi nhánh TP.HCM',
+  bankAccountNumber: '0071000999888',
+  bankAccountHolder: 'CONG TY CP CONG NGHE & THIET BI SALESFLOW',
+  directorName: 'Bùi Viết Hoàng',
+  directorTitle: 'Tổng Giám Đốc',
+  updatedBy: 'Bùi Viết Hoàng (Super Admin)',
+  updatedAt: '2026-01-01',
+};
 
 export const INITIAL_USERS: User[] = [
   {

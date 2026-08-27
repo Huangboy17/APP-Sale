@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
+import { UserProfileCompanyModal } from './Modals/UserProfileCompanyModal';
 import {
   LayoutDashboard,
   Users,
@@ -28,6 +29,9 @@ export const Sidebar: React.FC = () => {
     setIsClearDataModalOpen,
     logout,
   } = useApp();
+
+  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
+  const [profileModalInitialTab, setProfileModalInitialTab] = useState<'profile' | 'company'>('profile');
 
   const isSuperAdmin = currentUser.role === 'super_admin';
   const isManagerC1 = currentUser.role === 'manager_c1';
@@ -263,20 +267,46 @@ export const Sidebar: React.FC = () => {
       {/* Profile Footer & Logout */}
       <div className="p-3 border-t border-slate-700 text-xs text-slate-400 shrink-0 bg-[#172033]">
         <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-2.5 min-w-0 flex-1 mr-2">
-            <div className="w-8 h-8 rounded-full bg-blue-600/30 border border-blue-400/40 text-blue-300 font-bold flex items-center justify-center text-xs shrink-0">
-              {currentUser.name.charAt(0)}
+          <button
+            type="button"
+            onClick={() => {
+              setProfileModalInitialTab('profile');
+              setIsProfileModalOpen(true);
+            }}
+            className="flex items-center space-x-2.5 min-w-0 flex-1 mr-2 text-left hover:opacity-80 transition cursor-pointer group"
+            title="Bấm để xem và chỉnh sửa thông tin cá nhân & thương hiệu công ty"
+          >
+            <div className="w-8 h-8 rounded-full bg-blue-600/30 border border-blue-400/40 text-blue-300 font-bold flex items-center justify-center text-xs shrink-0 overflow-hidden">
+              {currentUser.avatar ? (
+                <img src={currentUser.avatar} alt={currentUser.name} className="w-full h-full object-cover" />
+              ) : (
+                currentUser.name.charAt(0)
+              )}
             </div>
             <div className="min-w-0 flex-1">
-              <p className="font-medium text-slate-200 text-xs truncate" title={currentUser.name}>{currentUser.name}</p>
+              <p className="font-medium text-slate-200 text-xs truncate group-hover:text-blue-300 transition" title={currentUser.name}>
+                {currentUser.name}
+              </p>
               <p className="text-[10px] text-slate-400 truncate">
                 {currentUser.role === 'super_admin' ? 'Super Admin (L0)' : currentUser.role === 'manager_c1' ? 'Director (L1)' : 'Sales (L2)'}
               </p>
             </div>
-          </div>
+          </button>
 
           {/* Quick action buttons */}
           <div className="flex items-center space-x-1 shrink-0">
+            <button
+              type="button"
+              onClick={() => {
+                setProfileModalInitialTab('company');
+                setIsProfileModalOpen(true);
+              }}
+              className="p-1.5 rounded-md hover:bg-slate-700 hover:text-amber-300 text-slate-400 border border-slate-700 transition cursor-pointer"
+              title="Xem / Cài đặt thông tin thương hiệu công ty"
+            >
+              <Building2 className="w-3.5 h-3.5" />
+            </button>
+
             <button
               type="button"
               onClick={() => setIsClearDataModalOpen(true)}
@@ -299,6 +329,12 @@ export const Sidebar: React.FC = () => {
           </div>
         </div>
       </div>
+
+      <UserProfileCompanyModal
+        isOpen={isProfileModalOpen}
+        onClose={() => setIsProfileModalOpen(false)}
+        initialTab={profileModalInitialTab}
+      />
     </aside>
   );
 };

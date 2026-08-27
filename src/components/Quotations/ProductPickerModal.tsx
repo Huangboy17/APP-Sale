@@ -28,6 +28,8 @@ interface ProductPickerModalProps {
   inventory: InventoryItem[];
   existingItems: QuoteProductRow[];
   onAddProduct: (row: QuoteProductRow, mode?: 'append' | 'merge') => void;
+  targetSection?: string;
+  sectionsList?: string[];
 }
 
 export const ProductPickerModal: React.FC<ProductPickerModalProps> = ({
@@ -37,6 +39,8 @@ export const ProductPickerModal: React.FC<ProductPickerModalProps> = ({
   inventory,
   existingItems,
   onAddProduct,
+  targetSection,
+  sectionsList,
 }) => {
   // Search and Filter State
   const [searchTerm, setSearchTerm] = useState('');
@@ -47,6 +51,20 @@ export const ProductPickerModal: React.FC<ProductPickerModalProps> = ({
   const [maxPrice, setMaxPrice] = useState<string>('');
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
+
+  // Target Section selector state
+  const [selectedTargetSection, setSelectedTargetSection] = useState<string>(
+    targetSection || (sectionsList && sectionsList[0]) || ''
+  );
+
+  // Sync targetSection when prop changes
+  React.useEffect(() => {
+    if (targetSection) {
+      setSelectedTargetSection(targetSection);
+    } else if (sectionsList && sectionsList.length > 0 && !selectedTargetSection) {
+      setSelectedTargetSection(sectionsList[0]);
+    }
+  }, [targetSection, sectionsList, isOpen]);
 
   // Quick Entry Drawer / Selected Product State
   const [selectedProduct, setSelectedProduct] = useState<ProductPriceItem | null>(null);
@@ -157,11 +175,13 @@ export const ProductPickerModal: React.FC<ProductPickerModalProps> = ({
     const finalPrice = prod.listPrice || prod.dpPrice || 0;
     const isBelowDP = finalPrice < prod.dpPrice;
 
+    const finalCategory = selectedTargetSection || prod.category || 'Hạng mục chung';
+
     const newRow: QuoteProductRow = {
       id: `row-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
       sku: prod.sku,
       name: prod.name,
-      category: prod.category,
+      category: finalCategory,
       brand: prod.brand,
       color: prod.color || '',
       size: prod.size || '',
@@ -178,7 +198,7 @@ export const ProductPickerModal: React.FC<ProductPickerModalProps> = ({
     };
 
     onAddProduct(newRow, 'merge');
-    showToast(`✓ Đã thêm 1 ${prod.unit || 'SP'} "${prod.name}" vào báo giá!`);
+    showToast(`✓ Đã thêm vào "${finalCategory}": ${prod.name}`);
   };
 
   // Price change handler (Cách 1: Nhập số tiền trực tiếp)
@@ -229,12 +249,13 @@ export const ProductPickerModal: React.FC<ProductPickerModalProps> = ({
     const isBelowDP = quotedPrice < selectedProduct.dpPrice;
     const safeQty = Math.max(1, quantity);
     const totalAmount = quotedPrice * safeQty;
+    const finalCategory = selectedTargetSection || selectedProduct.category || 'Hạng mục chung';
 
     const newRow: QuoteProductRow = {
       id: `row-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
       sku: selectedProduct.sku,
       name: selectedProduct.name,
-      category: selectedProduct.category,
+      category: finalCategory,
       brand: selectedProduct.brand,
       color: selectedProduct.color || '',
       size: selectedProduct.size || '',
@@ -251,7 +272,7 @@ export const ProductPickerModal: React.FC<ProductPickerModalProps> = ({
     };
 
     onAddProduct(newRow, existingRow ? duplicateHandling : 'append');
-    showToast(`✓ Đã thêm ${safeQty} ${selectedProduct.unit || 'SP'} "${selectedProduct.name}" vào báo giá!`);
+    showToast(`✓ Đã thêm ${safeQty} ${selectedProduct.unit || 'SP'} vào "${finalCategory}"`);
 
     if (keepOpen) {
       // Clear current selection and keep modal open for picking more products
@@ -318,7 +339,7 @@ export const ProductPickerModal: React.FC<ProductPickerModalProps> = ({
         )}
 
         {/* MODAL HEADER */}
-        <div className="px-4 py-3 bg-gradient-to-r from-slate-900 to-slate-800 text-white flex items-center justify-between shrink-0">
+        <div className="px-4 py-3 bg-gradient-to-r from-slate-900 to-slate-800 text-white flex flex-col sm:flex-row sm:items-center justify-between gap-3 shrink-0">
           <div className="flex items-center space-x-2.5">
             <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center text-white font-bold shadow-xs">
               <Package className="w-4 h-4" />
@@ -331,17 +352,42 @@ export const ProductPickerModal: React.FC<ProductPickerModalProps> = ({
                 </span>
               </div>
               <p className="text-[11px] text-slate-300">
-                Tìm kiếm theo SKU, tên, hãng. Có thể bấm <strong>"⚡ Thêm nhanh"</strong> hoặc <strong>"Chọn"</strong> để tùy chỉnh chiết khấu.
+                Tìm kiếm theo SKU, tên, hãng. Bấm <strong>"⚡ Thêm nhanh"</strong> hoặc tùy chỉnh chiết khấu.
               </p>
             </div>
           </div>
 
-          <button
-            onClick={onClose}
-            className="w-8 h-8 rounded-lg hover:bg-slate-700 text-slate-300 hover:text-white flex items-center justify-center transition"
-          >
-            <X className="w-5 h-5" />
-          </button>
+          <div className="flex items-center space-x-2">
+            {/* Section Target Selector */}
+            <div className="flex items-center space-x-1.5 bg-blue-950/80 px-2.5 py-1.5 rounded-lg border border-blue-600/50">
+              <Layers className="w-3.5 h-3.5 text-blue-300 shrink-0" />
+              <span className="text-[10px] text-blue-200 uppercase font-black tracking-wider whitespace-nowrap">Thêm vào:</span>
+              <select
+                value={selectedTargetSection}
+                onChange={(e) => setSelectedTargetSection(e.target.value)}
+                className="bg-slate-900 text-amber-300 font-extrabold text-xs px-2 py-0.5 rounded border border-blue-400/60 focus:outline-hidden focus:ring-1 focus:ring-amber-400 max-w-[180px] truncate"
+              >
+                {sectionsList && sectionsList.length > 0 ? (
+                  sectionsList.map((sec) => (
+                    <option key={sec} value={sec}>
+                      {sec}
+                    </option>
+                  ))
+                ) : (
+                  <option value={selectedTargetSection || 'Hạng mục chung'}>
+                    {selectedTargetSection || 'Hạng mục chung'}
+                  </option>
+                )}
+              </select>
+            </div>
+
+            <button
+              onClick={onClose}
+              className="w-8 h-8 rounded-lg hover:bg-slate-700 text-slate-300 hover:text-white flex items-center justify-center transition shrink-0"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
         {/* SEARCH & FILTERS BAR */}

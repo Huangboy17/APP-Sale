@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useMemo } from '
 import {
   User,
   UserRole,
+  CompanyInfo,
   Customer,
   CustomerStage,
   ProductPriceItem,
@@ -16,6 +17,7 @@ import {
 } from '../types';
 import {
   INITIAL_USERS,
+  INITIAL_COMPANY_INFO,
   INITIAL_PRODUCTS,
   INITIAL_INVENTORY,
   INITIAL_CUSTOMERS,
@@ -33,6 +35,7 @@ import {
   COLLECTIONS,
   seedInitialDataIfEmpty,
   syncUserToCloud,
+  syncCompanyInfoToCloud,
   deleteUserFromCloud,
   syncCustomerToCloud,
   deleteCustomerFromCloud,
@@ -68,6 +71,7 @@ interface AppContextType {
   // Current user & Auth
   currentUser: User;
   setCurrentUser: (user: User) => void;
+  updateUserProfile: (userData: Partial<User>) => Promise<void>;
   isAuthenticated: boolean;
   setIsAuthenticated: (auth: boolean) => void;
   login: (email: string, password?: string) => { success: boolean; message: string; user?: User };
@@ -96,6 +100,14 @@ interface AppContextType {
   approveUser: (userId: string) => void;
   updateUser: (user: User) => void;
   deleteUser: (userId: string) => void;
+
+  // Master Company Information & Brand Identity
+  companyInfo: CompanyInfo;
+  updateCompanyInfo: (info: Partial<CompanyInfo>) => Promise<void>;
+  isProfileModalOpen: boolean;
+  setIsProfileModalOpen: (open: boolean) => void;
+  profileModalInitialTab: 'profile' | 'company';
+  setProfileModalInitialTab: (tab: 'profile' | 'company') => void;
 
   // Customers
   customers: Customer[];
@@ -202,6 +214,7 @@ const STORAGE_KEYS = {
   USERS: 'salesflow_users_v1',
   CURRENT_USER_ID: 'salesflow_current_user_id_v1',
   IS_AUTHENTICATED: 'salesflow_is_authenticated_v1',
+  COMPANY: 'salesflow_company_info_v1',
   CUSTOMERS: 'salesflow_customers_v1',
   PRODUCTS: 'salesflow_products_v1',
   INVENTORY: 'salesflow_inventory_v1',
@@ -316,6 +329,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const saved = localStorage.getItem(STORAGE_KEYS.ORDERS);
     return saved ? JSON.parse(saved) : INITIAL_ORDER_ITEMS;
   });
+
+  // Master Company Information (Synced to all C1 & C2 users)
+  const [companyInfo, setCompanyInfo] = useState<CompanyInfo>(() => {
+    const saved = localStorage.getItem(STORAGE_KEYS.COMPANY);
+    if (!saved) return INITIAL_COMPANY_INFO;
+    try {
+      return JSON.parse(saved);
+    } catch {
+      return INITIAL_COMPANY_INFO;
+    }
+  });
+
+  // Profile & Company Identity Modal
+  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
+  const [profileModalInitialTab, setProfileModalInitialTab] = useState<'profile' | 'company'>('profile');
 
   const [activeTab, setActiveTab] = useState<NavTabType>('dashboard');
 
@@ -435,6 +463,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         });
         unsubs.push(unsubOrders);
 
+        // 9. Master Company Info real-time listener (Propagates brand identity to all C1 & C2 users)
+        const unsubCompany = onSnapshot(collection(db, COLLECTIONS.COMPANY), (snap) => {
+          if (!snap.empty) {
+            const data = snap.docs[0].data() as CompanyInfo;
+            if (data && data.name) {
+              setCompanyInfo(data);
+              localStorage.setItem(STORAGE_KEYS.COMPANY, JSON.stringify(data));
+            }
+          }
+          setLastCloudSyncTime(new Date());
+        });
+        unsubs.push(unsubCompany);
+
         setCloudSyncStatus('connected');
       } catch (err) {
         console.error('[Firestore] Initialization error:', err);
@@ -486,12 +527,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     localStorage.setItem(STORAGE_KEYS.ORDERS, JSON.stringify(orderItems));
   }, [orderItems]);
 
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEYS.COMPANY, JSON.stringify(companyInfo));
+  }, [companyInfo]);
+
   // Sync all current state to Google Cloud Firestore on demand
   const syncAllToCloudNow = async () => {
     try {
       setCloudSyncStatus('syncing');
       await Promise.all([
         ...users.map((u) => syncUserToCloud(u)),
+        syncCompanyInfoToCloud(companyInfo),
         ...customers.map((c) => syncCustomerToCloud(c)),
         batchSyncProductsToCloud(products),
         batchSyncInventoryToCloud(inventory),
@@ -506,6 +552,32 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       console.error('[Firestore] Sync all error:', err);
       setCloudSyncStatus('error');
     }
+  };
+
+  // User Profile & Company Info Actions
+  const updateUserProfile = async (userData: Partial<User>) => {
+    const updatedUser: User = {
+      ...currentUser,
+      ...userData,
+    };
+    setCurrentUser(updatedUser);
+    setUsers((prev) => {
+      const updatedList = prev.map((u) => (u.id === updatedUser.id ? updatedUser : u));
+      localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(updatedList));
+      return updatedList;
+    });
+    await syncUserToCloud(updatedUser);
+  };
+
+  const updateCompanyInfo = async (info: Partial<CompanyInfo>) => {
+    const updated: CompanyInfo = {
+      ...companyInfo,
+      ...info,
+      updatedAt: new Date().toISOString(),
+    };
+    setCompanyInfo(updated);
+    localStorage.setItem(STORAGE_KEYS.COMPANY, JSON.stringify(updated));
+    await syncCompanyInfoToCloud(updated);
   };
 
   // User management
@@ -1318,7 +1390,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return updated;
     });
 
-    // 3. Create Contract
+    // 3. Create Contract with master company branding
     const newContract: Contract = {
       id: contractId,
       contractNumber,
@@ -1329,6 +1401,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       customerCompany: quote.customerCompany,
       customerAddress: quote.customerAddress,
       customerPhone: quote.customerPhone,
+      companyName: quote.companyName || companyInfo.name,
+      companyTaxCode: quote.companyTaxCode || companyInfo.taxCode,
+      companyAddress: quote.companyAddress || companyInfo.address,
+      companyPhone: quote.companyHotline || companyInfo.phone || companyInfo.hotline,
+      companyEmail: quote.companyEmail || companyInfo.email,
+      companyWebsite: quote.companyWebsite || companyInfo.website,
+      companyLogo: quote.companyLogo || companyInfo.logo,
       salesRepId: quote.salesRepId,
       salesRepName: quote.salesRepName,
       salesRepPhone: quote.salesRepPhone,
@@ -1826,6 +1905,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         quickDemoLogin,
         users,
         filteredUsers,
+        updateUserProfile,
         approveManagerC1,
         rejectManagerC1,
         createSalesC2,
@@ -1833,6 +1913,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         approveUser,
         updateUser,
         deleteUser,
+        companyInfo,
+        updateCompanyInfo,
+        isProfileModalOpen,
+        setIsProfileModalOpen,
+        profileModalInitialTab,
+        setProfileModalInitialTab,
         customers,
         filteredCustomers,
         addCustomer,

@@ -10,6 +10,8 @@ import { useApp } from '../../context/AppContext';
 import { formatVND, formatNumber, formatDate, numberToVietnameseWords } from '../../utils/formatters';
 import { ProductPickerModal } from './ProductPickerModal';
 import { CustomerPickerStep } from './CustomerPickerStep';
+import { QuotationHeaderFooterConfig, HeaderFooterConfigState } from './QuotationHeaderFooterConfig';
+import { StandardQuotationDocument } from './StandardQuotationDocument';
 import confetti from 'canvas-confetti';
 import {
   X,
@@ -40,6 +42,10 @@ import {
   Clock,
   HelpCircle,
   Percent,
+  ChevronUp,
+  ChevronDown,
+  FolderPlus,
+  ArrowUpDown,
 } from 'lucide-react';
 
 interface QuotationModalProps {
@@ -59,6 +65,7 @@ export const QuotationModal: React.FC<QuotationModalProps> = ({
 }) => {
   const {
     currentUser,
+    companyInfo,
     customers,
     products,
     inventory,
@@ -104,8 +111,104 @@ export const QuotationModal: React.FC<QuotationModalProps> = ({
   // Quote product rows
   const [items, setItems] = useState<QuoteProductRow[]>([]);
 
+  // Section / Room grouping state
+  const [sections, setSections] = useState<string[]>([
+    'Phần I: Khu Vực WC Master',
+    'Phần II: Khu Vực WC Khách',
+  ]);
+  const [activeSectionForPicker, setActiveSectionForPicker] = useState<string>('Phần I: Khu Vực WC Master');
+  const [isAddingSection, setIsAddingSection] = useState<boolean>(false);
+  const [newSectionName, setNewSectionName] = useState<string>('');
+  const [editingSection, setEditingSection] = useState<{ original: string; current: string } | null>(null);
+
   // Active info tab in Step 2
-  const [activeInfoTab, setActiveInfoTab] = useState<'milestones' | 'delivery' | 'terms' | 'notes'>('milestones');
+  const [activeInfoTab, setActiveInfoTab] = useState<'header_footer' | 'milestones' | 'delivery' | 'terms' | 'notes'>('header_footer');
+
+  // Header & Footer customizable settings state (Inherited from Master Company Settings)
+  const [headerFooterConfig, setHeaderFooterConfig] = useState<HeaderFooterConfigState>(() => ({
+    quoteTitle: 'BÁO GIÁ THIẾT BỊ VỆ SINH',
+    orderCode: '01/HHG',
+    quoteDate: new Date().toISOString().split('T')[0],
+    validUntilDate: new Date(Date.now() + 30 * 86400000).toISOString().split('T')[0],
+    customerName: 'CÔNG TRÌNH NHÀ CHỊ HẠNH',
+    projectLocation: 'STARLAKE',
+    customerPhone: '0978 322 208',
+    contactPerson: 'CHỊ HUYỀN',
+    companyName: companyInfo?.name || 'CÔNG TY TNHH HHG HOLDINGS',
+    companyAddress: companyInfo?.address || 'Số 5-6-7 The Premier, Tôn Thất Thuyết, Cầu Giấy, Hà Nội',
+    companyHotline: companyInfo?.phone || companyInfo?.hotline || '+84 243 821 6666',
+    companyWebsite: companyInfo?.website || 'www.hhg.vn',
+    companyEmail: companyInfo?.email || 'info@hhg.vn',
+    salesRepName: currentUser?.name || 'Nguyễn Thị Hương',
+    salesRepPhone: currentUser?.phone || '0978322208',
+    salesRepEmail: currentUser?.email || 'huongnt@hhg.vn',
+    openingGreeting: `Thay mặt ${companyInfo?.name || 'Công ty TNHH HHG HOLDINGS'}, xin hân hạnh gửi đến quý khách xác nhận đơn hàng gồm các hạng mục như sau:`,
+    priceTerms: '- VNĐ, đã bao gồm thuế VAT và chưa bao gồm chi phí lắp đặt.\n- Khối lượng là tạm tính, giá trị thanh toán là khối lượng giao nhận thực tế.',
+    deliveryTerms: 'Starlake',
+    shippingTerms: 'Miễn phí giao hàng đến chân công trình vào các ngày thứ 3 và thứ 5 hàng tuần trong nội thành Hà Nội',
+    warrantyTerms: 'Bảo hành 24 tháng',
+    leadTimeTerms: '180 ngày kể từ ngày nhận tạm ứng',
+    closingNotes: `Mọi thông tin cần làm rõ, Quý khách vui lòng liên hệ với nhân viên phụ trách hoặc ${companyInfo?.name || 'Công ty TNHH HHG Holdings'};\nChân thành cám ơn Quý khách!`,
+    signatoryTitle: companyInfo?.name || 'CÔNG TY TNHH HHG HOLDINGS',
+  }));
+
+  // Handler: Apply HHG Holdings Template
+  const handleApplyHHGTemplate = () => {
+    setHeaderFooterConfig((prev) => ({
+      ...prev,
+      quoteTitle: 'BÁO GIÁ THIẾT BỊ VỆ SINH',
+      orderCode: '01/HHG',
+      customerName: selectedCustomer ? `CÔNG TRÌNH NHÀ ${selectedCustomer.name.toUpperCase()}` : 'CÔNG TRÌNH NHÀ CHỊ HẠNH',
+      projectLocation: selectedCustomer?.address || 'STARLAKE',
+      customerPhone: selectedCustomer?.phone || '0978 322 208',
+      contactPerson: selectedCustomer?.name || 'CHỊ HUYỀN',
+      companyName: 'CÔNG TY TNHH HHG HOLDINGS',
+      companyAddress: 'Số 5-6-7 The Premier, Tôn Thất Thuyết, Cầu Giấy, Hà Nội',
+      companyHotline: '+84 243 821 6666',
+      companyWebsite: 'www.hhg.vn',
+      companyEmail: 'info@hhg.vn',
+      salesRepName: currentUser?.name || 'Nguyễn Thị Hương',
+      salesRepPhone: currentUser?.phone || '0978322208',
+      salesRepEmail: currentUser?.email || 'huongnt@hhg.vn',
+      openingGreeting: 'Thay mặt Công ty TNHH HHG HOLDINGS, xin hân hạnh gửi đến quý khách xác nhận đơn hàng gồm các hạng mục như sau:',
+      priceTerms: '- VNĐ, đã bao gồm thuế VAT và chưa bao gồm chi phí lắp đặt.\n- Khối lượng là tạm tính, giá trị thanh toán là khối lượng giao nhận thực tế.',
+      deliveryTerms: selectedCustomer?.address || 'Starlake',
+      shippingTerms: 'Miễn phí giao hàng đến chân công trình vào các ngày thứ 3 và thứ 5 hàng tuần trong nội thành Hà Nội',
+      warrantyTerms: 'Bảo hành 24 tháng',
+      leadTimeTerms: '180 ngày kể từ ngày nhận tạm ứng',
+      closingNotes: 'Mọi thông tin cần làm rõ, Quý khách vui lòng liên hệ với nhân viên phụ trách hoặc Công ty TNHH HHG Holdings;\nChân thành cám ơn Quý khách!',
+      signatoryTitle: 'CÔNG TY TNHH HHG HOLDINGS',
+    }));
+  };
+
+  // Handler: Apply Standard SalesFlow Template
+  const handleApplyDefaultTemplate = () => {
+    setHeaderFooterConfig((prev) => ({
+      ...prev,
+      quoteTitle: 'BÁO GIÁ THIẾT BỊ HOÀN THIỆN & CHIẾU SÁNG',
+      orderCode: quoteNumber || `BG-${new Date().getFullYear()}-001`,
+      customerName: selectedCustomer?.company || selectedCustomer?.name || 'KHÁCH HÀNG DỰ ÁN',
+      projectLocation: selectedCustomer?.address || 'Tại chân công trình',
+      customerPhone: selectedCustomer?.phone || '',
+      contactPerson: selectedCustomer?.name || '',
+      companyName: 'CÔNG TY CỔ PHẦN CÔNG NGHỆ & THIẾT BỊ SALESFLOW',
+      companyAddress: 'Tòa nhà Bitexco Financial Tower, Số 2 Hải Triều, Bến Nghé, Quận 1, TP.HCM',
+      companyHotline: '1900 6868 - (028) 3822 9999',
+      companyWebsite: 'www.salesflow.vn',
+      companyEmail: 'contact@salesflow.vn',
+      salesRepName: currentUser?.name || 'Chuyên viên tư vấn dự án',
+      salesRepPhone: currentUser?.phone || '1900 6868',
+      salesRepEmail: currentUser?.email || 'sales@salesflow.vn',
+      openingGreeting: 'Thay mặt Công ty Cổ phần Công nghệ & Thiết bị SalesFlow, trân trọng gửi đến Quý khách bảng báo giá chi tiết như sau:',
+      priceTerms: '- Đơn giá VNĐ, đã bao gồm thuế GTGT (VAT).\n- Báo giá có hiệu lực trong vòng 30 ngày kể từ ngày phát hành.',
+      deliveryTerms: deliveryAddress || selectedCustomer?.address || 'Giao hàng tận nơi chân công trình',
+      shippingTerms: 'Miễn phí vận chuyển nội thành cho đơn hàng từ 20.000.000 VNĐ trở lên',
+      warrantyTerms: 'Bảo hành 24-36 tháng chính hãng theo tiêu chuẩn của nhà sản xuất',
+      leadTimeTerms: 'Giao hàng trong vòng 03 - 07 ngày làm việc sau khi nhận tạm ứng',
+      closingNotes: 'Rất mong nhận được sự hợp tác và phản hồi từ Quý khách hàng;\nTrân trọng cảm ơn!',
+      signatoryTitle: 'CÔNG TY CP CÔNG NGHỆ & THIẾT BỊ SALESFLOW',
+    }));
+  };
 
   // Payment milestones (Tạm ứng & thanh toán)
   const [milestones, setMilestones] = useState<PaymentMilestone[]>([
@@ -173,8 +276,52 @@ export const QuotationModal: React.FC<QuotationModalProps> = ({
         setNotes(quotationToEdit.notes || '');
         setTermsAndConditions(quotationToEdit.termsAndConditions || '');
         setItems(quotationToEdit.items || []);
+        
+        // Extract existing sections from quote items
+        if (quotationToEdit.items && quotationToEdit.items.length > 0) {
+          const loadedSecs: string[] = [];
+          quotationToEdit.items.forEach((it) => {
+            const sec = it.category?.trim() || 'Phần I: Khu Vực WC Master';
+            if (!loadedSecs.includes(sec)) {
+              loadedSecs.push(sec);
+            }
+          });
+          if (loadedSecs.length > 0) {
+            setSections(loadedSecs);
+            setActiveSectionForPicker(loadedSecs[0]);
+          }
+        }
+
         setMilestones(quotationToEdit.milestones || []);
         setDeliveryAddress(quotationToEdit.customerAddress || cust?.address || '');
+
+        setHeaderFooterConfig({
+          quoteTitle: quotationToEdit.title || 'BÁO GIÁ THIẾT BỊ VỆ SINH',
+          orderCode: quotationToEdit.orderCode || quotationToEdit.quoteNumber || '01/HHG',
+          quoteDate: quotationToEdit.date || new Date().toISOString().split('T')[0],
+          validUntilDate: quotationToEdit.validUntil || new Date(Date.now() + 30 * 86400000).toISOString().split('T')[0],
+          customerName: quotationToEdit.customerName || (cust?.name ? `CÔNG TRÌNH NHÀ ${cust.name.toUpperCase()}` : 'CÔNG TRÌNH NHÀ CHỊ HẠNH'),
+          projectLocation: quotationToEdit.projectLocation || quotationToEdit.customerAddress || cust?.address || 'STARLAKE',
+          customerPhone: quotationToEdit.customerPhone || cust?.phone || '0978 322 208',
+          contactPerson: quotationToEdit.contactPerson || cust?.name || 'CHỊ HUYỀN',
+          companyName: quotationToEdit.companyName || 'CÔNG TY TNHH HHG HOLDINGS',
+          companyAddress: quotationToEdit.companyAddress || 'Số 5-6-7 The Premier, Tôn Thất Thuyết, Cầu Giấy, Hà Nội',
+          companyHotline: quotationToEdit.companyHotline || '+84 243 821 6666',
+          companyWebsite: quotationToEdit.companyWebsite || 'www.hhg.vn',
+          companyEmail: quotationToEdit.companyEmail || 'info@hhg.vn',
+          salesRepName: quotationToEdit.salesRepName || currentUser.name,
+          salesRepPhone: quotationToEdit.salesRepPhone || currentUser.phone || '0978322208',
+          salesRepEmail: quotationToEdit.salesRepEmail || currentUser.email || 'huongnt@hhg.vn',
+          openingGreeting: quotationToEdit.openingGreeting || 'Thay mặt Công ty TNHH HHG HOLDINGS, xin hân hạnh gửi đến quý khách xác nhận đơn hàng gồm các hạng mục như sau:',
+          priceTerms: quotationToEdit.priceTerms || '- VNĐ, đã bao gồm thuế VAT và chưa bao gồm chi phí lắp đặt.\n- Khối lượng là tạm tính, giá trị thanh toán là khối lượng giao nhận thực tế.',
+          deliveryTerms: quotationToEdit.deliveryTerms || quotationToEdit.customerAddress || cust?.address || 'Starlake',
+          shippingTerms: quotationToEdit.shippingTerms || 'Miễn phí giao hàng đến chân công trình vào các ngày thứ 3 và thứ 5 hàng tuần trong nội thành Hà Nội',
+          warrantyTerms: quotationToEdit.warrantyTerms || 'Bảo hành 24 tháng',
+          leadTimeTerms: quotationToEdit.leadTimeTerms || '180 ngày kể từ ngày nhận tạm ứng',
+          closingNotes: quotationToEdit.closingNotes || 'Mọi thông tin cần làm rõ, Quý khách vui lòng liên hệ với nhân viên phụ trách hoặc Công ty TNHH HHG Holdings;\nChân thành cám ơn Quý khách!',
+          signatoryTitle: quotationToEdit.signatoryTitle || quotationToEdit.companyName || 'CÔNG TY TNHH HHG HOLDINGS',
+        });
+
         setCurrentStep('builder');
       } else {
         // New quote
@@ -204,13 +351,26 @@ export const QuotationModal: React.FC<QuotationModalProps> = ({
 
     setQuoteNumber(newQuoteNum);
     setVersion(nextVersion);
-    setTitle(`Báo giá thiết bị công trình - Lần ${nextVersion}`);
+    setTitle(`BÁO GIÁ THIẾT BỊ VỆ SINH`);
     setDate(new Date().toISOString().split('T')[0]);
     setValidUntil(new Date(Date.now() + 30 * 86400000).toISOString().split('T')[0]);
     setTaxRate(8);
     setDiscountTotal(0);
     setNotes('');
     setDeliveryAddress(cust.address || '');
+
+    setHeaderFooterConfig((prev) => ({
+      ...prev,
+      quoteTitle: 'BÁO GIÁ THIẾT BỊ VỆ SINH',
+      orderCode: '01/HHG',
+      quoteDate: new Date().toISOString().split('T')[0],
+      validUntilDate: new Date(Date.now() + 30 * 86400000).toISOString().split('T')[0],
+      customerName: cust.company || `CÔNG TRÌNH NHÀ ${cust.name.toUpperCase()}`,
+      projectLocation: cust.address || 'STARLAKE',
+      customerPhone: cust.phone || '0978 322 208',
+      contactPerson: cust.name || 'CHỊ HUYỀN',
+      deliveryTerms: cust.address || 'Starlake',
+    }));
 
     if (resetItems) {
       setItems([]);
@@ -222,6 +382,111 @@ export const QuotationModal: React.FC<QuotationModalProps> = ({
   const taxableAmount = Math.max(0, subtotal - discountTotal);
   const taxAmount = Math.round((taxableAmount * taxRate) / 100);
   const grandTotal = taxableAmount + taxAmount;
+
+  // Effective list of sections (including any custom category on items)
+  const allSections = useMemo(() => {
+    const list = [...sections];
+    items.forEach((it) => {
+      const cat = it.category?.trim() || 'Phần I: Khu Vực WC Master';
+      if (!list.includes(cat)) {
+        list.push(cat);
+      }
+    });
+    return list.length > 0 ? list : ['Phần I: Khu Vực WC Master'];
+  }, [sections, items]);
+
+  // Group items by Section for the builder view
+  const itemsBySection = useMemo(() => {
+    const map: Record<string, QuoteProductRow[]> = {};
+    allSections.forEach((sec) => {
+      map[sec] = [];
+    });
+    items.forEach((it) => {
+      const sec = it.category?.trim() || allSections[0] || 'Phần I: Khu Vực WC Master';
+      if (!map[sec]) {
+        map[sec] = [];
+      }
+      map[sec].push(it);
+    });
+    return map;
+  }, [allSections, items]);
+
+  // Calculate subtotal per section
+  const sectionSubtotals = useMemo(() => {
+    const totals: Record<string, number> = {};
+    allSections.forEach((sec) => {
+      const groupItems = itemsBySection[sec] || [];
+      totals[sec] = groupItems.reduce((sum, item) => sum + (item.totalAmount || (item.quotedPrice * item.quantity)), 0);
+    });
+    return totals;
+  }, [allSections, itemsBySection]);
+
+  // Section Management Handlers
+  const handleAddSection = (name?: string) => {
+    const rawName = (name || newSectionName).trim();
+    if (!rawName) return;
+    if (!sections.includes(rawName)) {
+      setSections((prev) => [...prev, rawName]);
+    }
+    setActiveSectionForPicker(rawName);
+    setNewSectionName('');
+    setIsAddingSection(false);
+  };
+
+  const handleRenameSection = (oldName: string, newName: string) => {
+    const trimmed = newName.trim();
+    if (!trimmed || trimmed === oldName) {
+      setEditingSection(null);
+      return;
+    }
+    setSections((prev) => prev.map((s) => (s === oldName ? trimmed : s)));
+    setItems((prev) =>
+      prev.map((it) => ((it.category?.trim() || '') === oldName ? { ...it, category: trimmed } : it))
+    );
+    if (activeSectionForPicker === oldName) {
+      setActiveSectionForPicker(trimmed);
+    }
+    setEditingSection(null);
+  };
+
+  const handleDeleteSection = (secName: string) => {
+    if (allSections.length <= 1) {
+      alert('Báo giá cần có ít nhất 1 phần / khu vực!');
+      return;
+    }
+    if (confirm(`Bạn có chắc chắn muốn xóa phần "${secName}"? Các sản phẩm trong phần này sẽ được chuyển sang phần đầu tiên.`)) {
+      const remaining = allSections.filter((s) => s !== secName);
+      const fallbackSec = remaining[0] || 'Phần I: Khu Vực Chung';
+      setSections(remaining);
+      setItems((prev) =>
+        prev.map((it) => ((it.category?.trim() || '') === secName ? { ...it, category: fallbackSec } : it))
+      );
+      if (activeSectionForPicker === secName) {
+        setActiveSectionForPicker(fallbackSec);
+      }
+    }
+  };
+
+  const handleMoveSection = (index: number, direction: 'up' | 'down') => {
+    const newIdx = direction === 'up' ? index - 1 : index + 1;
+    if (newIdx < 0 || newIdx >= allSections.length) return;
+    const updated = [...allSections];
+    const temp = updated[index];
+    updated[index] = updated[newIdx];
+    updated[newIdx] = temp;
+    setSections(updated);
+  };
+
+  const handleMoveItemToSection = (itemId: string, targetSection: string) => {
+    setItems((prev) =>
+      prev.map((it) => (it.id === itemId ? { ...it, category: targetSection } : it))
+    );
+  };
+
+  const handleOpenPickerForSection = (secName: string) => {
+    setActiveSectionForPicker(secName);
+    setIsProductPickerOpen(true);
+  };
 
   // Auto update milestone amounts when grandTotal changes
   useEffect(() => {
@@ -235,27 +500,36 @@ export const QuotationModal: React.FC<QuotationModalProps> = ({
 
   if (!isOpen) return null;
 
-  // Add or merge product from ProductPickerModal
+  // Add or merge product from ProductPickerModal (Matching SKU AND Category/Section)
   const handleAddProductFromPicker = (newRow: QuoteProductRow, mode: 'append' | 'merge' = 'merge') => {
     setItems((prev) => {
-      const existingIdx = prev.findIndex((i) => i.sku === newRow.sku);
+      const targetSec = newRow.category || activeSectionForPicker || 'Phần I: Khu Vực WC Master';
+      const rowWithSec: QuoteProductRow = {
+        ...newRow,
+        category: targetSec,
+      };
+
+      const existingIdx = prev.findIndex(
+        (i) => i.sku === rowWithSec.sku && (i.category?.trim() || '') === (rowWithSec.category?.trim() || '')
+      );
+
       if (existingIdx >= 0 && mode === 'merge') {
         const updated = [...prev];
         const existing = updated[existingIdx];
-        const combinedQty = existing.quantity + newRow.quantity;
-        const totalAmount = newRow.quotedPrice * combinedQty;
+        const combinedQty = existing.quantity + rowWithSec.quantity;
+        const totalAmount = rowWithSec.quotedPrice * combinedQty;
         updated[existingIdx] = {
           ...existing,
-          quotedPrice: newRow.quotedPrice,
+          quotedPrice: rowWithSec.quotedPrice,
           quantity: combinedQty,
-          discountPercent: newRow.discountPercent,
+          discountPercent: rowWithSec.discountPercent,
           totalAmount,
-          isBelowDP: newRow.isBelowDP,
-          notes: newRow.notes || existing.notes,
+          isBelowDP: rowWithSec.isBelowDP,
+          notes: rowWithSec.notes || existing.notes,
         };
         return updated;
       }
-      return [...prev, newRow];
+      return [...prev, rowWithSec];
     });
   };
 
@@ -348,20 +622,44 @@ export const QuotationModal: React.FC<QuotationModalProps> = ({
   const buildQuotationPayload = (status: 'draft' | 'sent' | 'negotiating' = 'sent'): Quotation => {
     return {
       id: quotationToEdit?.id || `quote-${Date.now()}`,
-      quoteNumber,
+      quoteNumber: headerFooterConfig.orderCode || quoteNumber,
       version,
       customerId: selectedCustomer?.id || '',
-      customerName: selectedCustomer?.name || 'Khách Hàng',
-      customerPhone: selectedCustomer?.phone || '',
+      customerName: headerFooterConfig.customerName || selectedCustomer?.name || 'Khách Hàng',
+      customerPhone: headerFooterConfig.customerPhone || selectedCustomer?.phone || '',
       customerEmail: selectedCustomer?.email || '',
       customerCompany: selectedCustomer?.company || '',
-      customerAddress: deliveryAddress || selectedCustomer?.address || '',
+      customerAddress: headerFooterConfig.projectLocation || deliveryAddress || selectedCustomer?.address || '',
       salesRepId: currentUser.id,
-      salesRepName: currentUser.name,
-      salesRepPhone: currentUser.phone,
-      title: title.trim() || `Báo giá thiết bị - Lần ${version}`,
-      date,
-      validUntil,
+      salesRepName: headerFooterConfig.salesRepName || currentUser.name,
+      salesRepPhone: headerFooterConfig.salesRepPhone || currentUser.phone,
+      salesRepEmail: headerFooterConfig.salesRepEmail || currentUser.email,
+      title: headerFooterConfig.quoteTitle || title.trim() || `Báo giá thiết bị - Lần ${version}`,
+      date: headerFooterConfig.quoteDate || date,
+      validUntil: headerFooterConfig.validUntilDate || validUntil,
+      
+      // Customizable header/company fields
+      companyName: headerFooterConfig.companyName || companyInfo?.name,
+      companyAddress: headerFooterConfig.companyAddress || companyInfo?.address,
+      companyHotline: headerFooterConfig.companyHotline || companyInfo?.phone || companyInfo?.hotline,
+      companyWebsite: headerFooterConfig.companyWebsite || companyInfo?.website,
+      companyEmail: headerFooterConfig.companyEmail || companyInfo?.email,
+      companyTaxCode: companyInfo?.taxCode,
+      companyLogo: companyInfo?.logo,
+      orderCode: headerFooterConfig.orderCode || quoteNumber,
+      projectLocation: headerFooterConfig.projectLocation || deliveryAddress || selectedCustomer?.address || '',
+      contactPerson: headerFooterConfig.contactPerson || selectedCustomer?.name || '',
+      openingGreeting: headerFooterConfig.openingGreeting,
+
+      // Customizable footer/terms fields
+      priceTerms: headerFooterConfig.priceTerms,
+      deliveryTerms: headerFooterConfig.deliveryTerms,
+      shippingTerms: headerFooterConfig.shippingTerms,
+      warrantyTerms: headerFooterConfig.warrantyTerms,
+      leadTimeTerms: headerFooterConfig.leadTimeTerms,
+      closingNotes: headerFooterConfig.closingNotes,
+      signatoryTitle: headerFooterConfig.signatoryTitle,
+
       items,
       subtotal,
       discountTotal,
@@ -723,28 +1021,103 @@ export const QuotationModal: React.FC<QuotationModalProps> = ({
                 </div>
               </div>
 
-              {/* PRODUCTS SECTION */}
-              <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs space-y-3">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-2.5">
+              {/* PRODUCTS & SECTIONS BUILDER */}
+              <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs space-y-4">
+                <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 border-b border-slate-100 pb-3">
                   <div>
                     <h4 className="font-bold text-sm text-slate-900 flex items-center space-x-1.5">
                       <Layers className="w-4 h-4 text-blue-600" />
-                      <span>Danh Sách Sản Phẩm Báo Giá</span>
+                      <span>Danh Sách Sản Phẩm Theo Từng Phần / Khu Vực</span>
                     </h4>
                     <p className="text-[11px] text-slate-500">
-                      Bảng tổng hợp các mã hàng chào bán, giá niêm yết, giá DP và tồn kho khả dụng.
+                      Báo giá được phân chia theo từng khu vực công trình, có tính tổng phụ riêng từng phần và tổng tiền toàn bộ ở cuối.
                     </p>
                   </div>
 
-                  {/* BIG PROMINENT BUTTON: + THÊM SẢN PHẨM */}
-                  <button
-                    type="button"
-                    onClick={() => setIsProductPickerOpen(true)}
-                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold text-xs shadow-xs transition active:scale-95 flex items-center space-x-1.5"
-                  >
-                    <Plus className="w-4 h-4" />
-                    <span>+ THÊM SẢN PHẨM THÔNG MINH</span>
-                  </button>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {/* Add Section Button / Input */}
+                    {isAddingSection ? (
+                      <div className="flex items-center space-x-1 bg-blue-50 p-1 rounded-lg border border-blue-200">
+                        <input
+                          type="text"
+                          placeholder="Nhập tên phần (VD: Phần III: WC Tầng 2)..."
+                          value={newSectionName}
+                          onChange={(e) => setNewSectionName(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') handleAddSection();
+                            if (e.key === 'Escape') setIsAddingSection(false);
+                          }}
+                          className="px-2 py-1 text-xs border border-blue-300 rounded bg-white font-medium text-slate-800 w-52"
+                          autoFocus
+                        />
+                        <button
+                          type="button"
+                          onClick={() => handleAddSection()}
+                          className="px-2 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-bold"
+                        >
+                          Lưu
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setIsAddingSection(false)}
+                          className="px-2 py-1 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded text-xs"
+                        >
+                          Hủy
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setIsAddingSection(true)}
+                        className="px-3 py-1.5 bg-slate-100 hover:bg-blue-50 text-slate-700 hover:text-blue-700 border border-slate-200 hover:border-blue-300 rounded-lg font-bold text-xs shadow-2xs transition flex items-center space-x-1"
+                      >
+                        <FolderPlus className="w-3.5 h-3.5 text-blue-600" />
+                        <span>+ Thêm Phần / Khu Vực Mới</span>
+                      </button>
+                    )}
+
+                    {/* BIG PROMINENT BUTTON: + THÊM SẢN PHẨM */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveSectionForPicker(allSections[0] || 'Phần I: Khu Vực WC Master');
+                        setIsProductPickerOpen(true);
+                      }}
+                      className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold text-xs shadow-xs transition active:scale-95 flex items-center space-x-1.5"
+                    >
+                      <Plus className="w-4 h-4" />
+                      <span>+ THÊM SẢN PHẨM THÔNG MINH</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Quick Add Section Suggestions */}
+                <div className="flex flex-wrap items-center gap-1.5 text-xs">
+                  <span className="text-[11px] font-semibold text-slate-400 mr-1 flex items-center space-x-1">
+                    <span>Gợi ý thêm nhanh khu vực:</span>
+                  </span>
+                  {[
+                    'WC Master Tầng 2',
+                    'WC Khách Tầng 1',
+                    'WC Tầng 3',
+                    'Khu Vực Bếp & Rửa',
+                    'Phòng Giặt & Ban Công',
+                    'Phụ Kiện & Vật Tư Lắp Đặt',
+                  ].map((quickSec) => {
+                    const exists = allSections.some((s) => s.toLowerCase().includes(quickSec.toLowerCase()));
+                    if (exists) return null;
+                    return (
+                      <button
+                        key={quickSec}
+                        type="button"
+                        onClick={() => handleAddSection(`Phần ${allSections.length + 1}: ${quickSec}`)}
+                        className="px-2 py-0.5 bg-slate-50 hover:bg-blue-50 text-slate-600 hover:text-blue-700 border border-slate-200 hover:border-blue-300 rounded text-[10px] font-medium transition flex items-center space-x-1"
+                      >
+                        <Plus className="w-2.5 h-2.5" />
+                        <span>{quickSec}</span>
+                      </button>
+                    );
+                  })}
                 </div>
 
                 {/* Warning: Below DP Floor */}
@@ -760,155 +1133,322 @@ export const QuotationModal: React.FC<QuotationModalProps> = ({
                   </div>
                 )}
 
-                {/* Products Table */}
-                <div className="border border-slate-200 rounded-lg overflow-x-auto shadow-2xs">
-                  <table className="w-full text-left text-xs min-w-[950px]">
-                    <thead className="bg-slate-100 text-slate-700 font-bold border-b border-slate-200 text-[11px]">
-                      <tr>
-                        <th className="px-2.5 py-2 w-10 text-center">STT</th>
-                        <th className="px-2.5 py-2 w-36">Mã SP & Hãng</th>
-                        <th className="px-2.5 py-2 min-w-[200px]">Tên Sản Phẩm & Quy Cách</th>
-                        <th className="px-2.5 py-2 w-28 text-center">Tồn Khả Dụng</th>
-                        <th className="px-2.5 py-2 w-20 text-center">Số Lượng</th>
-                        <th className="px-2.5 py-2 w-24 text-right">Giá Niêm Yết</th>
-                        <th className="px-2.5 py-2 w-24 text-right bg-amber-50 text-amber-900">Giá DP (Sàn)</th>
-                        <th className="px-2.5 py-2 w-28 text-right font-bold text-blue-900">Giá Bán</th>
-                        <th className="px-2.5 py-2 w-16 text-center">% CK</th>
-                        <th className="px-2.5 py-2 w-28 text-right">Thành Tiền</th>
-                        <th className="px-2.5 py-2 w-10 text-center">Xóa</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {items.length === 0 ? (
-                        <tr>
-                          <td colSpan={11} className="px-4 py-8 text-center bg-slate-50/50">
-                            <div className="max-w-md mx-auto space-y-2 text-slate-400">
-                              <Layers className="w-8 h-8 mx-auto text-slate-300" />
-                              <div className="text-xs font-bold text-slate-700">Chưa có sản phẩm nào trong báo giá</div>
-                              <p className="text-[11px] text-slate-400">
-                                Hãy bấm nút <strong className="text-blue-600 font-bold">+ Thêm sản phẩm</strong> ở trên để tìm kiếm và thêm sản phẩm từ danh mục giá & kho.
-                              </p>
-                              <button
-                                type="button"
-                                onClick={() => setIsProductPickerOpen(true)}
-                                className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg shadow-xs transition"
-                              >
-                                + Mở Bộ Chọn Sản Phẩm
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      ) : (
-                        items.map((row, idx) => {
-                          const willBeReserved = Math.min(row.quantity, row.inventoryAvailable);
-                          const willBeOrdered = Math.max(0, row.quantity - row.inventoryAvailable);
+                {/* RENDER SECTIONS LIST */}
+                <div className="space-y-4">
+                  {allSections.map((secName, secIdx) => {
+                    const secItems = itemsBySection[secName] || [];
+                    const secSubtotal = sectionSubtotals[secName] || 0;
+                    
+                    // Calculate running global start STT for continuous numbering across sections
+                    let globalStartSTT = 0;
+                    for (let i = 0; i < secIdx; i++) {
+                      globalStartSTT += (itemsBySection[allSections[i]] || []).length;
+                    }
 
-                          return (
-                            <tr
-                              key={row.id}
-                              className={`hover:bg-slate-50 transition ${row.isBelowDP ? 'bg-rose-50/60' : ''}`}
-                            >
-                              <td className="px-2.5 py-2 text-center font-medium text-slate-500">{idx + 1}</td>
-                              <td className="px-2.5 py-2">
-                                <div className="font-mono font-bold text-blue-700">{row.sku}</div>
-                                <div className="text-[10px] text-slate-500 font-semibold">{row.brand}</div>
-                              </td>
-                              <td className="px-2.5 py-2">
-                                <div className="font-bold text-slate-900">{row.name}</div>
-                                <div className="text-[10px] text-slate-500">
-                                  {row.category} {row.color ? `• ${row.color}` : ''} {row.size ? `• ${row.size}` : ''}
-                                </div>
-                                <div className="mt-0.5 text-[10px]">
-                                  {willBeOrdered > 0 ? (
-                                    <span className="text-amber-700 bg-amber-100 px-1 py-0.2 rounded font-semibold">
-                                      ⚡ Giữ {willBeReserved} {row.unit} | Đặt thêm {willBeOrdered} {row.unit}
-                                    </span>
-                                  ) : (
-                                    <span className="text-emerald-700 bg-emerald-100 px-1 py-0.2 rounded font-semibold">
-                                      ✓ Đủ kho (Giữ {willBeReserved} {row.unit})
-                                    </span>
-                                  )}
-                                </div>
-                              </td>
-                              <td className="px-2.5 py-2 text-center">
-                                <span
-                                  className={`px-1.5 py-0.5 rounded font-bold text-[10px] ${
-                                    row.inventoryAvailable === 0
-                                      ? 'bg-rose-100 text-rose-800'
-                                      : row.inventoryAvailable < row.quantity
-                                      ? 'bg-amber-100 text-amber-800'
-                                      : 'bg-emerald-100 text-emerald-800'
-                                  }`}
-                                >
-                                  {row.inventoryAvailable} {row.unit}
-                                </span>
-                              </td>
-                              <td className="px-2.5 py-2 text-center">
+                    const isEditingThis = editingSection?.original === secName;
+
+                    return (
+                      <div
+                        key={secName}
+                        className="border border-slate-200 rounded-xl overflow-hidden shadow-2xs bg-slate-50/30"
+                      >
+                        {/* SECTION HEADER BAR */}
+                        <div className="px-3.5 py-2.5 bg-slate-100/90 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2">
+                          <div className="flex items-center space-x-2">
+                            <span className="w-6 h-6 rounded-md bg-blue-600 text-white font-black text-xs flex items-center justify-center shadow-2xs">
+                              {secIdx + 1}
+                            </span>
+
+                            {isEditingThis ? (
+                              <div className="flex items-center space-x-1">
                                 <input
-                                  type="number"
-                                  min={1}
-                                  value={row.quantity}
-                                  onChange={(e) => handleUpdateRow(row.id, 'quantity', e.target.value)}
-                                  className="w-14 px-1.5 py-1 text-center font-bold border border-slate-300 rounded-md focus:ring-2 focus:ring-blue-500 text-xs"
+                                  type="text"
+                                  value={editingSection.current}
+                                  onChange={(e) =>
+                                    setEditingSection({ ...editingSection, current: e.target.value })
+                                  }
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') handleRenameSection(secName, editingSection.current);
+                                    if (e.key === 'Escape') setEditingSection(null);
+                                  }}
+                                  className="px-2 py-1 text-xs border border-blue-400 rounded font-bold text-slate-900 bg-white min-w-[240px]"
+                                  autoFocus
                                 />
-                              </td>
-                              <td className="px-2.5 py-2 text-right font-medium text-slate-600">
-                                {formatNumber(row.listPrice)}
-                              </td>
-                              <td className="px-2.5 py-2 text-right font-bold text-amber-900 bg-amber-50/50">
-                                {formatNumber(row.dpPrice)}
-                              </td>
-                              <td className="px-2.5 py-2 text-right">
-                                <input
-                                  type="number"
-                                  value={row.quotedPrice}
-                                  onChange={(e) => handleUpdateRow(row.id, 'quotedPrice', e.target.value)}
-                                  className={`w-24 px-2 py-1 text-right font-bold font-mono border rounded-md focus:ring-2 text-xs ${
-                                    row.isBelowDP
-                                      ? 'border-rose-400 bg-rose-100 text-rose-900 focus:ring-rose-500'
-                                      : 'border-slate-300 bg-white text-slate-900 focus:ring-blue-500'
-                                  }`}
-                                />
-                                {row.isBelowDP && (
-                                  <div className="text-[9px] text-rose-600 font-bold mt-0.5">DƯỚI GIÁ DP!</div>
-                                )}
-                              </td>
-                              <td className="px-2.5 py-2 text-center">
-                                <input
-                                  type="number"
-                                  min={0}
-                                  max={100}
-                                  step={0.1}
-                                  value={row.discountPercent}
-                                  onChange={(e) => handleUpdateRow(row.id, 'discountPercent', e.target.value)}
-                                  className="w-12 px-1 py-1 text-center text-xs border border-slate-300 rounded-md"
-                                />
-                              </td>
-                              <td className="px-2.5 py-2 text-right font-bold text-slate-900 font-mono text-xs">
-                                {formatVND(row.totalAmount)}
-                              </td>
-                              <td className="px-2.5 py-2 text-center">
                                 <button
                                   type="button"
-                                  onClick={() => handleRemoveRow(row.id)}
-                                  className="text-slate-400 hover:text-rose-600 p-1 transition"
+                                  onClick={() => handleRenameSection(secName, editingSection.current)}
+                                  className="p-1 bg-emerald-600 text-white rounded hover:bg-emerald-700"
                                 >
-                                  <Trash2 className="w-3.5 h-3.5" />
+                                  <Check className="w-3.5 h-3.5" />
                                 </button>
-                              </td>
-                            </tr>
-                          );
-                        })
-                      )}
-                    </tbody>
-                  </table>
+                                <button
+                                  type="button"
+                                  onClick={() => setEditingSection(null)}
+                                  className="p-1 bg-slate-200 text-slate-700 rounded hover:bg-slate-300"
+                                >
+                                  <X className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            ) : (
+                              <div className="flex items-center space-x-2">
+                                <h5 className="font-extrabold text-xs sm:text-sm text-slate-900 tracking-tight">
+                                  {secName}
+                                </h5>
+                                <button
+                                  type="button"
+                                  onClick={() => setEditingSection({ original: secName, current: secName })}
+                                  className="text-slate-400 hover:text-blue-600 p-0.5 rounded transition"
+                                  title="Đổi tên phần"
+                                >
+                                  <Edit className="w-3 h-3" />
+                                </button>
+                              </div>
+                            )}
+
+                            <span className="text-[11px] font-semibold text-slate-500 bg-white px-2 py-0.5 rounded-full border border-slate-200 shadow-2xs">
+                              {secItems.length} sản phẩm
+                            </span>
+                          </div>
+
+                          {/* Right Controls: Subtotal & Actions */}
+                          <div className="flex items-center space-x-2">
+                            <div className="text-right mr-1">
+                              <span className="text-[10px] text-slate-500 uppercase font-semibold mr-1.5">Tổng phụ:</span>
+                              <span className="font-extrabold font-mono text-xs sm:text-sm text-blue-900 bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
+                                {formatVND(secSubtotal)}
+                              </span>
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={() => handleOpenPickerForSection(secName)}
+                              className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-[11px] font-bold shadow-2xs transition flex items-center space-x-1"
+                            >
+                              <Plus className="w-3 h-3" />
+                              <span>+ Thêm SP vào phần này</span>
+                            </button>
+
+                            {/* Section Reordering */}
+                            <div className="flex items-center space-x-0.5 bg-white border border-slate-200 rounded p-0.5">
+                              <button
+                                type="button"
+                                onClick={() => handleMoveSection(secIdx, 'up')}
+                                disabled={secIdx === 0}
+                                className="p-0.5 text-slate-400 hover:text-slate-700 disabled:opacity-30"
+                                title="Di chuyển lên"
+                              >
+                                <ChevronUp className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleMoveSection(secIdx, 'down')}
+                                disabled={secIdx === allSections.length - 1}
+                                className="p-0.5 text-slate-400 hover:text-slate-700 disabled:opacity-30"
+                                title="Di chuyển xuống"
+                              >
+                                <ChevronDown className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+
+                            {/* Delete Section */}
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteSection(secName)}
+                              className="p-1 text-slate-400 hover:text-rose-600 rounded transition"
+                              title="Xóa phần này"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* SECTION ITEMS TABLE */}
+                        <div className="overflow-x-auto bg-white">
+                          <table className="w-full text-left text-xs min-w-[950px]">
+                            <thead className="bg-slate-50 text-slate-600 font-bold border-b border-slate-200 text-[10px] uppercase tracking-wider">
+                              <tr>
+                                <th className="px-2.5 py-2 w-10 text-center">STT</th>
+                                <th className="px-2.5 py-2 w-36">Mã SP & Hãng</th>
+                                <th className="px-2.5 py-2 min-w-[200px]">Tên Sản Phẩm & Quy Cách</th>
+                                <th className="px-2.5 py-2 w-24 text-center">Tồn Khả Dụng</th>
+                                <th className="px-2.5 py-2 w-18 text-center">Số Lượng</th>
+                                <th className="px-2.5 py-2 w-24 text-right">Giá Niêm Yết</th>
+                                <th className="px-2.5 py-2 w-24 text-right bg-amber-50/70 text-amber-900">Giá DP (Sàn)</th>
+                                <th className="px-2.5 py-2 w-28 text-right font-bold text-blue-900">Giá Chào Bán</th>
+                                <th className="px-2.5 py-2 w-16 text-center">% CK</th>
+                                <th className="px-2.5 py-2 w-28 text-right">Thành Tiền</th>
+                                <th className="px-2.5 py-2 w-24 text-center">Chuyển Phần</th>
+                                <th className="px-2.5 py-2 w-8 text-center">Xóa</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100">
+                              {secItems.length === 0 ? (
+                                <tr>
+                                  <td colSpan={12} className="px-4 py-6 text-center text-slate-400 bg-slate-50/30">
+                                    <div className="space-y-1.5">
+                                      <p className="text-xs font-medium text-slate-600">
+                                        Chưa có sản phẩm nào trong {secName}
+                                      </p>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleOpenPickerForSection(secName)}
+                                        className="px-3 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded text-xs font-bold transition inline-flex items-center space-x-1"
+                                      >
+                                        <Plus className="w-3 h-3" />
+                                        <span>+ Chọn sản phẩm cho phần này</span>
+                                      </button>
+                                    </div>
+                                  </td>
+                                </tr>
+                              ) : (
+                                secItems.map((row, rowIdx) => {
+                                  const itemSTT = globalStartSTT + rowIdx + 1;
+                                  const willBeReserved = Math.min(row.quantity, row.inventoryAvailable);
+                                  const willBeOrdered = Math.max(0, row.quantity - row.inventoryAvailable);
+
+                                  return (
+                                    <tr
+                                      key={row.id}
+                                      className={`hover:bg-slate-50 transition ${row.isBelowDP ? 'bg-rose-50/60' : ''}`}
+                                    >
+                                      <td className="px-2.5 py-2 text-center font-bold text-slate-600 bg-slate-50/30">
+                                        {itemSTT}
+                                      </td>
+                                      <td className="px-2.5 py-2">
+                                        <div className="font-mono font-bold text-blue-700">{row.sku}</div>
+                                        <div className="text-[10px] text-slate-500 font-semibold">{row.brand}</div>
+                                      </td>
+                                      <td className="px-2.5 py-2">
+                                        <div className="font-bold text-slate-900">{row.name}</div>
+                                        <div className="text-[10px] text-slate-500">
+                                          {row.color ? `Màu: ${row.color}` : ''} {row.size ? `• Kích thước: ${row.size}` : ''}
+                                        </div>
+                                        <div className="mt-0.5 text-[10px]">
+                                          {willBeOrdered > 0 ? (
+                                            <span className="text-amber-700 bg-amber-100 px-1 py-0.2 rounded font-semibold">
+                                              ⚡ Giữ {willBeReserved} {row.unit} | Đặt thêm {willBeOrdered} {row.unit}
+                                            </span>
+                                          ) : (
+                                            <span className="text-emerald-700 bg-emerald-100 px-1 py-0.2 rounded font-semibold">
+                                              ✓ Đủ kho (Giữ {willBeReserved} {row.unit})
+                                            </span>
+                                          )}
+                                        </div>
+                                      </td>
+                                      <td className="px-2.5 py-2 text-center">
+                                        <span
+                                          className={`px-1.5 py-0.5 rounded font-bold text-[10px] ${
+                                            row.inventoryAvailable === 0
+                                              ? 'bg-rose-100 text-rose-800'
+                                              : row.inventoryAvailable < row.quantity
+                                              ? 'bg-amber-100 text-amber-800'
+                                              : 'bg-emerald-100 text-emerald-800'
+                                          }`}
+                                        >
+                                          {row.inventoryAvailable} {row.unit}
+                                        </span>
+                                      </td>
+                                      <td className="px-2.5 py-2 text-center">
+                                        <input
+                                          type="number"
+                                          min={1}
+                                          value={row.quantity}
+                                          onChange={(e) => handleUpdateRow(row.id, 'quantity', e.target.value)}
+                                          className="w-14 px-1.5 py-1 text-center font-bold border border-slate-300 rounded-md focus:ring-2 focus:ring-blue-500 text-xs"
+                                        />
+                                      </td>
+                                      <td className="px-2.5 py-2 text-right font-medium text-slate-600">
+                                        {formatNumber(row.listPrice)}
+                                      </td>
+                                      <td className="px-2.5 py-2 text-right font-bold text-amber-900 bg-amber-50/50">
+                                        {formatNumber(row.dpPrice)}
+                                      </td>
+                                      <td className="px-2.5 py-2 text-right">
+                                        <input
+                                          type="number"
+                                          value={row.quotedPrice}
+                                          onChange={(e) => handleUpdateRow(row.id, 'quotedPrice', e.target.value)}
+                                          className={`w-24 px-2 py-1 text-right font-bold font-mono border rounded-md focus:ring-2 text-xs ${
+                                            row.isBelowDP
+                                              ? 'border-rose-400 bg-rose-100 text-rose-900 focus:ring-rose-500'
+                                              : 'border-slate-300 bg-white text-slate-900 focus:ring-blue-500'
+                                          }`}
+                                        />
+                                        {row.isBelowDP && (
+                                          <div className="text-[9px] text-rose-600 font-bold mt-0.5">DƯỚI GIÁ DP!</div>
+                                        )}
+                                      </td>
+                                      <td className="px-2.5 py-2 text-center">
+                                        <input
+                                          type="number"
+                                          min={0}
+                                          max={100}
+                                          step={0.1}
+                                          value={row.discountPercent}
+                                          onChange={(e) => handleUpdateRow(row.id, 'discountPercent', e.target.value)}
+                                          className="w-12 px-1 py-1 text-center text-xs border border-slate-300 rounded-md"
+                                        />
+                                      </td>
+                                      <td className="px-2.5 py-2 text-right font-bold text-slate-900 font-mono text-xs">
+                                        {formatVND(row.totalAmount)}
+                                      </td>
+                                      <td className="px-2.5 py-2 text-center">
+                                        <select
+                                          value={row.category || secName}
+                                          onChange={(e) => handleMoveItemToSection(row.id, e.target.value)}
+                                          className="text-[10px] px-1 py-0.5 border border-slate-200 rounded bg-white text-slate-700 max-w-[100px]"
+                                          title="Chuyển sang phần khác"
+                                        >
+                                          {allSections.map((s) => (
+                                            <option key={s} value={s}>
+                                              {s}
+                                            </option>
+                                          ))}
+                                        </select>
+                                      </td>
+                                      <td className="px-2.5 py-2 text-center">
+                                        <button
+                                          type="button"
+                                          onClick={() => handleRemoveRow(row.id)}
+                                          className="text-slate-400 hover:text-rose-600 p-1 transition"
+                                          title="Xóa khỏi báo giá"
+                                        >
+                                          <Trash2 className="w-3.5 h-3.5" />
+                                        </button>
+                                      </td>
+                                    </tr>
+                                  );
+                                })
+                              )}
+                            </tbody>
+                            {/* SECTION SUBTOTAL FOOTER */}
+                            {secItems.length > 0 && (
+                              <tfoot>
+                                <tr className="bg-slate-50/80 border-t border-slate-200 text-xs font-bold">
+                                  <td colSpan={9} className="px-3 py-2 text-right text-slate-700 uppercase tracking-tight">
+                                    CỘNG TIỀN {secName}:
+                                  </td>
+                                  <td className="px-2.5 py-2 text-right font-mono font-black text-blue-900 bg-blue-50/50">
+                                    {formatVND(secSubtotal)}
+                                  </td>
+                                  <td colSpan={2}></td>
+                                </tr>
+                              </tfoot>
+                            )}
+                          </table>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
 
-                {/* TOTALS & SUMMARY CARD */}
+                {/* TOTALS & GRAND SUMMARY CARD */}
                 <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center bg-slate-900 text-white p-4 rounded-xl shadow-md gap-4">
                   <div className="space-y-1 max-w-lg">
                     <div className="text-xs text-slate-300">
-                      Tổng số lượng: <strong className="text-white">{items.reduce((s, i) => s + i.quantity, 0)}</strong> sản phẩm / quy cách
+                      Tổng số lượng:{' '}
+                      <strong className="text-white">{items.reduce((s, i) => s + i.quantity, 0)}</strong> sản phẩm / quy cách trong{' '}
+                      <strong className="text-blue-300">{allSections.length}</strong> khu vực
                     </div>
                     <div className="text-[11px] text-slate-300 italic">
                       Số tiền bằng chữ:{' '}
@@ -918,7 +1458,7 @@ export const QuotationModal: React.FC<QuotationModalProps> = ({
 
                   <div className="w-full lg:w-80 space-y-1.5 text-xs text-slate-300">
                     <div className="flex justify-between">
-                      <span>Tạm tính tiền hàng:</span>
+                      <span>Tạm tính tổng tiền hàng:</span>
                       <span className="font-bold font-mono text-white">{formatVND(subtotal)}</span>
                     </div>
 
@@ -952,7 +1492,7 @@ export const QuotationModal: React.FC<QuotationModalProps> = ({
                     </div>
 
                     <div className="flex justify-between items-baseline pt-2 border-t border-slate-700 text-sm font-black text-white">
-                      <span className="text-xs uppercase tracking-wider text-blue-300">TỔNG THANH TOÁN:</span>
+                      <span className="text-xs uppercase tracking-wider text-blue-300">TỔNG CỘNG THANH TOÁN:</span>
                       <span className="text-base text-amber-400 font-mono">{formatVND(grandTotal)}</span>
                     </div>
                   </div>
@@ -962,11 +1502,22 @@ export const QuotationModal: React.FC<QuotationModalProps> = ({
               {/* STEP 2 BOTTOM: CONDITIONS, PAYMENT MILESTONES & TERMS TABS */}
               <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs space-y-3">
                 <div className="flex items-center justify-between border-b border-slate-100 pb-2">
-                  <div className="flex items-center space-x-1 bg-slate-100 p-1 rounded-lg">
+                  <div className="flex items-center space-x-1 bg-slate-100 p-1 rounded-lg overflow-x-auto">
+                    <button
+                      type="button"
+                      onClick={() => setActiveInfoTab('header_footer')}
+                      className={`px-3 py-1 rounded-md text-xs font-bold transition flex items-center space-x-1.5 shrink-0 ${
+                        activeInfoTab === 'header_footer' ? 'bg-white text-blue-700 shadow-xs' : 'text-slate-600'
+                      }`}
+                    >
+                      <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+                      <span>Form Mở Đầu & Kết Thúc (Tùy Chọn)</span>
+                    </button>
+
                     <button
                       type="button"
                       onClick={() => setActiveInfoTab('milestones')}
-                      className={`px-3 py-1 rounded-md text-xs font-bold transition flex items-center space-x-1 ${
+                      className={`px-3 py-1 rounded-md text-xs font-bold transition flex items-center space-x-1 shrink-0 ${
                         activeInfoTab === 'milestones' ? 'bg-white text-blue-700 shadow-xs' : 'text-slate-600'
                       }`}
                     >
@@ -977,7 +1528,7 @@ export const QuotationModal: React.FC<QuotationModalProps> = ({
                     <button
                       type="button"
                       onClick={() => setActiveInfoTab('delivery')}
-                      className={`px-3 py-1 rounded-md text-xs font-bold transition flex items-center space-x-1 ${
+                      className={`px-3 py-1 rounded-md text-xs font-bold transition flex items-center space-x-1 shrink-0 ${
                         activeInfoTab === 'delivery' ? 'bg-white text-blue-700 shadow-xs' : 'text-slate-600'
                       }`}
                     >
@@ -988,7 +1539,7 @@ export const QuotationModal: React.FC<QuotationModalProps> = ({
                     <button
                       type="button"
                       onClick={() => setActiveInfoTab('terms')}
-                      className={`px-3 py-1 rounded-md text-xs font-bold transition flex items-center space-x-1 ${
+                      className={`px-3 py-1 rounded-md text-xs font-bold transition flex items-center space-x-1 shrink-0 ${
                         activeInfoTab === 'terms' ? 'bg-white text-blue-700 shadow-xs' : 'text-slate-600'
                       }`}
                     >
@@ -999,7 +1550,7 @@ export const QuotationModal: React.FC<QuotationModalProps> = ({
                     <button
                       type="button"
                       onClick={() => setActiveInfoTab('notes')}
-                      className={`px-3 py-1 rounded-md text-xs font-bold transition flex items-center space-x-1 ${
+                      className={`px-3 py-1 rounded-md text-xs font-bold transition flex items-center space-x-1 shrink-0 ${
                         activeInfoTab === 'notes' ? 'bg-white text-blue-700 shadow-xs' : 'text-slate-600'
                       }`}
                     >
@@ -1008,6 +1559,16 @@ export const QuotationModal: React.FC<QuotationModalProps> = ({
                     </button>
                   </div>
                 </div>
+
+                {/* TAB CONTENT: HEADER & FOOTER CONFIGURATION (HHG HOLDINGS / CUSTOM) */}
+                {activeInfoTab === 'header_footer' && (
+                  <QuotationHeaderFooterConfig
+                    config={headerFooterConfig}
+                    onChange={(newCfg) => setHeaderFooterConfig(newCfg)}
+                    onApplyHHGTemplate={handleApplyHHGTemplate}
+                    onApplyDefaultTemplate={handleApplyDefaultTemplate}
+                  />
+                )}
 
                 {/* TAB CONTENT: MILESTONES */}
                 {activeInfoTab === 'milestones' && (
@@ -1089,7 +1650,10 @@ export const QuotationModal: React.FC<QuotationModalProps> = ({
                       <input
                         type="text"
                         value={deliveryAddress}
-                        onChange={(e) => setDeliveryAddress(e.target.value)}
+                        onChange={(e) => {
+                          setDeliveryAddress(e.target.value);
+                          setHeaderFooterConfig((prev) => ({ ...prev, deliveryTerms: e.target.value, projectLocation: e.target.value }));
+                        }}
                         placeholder="VD: Giao tại chân công trình, Villa 12 Sala..."
                         className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs"
                       />
@@ -1114,7 +1678,10 @@ export const QuotationModal: React.FC<QuotationModalProps> = ({
                       <textarea
                         rows={2}
                         value={warrantyTerms}
-                        onChange={(e) => setWarrantyTerms(e.target.value)}
+                        onChange={(e) => {
+                          setWarrantyTerms(e.target.value);
+                          setHeaderFooterConfig((prev) => ({ ...prev, warrantyTerms: e.target.value }));
+                        }}
                         className="w-full p-2 border border-slate-300 rounded-lg text-xs"
                       />
                     </div>
@@ -1156,130 +1723,21 @@ export const QuotationModal: React.FC<QuotationModalProps> = ({
           )}
 
           {/* ============================================================== */}
-          {/* STEP 3: PREVIEW & FINAL SUMMARY                                */}
+          {/* STEP 3: PREVIEW & FINAL SUMMARY (CHUẨN FORM A4 NHƯ MẪU ẢNH)   */}
           {/* ============================================================== */}
           {currentStep === 'preview' && selectedCustomer && (
             <div className="space-y-4 max-w-4xl mx-auto animate-in fade-in duration-150">
-              <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-lg space-y-6 text-xs text-slate-800">
-                {/* Header Preview */}
-                <div className="flex justify-between items-start border-b-2 border-slate-900 pb-4">
-                  <div className="flex items-center space-x-3">
-                    <div className="w-10 h-10 rounded-xl bg-blue-700 text-white font-black text-lg flex items-center justify-center">
-                      SF
-                    </div>
-                    <div>
-                      <h3 className="font-extrabold text-sm uppercase text-slate-900">
-                        CÔNG TY CỔ PHẦN CÔNG NGHỆ & THIẾT BỊ SALESFLOW
-                      </h3>
-                      <p className="text-[10px] text-slate-500">
-                        Nhà phân phối thiết bị vệ sinh, điện, chiếu sáng và vật tư công trình chính hãng
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="text-right">
-                    <span className="px-3 py-1 rounded-md text-xs font-extrabold bg-blue-100 text-blue-900 border border-blue-300">
-                      BÁO GIÁ LẦN {version}
-                    </span>
-                    <div className="font-mono font-bold text-xs text-blue-700 mt-1">{quoteNumber}</div>
-                    <div className="text-[10px] text-slate-400">Ngày: {formatDate(date)}</div>
-                  </div>
-                </div>
-
-                {/* Customer and Sales Rep Preview Box */}
-                <div className="grid grid-cols-2 gap-4 bg-slate-50 p-4 rounded-lg border border-slate-200">
-                  <div className="space-y-1">
-                    <div className="font-bold text-xs text-slate-900 uppercase">Kính gửi khách hàng:</div>
-                    <div className="font-bold text-slate-800 text-sm">{selectedCustomer.name}</div>
-                    {selectedCustomer.company && (
-                      <div className="font-semibold text-slate-600">{selectedCustomer.company}</div>
-                    )}
-                    <div className="text-slate-500">SĐT: {selectedCustomer.phone} | Email: {selectedCustomer.email || 'N/A'}</div>
-                    <div className="text-slate-500">Địa chỉ: {deliveryAddress || selectedCustomer.address || 'N/A'}</div>
-                  </div>
-
-                  <div className="space-y-1 text-right">
-                    <div className="font-bold text-xs text-slate-900 uppercase">Đơn vị chào giá:</div>
-                    <div className="font-bold text-slate-800 text-sm">SalesFlow Project Solutions</div>
-                    <div className="text-slate-600">Đại diện: {currentUser.name}</div>
-                    <div className="text-slate-500">Hotline: {currentUser.phone || '1900 6868'}</div>
-                    <div className="text-slate-500">Hiệu lực đến: {formatDate(validUntil)}</div>
-                  </div>
-                </div>
-
-                {/* Items Summary Table */}
-                <div>
-                  <div className="font-bold text-xs text-slate-900 mb-2">BẢNG KÊ SẢN PHẨM & ĐƠN GIÁ</div>
-                  <table className="w-full text-left text-xs border border-slate-200">
-                    <thead className="bg-slate-100 font-bold border-b border-slate-200 text-[11px]">
-                      <tr>
-                        <th className="p-2 w-8 text-center">STT</th>
-                        <th className="p-2 w-28">Mã SKU</th>
-                        <th className="p-2">Tên Hàng & Quy Cách</th>
-                        <th className="p-2 w-12 text-center">ĐVT</th>
-                        <th className="p-2 w-14 text-center">SL</th>
-                        <th className="p-2 w-24 text-right">Đơn Giá Bán</th>
-                        <th className="p-2 w-28 text-right">Thành Tiền</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {items.map((row, idx) => (
-                        <tr key={row.id}>
-                          <td className="p-2 text-center text-slate-500">{idx + 1}</td>
-                          <td className="p-2 font-mono font-bold text-blue-700">{row.sku}</td>
-                          <td className="p-2 font-medium text-slate-900">
-                            {row.name}
-                            <div className="text-[10px] text-slate-400">
-                              Hãng: {row.brand} {row.color ? `• ${row.color}` : ''}
-                            </div>
-                          </td>
-                          <td className="p-2 text-center text-slate-600">{row.unit}</td>
-                          <td className="p-2 text-center font-bold text-slate-800">{row.quantity}</td>
-                          <td className="p-2 text-right font-mono">{formatVND(row.quotedPrice)}</td>
-                          <td className="p-2 text-right font-bold font-mono text-slate-900">{formatVND(row.totalAmount)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-
-                {/* Totals Breakdown */}
-                <div className="flex justify-between items-start bg-slate-50 p-4 rounded-lg border border-slate-200">
-                  <div className="space-y-1">
-                    <div className="font-semibold text-slate-700">Thanh toán bằng chuyển khoản hoặc tiền mặt</div>
-                    <div className="italic text-slate-500 text-[11px]">
-                      Số tiền bằng chữ: <strong className="text-slate-900">{numberToVietnameseWords(grandTotal)}</strong>
-                    </div>
-                  </div>
-
-                  <div className="space-y-1 text-right w-64">
-                    <div className="flex justify-between">
-                      <span className="text-slate-500">Tiền hàng:</span>
-                      <span className="font-bold font-mono">{formatVND(subtotal)}</span>
-                    </div>
-                    {discountTotal > 0 && (
-                      <div className="flex justify-between text-amber-700">
-                        <span>Chiết khấu:</span>
-                        <span className="font-bold font-mono">-{formatVND(discountTotal)}</span>
-                      </div>
-                    )}
-                    <div className="flex justify-between text-slate-500">
-                      <span>Thuế VAT ({taxRate}%):</span>
-                      <span className="font-bold font-mono">{formatVND(taxAmount)}</span>
-                    </div>
-                    <div className="flex justify-between text-sm font-black text-blue-900 pt-1 border-t border-slate-300">
-                      <span>TỔNG CỘNG:</span>
-                      <span className="text-base text-blue-700 font-mono">{formatVND(grandTotal)}</span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Terms Preview */}
-                <div className="space-y-1 text-[11px] text-slate-600 border-t border-slate-200 pt-3">
-                  <div className="font-bold text-slate-900">ĐIỀU KHOẢN VÀ ĐIỀU KIỆN:</div>
-                  <pre className="font-sans whitespace-pre-line text-slate-600 bg-slate-50 p-2.5 rounded border border-slate-100">
-                    {termsAndConditions}
-                  </pre>
+              <div className="bg-slate-100 p-2 sm:p-4 rounded-xl border border-slate-300 shadow-lg">
+                <div className="bg-white p-6 sm:p-8 rounded-lg shadow-sm border border-slate-200 space-y-4">
+                  <StandardQuotationDocument
+                    customConfig={headerFooterConfig}
+                    quote={buildQuotationPayload('draft')}
+                    itemsOverride={items}
+                    grandTotalOverride={grandTotal}
+                    subtotalOverride={subtotal}
+                    taxAmountOverride={taxAmount}
+                    taxRateOverride={taxRate}
+                  />
                 </div>
               </div>
             </div>
@@ -1408,6 +1866,8 @@ export const QuotationModal: React.FC<QuotationModalProps> = ({
         inventory={inventory}
         existingItems={items}
         onAddProduct={handleAddProductFromPicker}
+        targetSection={activeSectionForPicker}
+        sectionsList={allSections}
       />
 
       {/* CONFIRMATION MODAL TO FINALIZE & CREATE CONTRACT */}

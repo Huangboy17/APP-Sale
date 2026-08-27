@@ -10,9 +10,29 @@ export interface User {
   avatar?: string;
   status: 'active' | 'pending_approval' | 'inactive';
   department?: string;
+  position?: string; // Chức danh/vị trí (VD: Giám đốc kinh doanh, Kỹ sư dự án...)
   managerId?: string; // For Cấp 2, which Cấp 1 manages them
   createdBy?: string; // Which Cấp 1 or Super Admin created this user
   createdAt: string;
+}
+
+export interface CompanyInfo {
+  id: string;
+  name: string; // Tên hiển thị công ty
+  legalName?: string; // Tên đăng ký doanh nghiệp
+  address: string; // Trụ sở / Showroom
+  taxCode: string; // Mã số thuế (MST)
+  logoUrl?: string; // Logo (Base64 hoặc URL)
+  phone: string; // Hotline / Điện thoại
+  email: string; // Email công ty
+  website: string; // Website
+  bankName?: string; // Tên ngân hàng
+  bankAccountNumber?: string; // Số tài khoản ngân hàng
+  bankAccountHolder?: string; // Tên chủ tài khoản
+  directorName?: string; // Người đại diện pháp luật / Giám đốc
+  directorTitle?: string; // Chức vụ người đại diện (VD: Tổng Giám Đốc)
+  updatedBy?: string; // Người cập nhật cuối
+  updatedAt?: string; // Thời gian cập nhật
 }
 
 export type CustomerStage = 'new' | 'contacted' | 'quoting' | 'contract_signed' | 'rejected';
@@ -96,7 +116,7 @@ export type QuotationStatus = 'draft' | 'sent' | 'negotiating' | 'approved_contr
 
 export interface Quotation {
   id: string;
-  quoteNumber: string; // BG-2026-001
+  quoteNumber: string; // BG-2026-001 hoặc 01/HHG
   version: number; // 1, 2, 3... (Đợt báo giá lần 1, 2, 3...)
   customerId: string;
   customerName: string;
@@ -104,12 +124,38 @@ export interface Quotation {
   customerEmail: string;
   customerCompany?: string;
   customerAddress?: string;
+  customerTaxCode?: string;
   salesRepId: string; // Cấp 2
   salesRepName: string;
   salesRepPhone?: string;
-  title: string; // Tiêu đề báo giá
+  salesRepEmail?: string;
+  title: string; // Tiêu đề báo giá (ví dụ: BÁO GIÁ THIẾT BỊ VỆ SINH)
   date: string;
   validUntil: string;
+  
+  // Customizable Header & Company Info (Như form HHG Holdings)
+  companyName?: string; // Tên công ty (ví dụ: CÔNG TY TNHH HHG HOLDINGS)
+  companyAddress?: string; // Địa chỉ công ty
+  companyTaxCode?: string; // Mã số thuế
+  companyLogo?: string; // Logo công ty
+  companyHotline?: string; // Hotline
+  companyWebsite?: string; // Website
+  companyEmail?: string; // Email công ty
+  orderCode?: string; // Số ĐH (ví dụ: 01/HHG)
+  projectLocation?: string; // ĐỊA CHỈ/CÔNG TRÌNH (ví dụ: STARLAKE)
+  contactPerson?: string; // NGƯỜI LIÊN HỆ (ví dụ: CHỊ HUYỀN)
+  openingGreeting?: string; // Lời chào mở đầu
+
+  // Customizable Footer & Terms Info (Như form trang 10)
+  priceTerms?: string; // Điều khoản 1: Đơn giá & VAT
+  deliveryTerms?: string; // Điều khoản 2: Địa chỉ giao hàng
+  shippingTerms?: string; // Điều khoản 3: Chi phí vận chuyển
+  warrantyTerms?: string; // Điều khoản 4: Bảo hành
+  leadTimeTerms?: string; // Điều khoản 5: Tiến độ cấp hàng
+  customTerms?: string; // Các điều khoản bổ sung
+  closingNotes?: string; // Lời kết & cảm ơn
+  signatoryTitle?: string; // Đơn vị ký (ví dụ: CÔNG TY TNHH HHG HOLDINGS)
+
   items: QuoteProductRow[];
   subtotal: number;
   discountTotal: number;
@@ -139,6 +185,13 @@ export interface Contract {
   customerPhone?: string;
   customerRepresentative?: string;
   customerPosition?: string;
+  companyName?: string;
+  companyAddress?: string;
+  companyTaxCode?: string;
+  companyPhone?: string;
+  companyEmail?: string;
+  companyWebsite?: string;
+  companyLogo?: string;
   salesRepId: string;
   salesRepName: string;
   salesRepPhone?: string;

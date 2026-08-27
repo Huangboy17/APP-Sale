@@ -10,6 +10,7 @@ import {
 } from '../lib/firebase';
 import {
   User,
+  CompanyInfo,
   Customer,
   ProductPriceItem,
   InventoryItem,
@@ -20,6 +21,7 @@ import {
 } from '../types';
 import {
   INITIAL_USERS,
+  INITIAL_COMPANY_INFO,
   INITIAL_PRODUCTS,
   INITIAL_INVENTORY,
   INITIAL_CUSTOMERS,
@@ -31,6 +33,7 @@ import {
 
 export const COLLECTIONS = {
   USERS: 'users',
+  COMPANY: 'companyInfo',
   CUSTOMERS: 'customers',
   PRODUCTS: 'products',
   INVENTORY: 'inventory',
@@ -46,6 +49,10 @@ export async function seedInitialDataIfEmpty() {
     // Always guarantee Super Admin user is synchronized with buiviethoangktxd@gmail.com
     const superAdminUser = INITIAL_USERS[0];
     await setDoc(doc(db, COLLECTIONS.USERS, superAdminUser.id), superAdminUser, { merge: true });
+
+    // Seed master company info
+    const companyDoc = INITIAL_COMPANY_INFO;
+    await setDoc(doc(db, COLLECTIONS.COMPANY, companyDoc.id), companyDoc, { merge: true });
 
     const custSnapshot = await getDocs(collection(db, COLLECTIONS.CUSTOMERS));
     if (!custSnapshot.empty) {
@@ -124,6 +131,16 @@ export async function deleteUserFromCloud(userId: string) {
     await deleteDoc(doc(db, COLLECTIONS.USERS, userId));
   } catch (err) {
     console.error('[Firestore] Error deleting user:', err);
+  }
+}
+
+// Company Info Actions
+export async function syncCompanyInfoToCloud(companyInfo: CompanyInfo) {
+  try {
+    const id = companyInfo.id || 'company-master';
+    await setDoc(doc(db, COLLECTIONS.COMPANY, id), companyInfo, { merge: true });
+  } catch (err) {
+    console.error('[Firestore] Error saving company info:', err);
   }
 }
 
