@@ -23,6 +23,7 @@ import {
   StockInVoucher,
   StockOutVoucher,
   StockAuditVoucher,
+  PurchaseOrder,
 } from '../types';
 import {
   INITIAL_USERS,
@@ -52,6 +53,7 @@ export const COLLECTIONS = {
   STOCK_IN_VOUCHERS: 'stockInVouchers',
   STOCK_OUT_VOUCHERS: 'stockOutVouchers',
   STOCK_AUDIT_VOUCHERS: 'stockAuditVouchers',
+  PURCHASE_ORDERS: 'purchaseOrders',
 };
 
 // Quota state and notification callback
@@ -578,6 +580,36 @@ export async function deleteCustomerMemberFromCloud(memberId: string) {
   }
 }
 
+// Purchase Order Actions (Đơn đặt NCC)
+export async function syncPurchaseOrderToCloud(po: PurchaseOrder) {
+  try {
+    await setDoc(doc(db, COLLECTIONS.PURCHASE_ORDERS, po.id), cleanForFirestore(po), { merge: true });
+  } catch (err) {
+    handleFirestoreError(err, 'Save purchase order');
+  }
+}
+
+export async function deletePurchaseOrderFromCloud(poId: string) {
+  try {
+    await deleteDoc(doc(db, COLLECTIONS.PURCHASE_ORDERS, poId));
+  } catch (err) {
+    handleFirestoreError(err, 'Delete purchase order');
+  }
+}
+
+export async function batchSyncPurchaseOrdersToCloud(pos: PurchaseOrder[]) {
+  if (!pos || pos.length === 0) return;
+  try {
+    const batch = writeBatch(db);
+    pos.forEach((po) => {
+      batch.set(doc(db, COLLECTIONS.PURCHASE_ORDERS, po.id), cleanForFirestore(po), { merge: true });
+    });
+    await batch.commit();
+  } catch (err) {
+    handleFirestoreError(err, 'Batch sync purchase orders');
+  }
+}
+
 export async function getCustomerMembersFromCloud(customerId: string): Promise<{ id: string; customerId: string; userId: string; userName: string; organizationId: string; createdBy: string; createdAt: string }[]> {
   try {
     const snapshot = await getDocs(collection(db, COLLECTIONS.CUSTOMER_MEMBERS));
@@ -629,6 +661,7 @@ export async function clearAllDataFromCloud(keepSuperAdmin = true) {
       COLLECTIONS.ORDERS,
       COLLECTIONS.ORGANIZATIONS,
       COLLECTIONS.CUSTOMER_MEMBERS,
+      COLLECTIONS.PURCHASE_ORDERS,
     ];
 
     for (const colName of collectionsToClear) {

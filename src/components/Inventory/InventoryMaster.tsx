@@ -42,6 +42,8 @@ import { StockLedgerWarehouseView } from './StockLedgerWarehouseView';
 import { DispatchConfirmModal } from './DispatchConfirmModal';
 import { ReceiveOrderModal } from './ReceiveOrderModal';
 import { ItemReservationsModal } from './ItemReservationsModal';
+import { PurchaseOrdersWarehouseTable } from './PurchaseOrdersWarehouseTable';
+import { CreatePurchaseOrderModal } from './CreatePurchaseOrderModal';
 import { ErrorBoundary } from '../Common/ErrorBoundary';
 
 type WarehouseTabType =
@@ -49,6 +51,7 @@ type WarehouseTabType =
   | 'all_inventory'
   | 'holding_reserves'
   | 'contract_orders'
+  | 'purchase_orders'
   | 'stock_in'
   | 'stock_out'
   | 'stock_audit'
@@ -62,6 +65,7 @@ const InventoryMasterContent: React.FC = () => {
     inventory,
     filteredReserveItems,
     filteredOrderItems,
+    purchaseOrders,
     customers,
     contracts,
     updateInventoryItem,
@@ -97,6 +101,7 @@ const InventoryMasterContent: React.FC = () => {
   const [dispatchModalItem, setDispatchModalItem] = useState<ReserveItem | null>(null);
   const [receiveModalOrder, setReceiveModalOrder] = useState<OrderItem | null>(null);
   const [reserveDetailModalItem, setReserveDetailModalItem] = useState<InventoryItem | null>(null);
+  const [isCreatePOModalOpen, setIsCreatePOModalOpen] = useState(false);
 
   // Cross-tab trigger state
   const [targetStockInSku, setTargetStockInSku] = useState<string | undefined>(undefined);
@@ -381,7 +386,7 @@ const InventoryMasterContent: React.FC = () => {
           <span>Hàng Đang Giữ ({activeReservesCount})</span>
         </button>
 
-        {/* Tab 4: Đơn hàng cần xử lý */}
+        {/* Tab 4: Đơn hàng cần xử lý (Sales demand) */}
         <button
           onClick={() => setActiveSubTab('contract_orders')}
           className={`px-3 py-2 rounded-lg text-xs font-bold transition flex items-center space-x-1.5 cursor-pointer ${
@@ -392,6 +397,19 @@ const InventoryMasterContent: React.FC = () => {
         >
           <ShoppingCart className="w-3.5 h-3.5" />
           <span>Đơn Cần Đặt ({activeOrdersCount})</span>
+        </button>
+
+        {/* Tab 4.5: Đơn Đặt NCC (PO do Kho quản lý) */}
+        <button
+          onClick={() => setActiveSubTab('purchase_orders')}
+          className={`px-3 py-2 rounded-lg text-xs font-bold transition flex items-center space-x-1.5 cursor-pointer ${
+            activeSubTab === 'purchase_orders'
+              ? 'bg-indigo-900 text-white shadow-2xs'
+              : 'text-slate-600 hover:text-slate-900 hover:bg-indigo-50'
+          }`}
+        >
+          <ShoppingCart className="w-3.5 h-3.5 text-indigo-400" />
+          <span>Đơn Đặt NCC (PO) ({purchaseOrders.length})</span>
         </button>
 
         {/* Tab 5: Nhập kho */}
@@ -894,6 +912,13 @@ const InventoryMasterContent: React.FC = () => {
         />
       )}
 
+      {/* TAB 4.5: PURCHASE ORDERS (ĐƠN ĐẶT NCC DO KHO QUẢN LÝ) */}
+      {activeSubTab === 'purchase_orders' && (
+        <PurchaseOrdersWarehouseTable
+          onOpenCreatePOModal={() => setIsCreatePOModalOpen(true)}
+        />
+      )}
+
       {/* TAB 5: STOCK IN VOUCHERS */}
       {activeSubTab === 'stock_in' && (
         <StockInWarehouseView initialSku={targetStockInSku} />
@@ -978,6 +1003,13 @@ const InventoryMasterContent: React.FC = () => {
         <ItemReservationsModal
           item={reserveDetailModalItem}
           onClose={() => setReserveDetailModalItem(null)}
+        />
+      )}
+
+      {isCreatePOModalOpen && (
+        <CreatePurchaseOrderModal
+          isOpen={isCreatePOModalOpen}
+          onClose={() => setIsCreatePOModalOpen(false)}
         />
       )}
     </div>

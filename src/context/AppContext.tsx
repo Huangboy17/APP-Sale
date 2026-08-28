@@ -34,6 +34,9 @@ import {
   StockInVoucher,
   StockOutVoucher,
   StockAuditVoucher,
+  PurchaseOrder,
+  PurchaseOrderItem,
+  PurchaseOrderStatus,
 } from '../types';
 import {
   saveProductsToIndexedDB,
@@ -47,6 +50,13 @@ import {
   safeGetLocalStorage,
 } from '../utils/localDB';
 import { normalizeProductPriceItem } from '../utils/priceImportEngine';
+import {
+  generatePurchaseOrderNumber,
+  normalizePurchaseOrder,
+  calculatePurchaseOrderStatus,
+  validatePurchaseOrder,
+} from '../services/purchaseOrderService';
+import { processPOInboundReceiving } from '../services/stockInService';
 import {
   INITIAL_USERS,
   INITIAL_COMPANY_INFO,
@@ -95,6 +105,9 @@ import {
   deleteOrderItemFromCloud,
   batchSyncOrdersToCloud,
   batchDeleteOrdersFromCloud,
+  syncPurchaseOrderToCloud,
+  deletePurchaseOrderFromCloud,
+  batchSyncPurchaseOrdersToCloud,
   clearAllDataFromCloud,
   clearCollectionFromCloud,
   syncOrganizationToCloud,
@@ -276,6 +289,15 @@ interface AppContextType {
   receiveInboundOrderBatch: (orderId: string, receiveQuantity: number, warehouseLocation?: string, notes?: string, receiptNumber?: string) => void;
   cancelOrderItem: (orderId: string, reason?: string) => void;
 
+  // Purchase Orders (Đơn đặt NCC do Kho lập & quản lý)
+  purchaseOrders: PurchaseOrder[];
+  filteredPurchaseOrders: PurchaseOrder[];
+  createPurchaseOrder: (poData: Omit<PurchaseOrder, 'id' | 'poNumber' | 'createdAt' | 'updatedAt'>) => Promise<PurchaseOrder>;
+  updatePurchaseOrder: (updatedPO: PurchaseOrder) => void;
+  updatePurchaseOrderStatus: (poId: string, newStatus: PurchaseOrderStatus) => void;
+  deletePurchaseOrder: (poId: string) => void;
+  confirmStockInFromPO: (poId: string, payload: { actualQuantities: Record<string, number>; warehouseLocation: string; notes?: string; receiptNumber?: string }) => Promise<StockInVoucher>;
+
   // Active view navigation
   activeTab: NavTabType;
   setActiveTab: (tab: NavTabType) => void;
@@ -333,6 +355,7 @@ const STORAGE_KEYS = {
   CONTRACTS: 'salesflow_contracts_v1',
   RESERVES: 'salesflow_reserves_v1',
   ORDERS: 'salesflow_orders_v1',
+  PURCHASE_ORDERS: 'salesflow_purchase_orders_v1',
 };
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -417,6 +440,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [orderItems, setOrderItems] = useState<OrderItem[]>(() => {
     const saved = localStorage.getItem(STORAGE_KEYS.ORDERS);
     return saved ? JSON.parse(saved) : INITIAL_ORDER_ITEMS;
+  });
+
+  const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>(() => {
+    const saved = localStorage.getItem(STORAGE_KEYS.PURCHASE_ORDERS);
+    if (!saved) return [];
+    try {
+      const parsed = JSON.parse(saved);
+      if (Array.isArray(parsed)) {
+        return parsed.map((p) => normalizePurchaseOrder(p));
+      }
+      return [];
+    } catch {
+      return [];
+    }
   });
 
   // BOOTSTRAP: Hydrate large datasets (Products & Inventory) from IndexedDB FIRST, then mark hydrated
@@ -890,6 +927,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         );
         unsubs.push(unsubStockAudit);
 
+        // 14. Purchase Orders real-time listener (Đơn đặt NCC)
+        const unsubPurchaseOrders = onSnapshot(
+          collection(db, COLLECTIONS.PURCHASE_ORDERS),
+          (snap) => {
+            const list: PurchaseOrder[] = [];
+            snap.forEach((d) => {
+              const po = d.data();
+              if (po && po.id) list.push(normalizePurchaseOrder(po));
+            });
+            list.sort((a, b) => new Date(b.createdAt || b.orderDate).getTime() - new Date(a.createdAt || a.orderDate).getTime());
+            setPurchaseOrders(list);
+          },
+          (err) => {
+            handleFirestoreError(err, 'Purchase Orders listener');
+          }
+        );
+        unsubs.push(unsubPurchaseOrders);
+
         setCloudSyncStatus((prev) => (prev === 'quota-exceeded' ? 'quota-exceeded' : 'connected'));
       } catch (err) {
         handleFirestoreError(err, 'Initialization error');
@@ -951,6 +1006,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   useEffect(() => {
     safeSetLocalStorage(STORAGE_KEYS.ORDERS, orderItems);
   }, [orderItems]);
+
+  useEffect(() => {
+    safeSetLocalStorage(STORAGE_KEYS.PURCHASE_ORDERS, purchaseOrders);
+  }, [purchaseOrders]);
 
   useEffect(() => {
     safeSetLocalStorage(STORAGE_KEYS.COMPANY, companyInfo);
@@ -3729,6 +3788,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
   }, [orderItems, currentUser, users, customers]);
 
+  const filteredPurchaseOrders = useMemo(() => {
+    if (currentUser.role === 'super_admin') {
+      return purchaseOrders;
+    }
+    const myOrgId = resolveOrganizationId(currentUser, users);
+    return purchaseOrders.filter((po) => !po.organizationId || po.organizationId === myOrgId);
+  }, [purchaseOrders, currentUser, users]);
+
   // Derived synced inventory: ensures reservedQuantity matches active holding reserves of VALID existing customers,
   // and available is total - reserved
   const isHoldingReserve = (status?: string): boolean => {
@@ -4149,6 +4216,272 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
   };
 
+  // ===========================================================================
+  // PURCHASE ORDER METHODS (ĐƠN ĐẶT NHÀ CUNG CẤP - KHO QUẢN LÝ & QUYẾT ĐỊNH)
+  // ===========================================================================
+
+  const createPurchaseOrder = async (
+    poData: Omit<PurchaseOrder, 'id' | 'poNumber' | 'createdAt' | 'updatedAt'>
+  ): Promise<PurchaseOrder> => {
+    const poNumber = generatePurchaseOrderNumber(purchaseOrders);
+    const nowIso = new Date().toISOString();
+
+    const normalizedItems = (poData.items || []).map((item, idx) => {
+      const salesReq = Number(item.salesRequiredQuantity) || 0;
+      const supplierOrd = Number(item.supplierOrderQuantity) || salesReq;
+      const extraQty = Math.max(0, supplierOrd - salesReq);
+      const remainingQty = supplierOrd;
+
+      return {
+        ...item,
+        id: item.id || `po-item-${Date.now()}-${idx}`,
+        salesRequiredQuantity: salesReq,
+        supplierOrderQuantity: supplierOrd,
+        warehouseExtraQuantity: extraQty,
+        receivedQuantity: 0,
+        remainingQuantity: remainingQty,
+      };
+    });
+
+    const totalSales = normalizedItems.reduce((sum, i) => sum + i.salesRequiredQuantity, 0);
+    const totalOrder = normalizedItems.reduce((sum, i) => sum + i.supplierOrderQuantity, 0);
+
+    const newPO: PurchaseOrder = normalizePurchaseOrder({
+      ...poData,
+      id: `po-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
+      poNumber,
+      items: normalizedItems,
+      totalSalesDemand: totalSales,
+      totalOrderQuantity: totalOrder,
+      totalReceivedQuantity: 0,
+      status: poData.status || 'ordered',
+      createdById: currentUser.id,
+      createdByName: currentUser.name,
+      organizationId: currentUser.organizationId || 'system_admin',
+      createdAt: nowIso,
+      updatedAt: nowIso,
+    });
+
+    const updatedList = [newPO, ...purchaseOrders];
+    setPurchaseOrders(updatedList);
+    safeSetLocalStorage(STORAGE_KEYS.PURCHASE_ORDERS, updatedList);
+    syncPurchaseOrderToCloud(newPO);
+
+    // Update status of linked OrderItems to 'ordered' if they were 'pending'
+    const linkedOrderItemIds = new Set<string>();
+    newPO.items.forEach((item) => {
+      (item.salesDemands || []).forEach((d) => {
+        if (d.orderItemId) linkedOrderItemIds.add(d.orderItemId);
+      });
+    });
+
+    if (linkedOrderItemIds.size > 0) {
+      setOrderItems((prev) => {
+        const updated = prev.map((o) => {
+          if (linkedOrderItemIds.has(o.id) && (o.status === 'pending' || o.status === 'pending_order')) {
+            const updatedOrder: OrderItem = { ...o, status: 'ordered' };
+            syncOrderItemToCloud(updatedOrder);
+            return updatedOrder;
+          }
+          return o;
+        });
+        safeSetLocalStorage(STORAGE_KEYS.ORDERS, updated);
+        return updated;
+      });
+    }
+
+    return newPO;
+  };
+
+  const updatePurchaseOrder = (updatedPO: PurchaseOrder) => {
+    const normalized = normalizePurchaseOrder({
+      ...updatedPO,
+      updatedAt: new Date().toISOString(),
+    });
+    setPurchaseOrders((prev) => {
+      const updated = prev.map((p) => (p.id === normalized.id ? normalized : p));
+      safeSetLocalStorage(STORAGE_KEYS.PURCHASE_ORDERS, updated);
+      syncPurchaseOrderToCloud(normalized);
+      return updated;
+    });
+  };
+
+  const updatePurchaseOrderStatus = (poId: string, newStatus: PurchaseOrderStatus) => {
+    setPurchaseOrders((prev) => {
+      const target = prev.find((p) => p.id === poId);
+      if (!target) return prev;
+      const updated: PurchaseOrder = {
+        ...target,
+        status: newStatus,
+        updatedAt: new Date().toISOString(),
+      };
+      safeSetLocalStorage(
+        STORAGE_KEYS.PURCHASE_ORDERS,
+        prev.map((p) => (p.id === poId ? updated : p))
+      );
+      syncPurchaseOrderToCloud(updated);
+      return prev.map((p) => (p.id === poId ? updated : p));
+    });
+  };
+
+  const deletePurchaseOrder = (poId: string) => {
+    setPurchaseOrders((prev) => {
+      const updated = prev.filter((p) => p.id !== poId);
+      safeSetLocalStorage(STORAGE_KEYS.PURCHASE_ORDERS, updated);
+      deletePurchaseOrderFromCloud(poId);
+      return updated;
+    });
+  };
+
+  const confirmStockInFromPO = async (
+    poId: string,
+    payload: {
+      actualQuantities: Record<string, number>;
+      warehouseLocation: string;
+      notes?: string;
+      receiptNumber?: string;
+    }
+  ): Promise<StockInVoucher> => {
+    const targetPO = purchaseOrders.find((p) => p.id === poId);
+    if (!targetPO) {
+      throw new Error(`Không tìm thấy đơn đặt NCC với ID ${poId}`);
+    }
+
+    if (targetPO.status === 'completed') {
+      throw new Error('Đơn đặt NCC này đã hoàn tất nhập đủ hàng.');
+    }
+
+    if (targetPO.status === 'cancelled') {
+      throw new Error('Không thể nhập kho cho đơn đặt NCC đã bị hủy.');
+    }
+
+    // Process allocation using pure service
+    const {
+      updatedPO,
+      stockInVoucher,
+      updatedOrderItems,
+      createdReserveItems,
+    } = processPOInboundReceiving({
+      po: targetPO,
+      actualQuantities: payload.actualQuantities,
+      existingOrderItems: orderItems,
+      existingReserveItems: reserveItems,
+      warehouseLocation: payload.warehouseLocation,
+      user: currentUser,
+      receiptNumber: payload.receiptNumber,
+      notes: payload.notes,
+    });
+
+    if (stockInVoucher.items.length === 0 || stockInVoucher.totalQuantity <= 0) {
+      throw new Error('Số lượng thực nhận phải lớn hơn 0.');
+    }
+
+    // 1. Update Purchase Orders
+    const newPOList = purchaseOrders.map((p) => (p.id === poId ? updatedPO : p));
+    setPurchaseOrders(newPOList);
+    safeSetLocalStorage(STORAGE_KEYS.PURCHASE_ORDERS, newPOList);
+    syncPurchaseOrderToCloud(updatedPO);
+
+    // 2. Add StockInVoucher
+    const newVouchers = [stockInVoucher, ...stockInVouchers];
+    setStockInVouchers(newVouchers);
+    syncStockInVoucherToCloud(stockInVoucher);
+
+    // 3. Update OrderItems (Sales Requests)
+    if (updatedOrderItems.length > 0) {
+      const updatedIds = new Set(updatedOrderItems.map((o) => o.id));
+      const newOrders = orderItems.map((o) => {
+        if (updatedIds.has(o.id)) {
+          const matching = updatedOrderItems.find((u) => u.id === o.id);
+          return matching || o;
+        }
+        return o;
+      });
+      setOrderItems(newOrders);
+      safeSetLocalStorage(STORAGE_KEYS.ORDERS, newOrders);
+      batchSyncOrdersToCloud(updatedOrderItems);
+    }
+
+    // 4. Add Created ReserveItems
+    if (createdReserveItems.length > 0) {
+      const newReserves = [...reserveItems, ...createdReserveItems];
+      setReserveItems(newReserves);
+      safeSetLocalStorage(STORAGE_KEYS.RESERVES, newReserves);
+      batchSyncReservesToCloud(createdReserveItems);
+    }
+
+    // 5. Update Inventory (On Hand += actual received, Reserved += allocated to Sales, Available = On Hand - Reserved)
+    const newTransactions: StockTransaction[] = [];
+    const receivedBySku: Record<string, number> = {};
+    stockInVoucher.items.forEach((item) => {
+      receivedBySku[item.sku.toUpperCase()] = (receivedBySku[item.sku.toUpperCase()] || 0) + item.actualQuantity;
+    });
+
+    const allocatedBySku: Record<string, number> = {};
+    createdReserveItems.forEach((res) => {
+      allocatedBySku[res.sku.toUpperCase()] = (allocatedBySku[res.sku.toUpperCase()] || 0) + res.reservedQuantity;
+    });
+
+    const newInventory = inventory.map((invItem) => {
+      const skuKey = invItem.sku.toUpperCase();
+      const receivedQty = receivedBySku[skuKey] || 0;
+      const allocatedQty = allocatedBySku[skuKey] || 0;
+
+      if (receivedQty > 0) {
+        const beforeOnHand = invItem.totalQuantity || 0;
+        const beforeReserved = invItem.reservedQuantity || 0;
+        const afterOnHand = beforeOnHand + receivedQty;
+        const afterReserved = beforeReserved + allocatedQty;
+        const afterAvailable = Math.max(0, afterOnHand - afterReserved);
+
+        // Create transaction
+        const tx: StockTransaction = {
+          id: `tx-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
+          timestamp: new Date().toISOString(),
+          date: stockInVoucher.date,
+          sku: invItem.sku,
+          productName: invItem.name,
+          unit: invItem.unit,
+          type: 'STOCK_IN',
+          deltaQuantity: receivedQty,
+          beforeOnHand,
+          afterOnHand,
+          beforeReserved,
+          afterReserved,
+          beforeAvailable: Math.max(0, beforeOnHand - beforeReserved),
+          afterAvailable,
+          referenceCode: stockInVoucher.voucherNumber,
+          partnerName: stockInVoucher.supplierName,
+          performedById: currentUser.id,
+          performedByName: currentUser.name,
+          organizationId: currentUser.organizationId || 'system_admin',
+          notes: `Nhập theo PO ${targetPO.poNumber}`,
+        };
+        newTransactions.push(tx);
+
+        return {
+          ...invItem,
+          totalQuantity: afterOnHand,
+          reservedQuantity: afterReserved,
+          availableQuantity: afterAvailable,
+          updatedAt: new Date().toISOString(),
+        };
+      }
+      return invItem;
+    });
+
+    setInventory(newInventory);
+    saveInventoryToIndexedDB(newInventory);
+    batchSyncInventoryToCloud(newInventory.filter((i) => receivedBySku[i.sku.toUpperCase()] > 0));
+
+    if (newTransactions.length > 0) {
+      setStockTransactions((prev) => [...newTransactions, ...prev]);
+      batchSyncStockTransactionsToCloud(newTransactions);
+    }
+
+    return stockInVoucher;
+  };
+
   const clearAllSystemData = async () => {
     // 1. Clear local state
     setCustomers([]);
@@ -4377,6 +4710,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         updateOrderWarehouseStatus,
         receiveInboundOrderBatch,
         cancelOrderItem,
+        purchaseOrders: filteredPurchaseOrders,
+        filteredPurchaseOrders,
+        createPurchaseOrder,
+        updatePurchaseOrder,
+        updatePurchaseOrderStatus,
+        deletePurchaseOrder,
+        confirmStockInFromPO,
         activeTab,
         setActiveTab,
         isCreateCustomerModalOpen,

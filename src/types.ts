@@ -270,6 +270,8 @@ export interface StockInVoucherItem {
 export interface StockInVoucher {
   id: string;
   voucherNumber: string; // PNK-YYYYMMDD-XXXX
+  purchaseOrderId?: string; // ID của PO liên kết (nếu nhập từ PO)
+  purchaseOrderNumber?: string; // Mã PO liên kết
   date: string;
   supplierName: string;
   warehouseLocation: string;
@@ -548,6 +550,78 @@ export interface ReserveItem {
   stockTransactionIds?: string[];
   timeline?: TimelineEvent[];
   releasedReason?: string;
+  purchaseOrderId?: string; // ID PO liên kết
+  stockInVoucherId?: string; // ID Phiếu nhập kho đã cấp hàng
+  orderItemId?: string; // ID OrderItem gốc
+}
+
+// =============================================================================
+// PURCHASE ORDER (ĐƠN ĐẶT NHÀ CUNG CẤP - KHO QUẢN LÝ & QUYẾT ĐỊNH)
+// =============================================================================
+
+export type PurchaseOrderStatus =
+  | 'draft' // Nháp
+  | 'ordered' // Đã đặt NCC
+  | 'in_transit' // Đang vận chuyển
+  | 'partial_received' // Về một phần
+  | 'completed' // Đã về đủ
+  | 'cancelled'; // Đã hủy
+
+export type POLineSourceType =
+  | 'SALES_REQUEST' // Từ đề nghị của Sales
+  | 'WAREHOUSE_PLANNED'; // Kho chủ động thêm
+
+export interface POLineSalesDemand {
+  orderItemId: string; // ID của OrderItem gốc
+  contractId: string;
+  contractNumber: string;
+  customerId: string;
+  customerName: string;
+  salesRepId?: string;
+  salesRepName: string;
+  requiredQuantity: number; // Nhu cầu Sales cần
+  requiredDate?: string; // Hạn cần giao
+  fulfilledQuantity?: number; // Số lượng PO này đã đáp ứng
+}
+
+export interface PurchaseOrderItem {
+  id: string;
+  sku: string;
+  productName: string;
+  brand: string;
+  unit: string;
+  salesRequiredQuantity: number; // Tổng nhu cầu thực tế từ các Sales gom lại
+  supplierOrderQuantity: number; // Số lượng Kho quyết định đặt NCC (>= salesRequiredQuantity)
+  warehouseExtraQuantity: number; // Kho chủ động mua thêm = max(0, supplierOrderQuantity - salesRequiredQuantity)
+  receivedQuantity: number; // Số lượng thực tế đã nhập kho
+  remainingQuantity: number; // Số lượng còn chờ NCC giao = max(0, supplierOrderQuantity - receivedQuantity)
+  unitCost?: number; // Giá mua dự kiến
+  earliestRequiredDate?: string; // Ngày cần sớm nhất
+  notes?: string;
+  sourceType: POLineSourceType;
+  salesDemands: POLineSalesDemand[]; // Danh sách phân rã từng Sales / HĐ
+}
+
+export interface PurchaseOrder {
+  id: string;
+  poNumber: string; // PO-YYYYMMDD-XXXX
+  supplierName: string;
+  orderDate: string;
+  expectedDeliveryDate?: string;
+  warehouseLocation: string;
+  status: PurchaseOrderStatus;
+  items: PurchaseOrderItem[];
+  totalSalesDemand: number;
+  totalOrderQuantity: number;
+  totalReceivedQuantity: number;
+  totalAmount?: number;
+  createdById: string;
+  createdByName: string;
+  organizationId: string;
+  notes?: string;
+  inboundVoucherIds?: string[];
+  createdAt: string;
+  updatedAt: string;
 }
 
 // =============================================================================

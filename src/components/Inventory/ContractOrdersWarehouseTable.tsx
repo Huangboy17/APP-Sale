@@ -4,6 +4,7 @@ import { formatDate } from '../../utils/formatters';
 import { useApp } from '../../context/AppContext';
 import { EditOrderItemModal } from './EditOrderItemModal';
 import { ItemOrderRequirementsModal } from './ItemOrderRequirementsModal';
+import { CreatePurchaseOrderModal } from './CreatePurchaseOrderModal';
 import {
   ShoppingCart,
   Search,
@@ -25,6 +26,9 @@ import {
   Building,
   ListOrdered,
   LayoutGrid,
+  Plus,
+  CheckSquare,
+  Square,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
@@ -58,6 +62,12 @@ export const ContractOrdersWarehouseTable: React.FC<ContractOrdersWarehouseTable
   const [tempNotes, setTempNotes] = useState('');
   const [editingOrderItem, setEditingOrderItem] = useState<OrderItem | null>(null);
   const [selectedSkuForModal, setSelectedSkuForModal] = useState<{ sku: string; name: string; brand: string } | null>(null);
+
+  // Multi-select state for PO creation
+  const [selectedOrderIds, setSelectedOrderIds] = useState<Set<string>>(new Set());
+  const [isCreatePOModalOpen, setIsCreatePOModalOpen] = useState(false);
+
+  const canManage = currentUser.role === 'manager_c1' || currentUser.role === 'super_admin' || currentUser.role === 'sales_c2';
 
   // Lookup maps
   const customerMap = useMemo(() => new Map(customers.map((c) => [c.id, c])), [customers]);
@@ -173,6 +183,37 @@ export const ContractOrdersWarehouseTable: React.FC<ContractOrdersWarehouseTable
   const totalShortageQty = orderItems
     .filter((o) => isPendingOrder(o.status))
     .reduce((sum, o) => sum + Math.max(0, o.remainingQuantity ?? (o.orderQuantity - (o.receivedQuantity || 0))), 0);
+
+  // Multi-select handlers
+  const handleToggleSelectOrder = (orderId: string) => {
+    setSelectedOrderIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(orderId)) next.delete(orderId);
+      else next.add(orderId);
+      return next;
+    });
+  };
+
+  const handleToggleSelectSku = (orders: OrderItem[]) => {
+    setSelectedOrderIds((prev) => {
+      const next = new Set(prev);
+      const allSelected = orders.every((o) => next.has(o.id));
+      if (allSelected) {
+        orders.forEach((o) => next.delete(o.id));
+      } else {
+        orders.forEach((o) => next.add(o.id));
+      }
+      return next;
+    });
+  };
+
+  const handleSelectAllFiltered = () => {
+    if (selectedOrderIds.size === filteredOrders.length) {
+      setSelectedOrderIds(new Set());
+    } else {
+      setSelectedOrderIds(new Set(filteredOrders.map((o) => o.id)));
+    }
+  };
 
   // Status Labels & Badge Helpers
   const getStatusBadge = (status: string) => {
@@ -308,6 +349,22 @@ export const ContractOrdersWarehouseTable: React.FC<ContractOrdersWarehouseTable
           >
             <Download className="w-3.5 h-3.5" /> Xuất Excel
           </button>
+
+          {canManage && (
+            <button
+              onClick={() => {
+                if (selectedOrderIds.size === 0) {
+                  const pendingIds = new Set(filteredOrders.filter((o) => isPendingOrder(o.status)).map((o) => o.id));
+                  if (pendingIds.size > 0) setSelectedOrderIds(pendingIds);
+                }
+                setIsCreatePOModalOpen(true);
+              }}
+              className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white border border-indigo-700 rounded-lg text-xs font-bold flex items-center gap-1.5 cursor-pointer shadow-2xs transition"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>+ Tạo Đơn Đặt NCC {selectedOrderIds.size > 0 ? `(${selectedOrderIds.size})` : ''}</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -332,6 +389,7 @@ export const ContractOrdersWarehouseTable: React.FC<ContractOrdersWarehouseTable
             <table className="w-full text-left text-xs">
               <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-bold uppercase tracking-wider text-[11px]">
                 <tr>
+                  {canManage && <th className="px-2 py-3 text-center w-8">Chọn</th>}
                   <th className="px-3.5 py-3">Mã Hàng</th>
                   <th className="px-3.5 py-3">Tên Hàng</th>
                   <th className="px-3.5 py-3">Hãng</th>
@@ -350,15 +408,36 @@ export const ContractOrdersWarehouseTable: React.FC<ContractOrdersWarehouseTable
               <tbody className="divide-y divide-slate-100 text-slate-700">
                 {skuSummaries.length === 0 ? (
                   <tr>
-                    <td colSpan={9} className="px-4 py-12 text-center text-slate-400">
+                    <td colSpan={10} className="px-4 py-12 text-center text-slate-400">
                       Không có mã hàng nào đang cần đặt thêm từ NCC.
                     </td>
                   </tr>
                 ) : (
                   skuSummaries.map((item) => {
                     const firstOrder = item.orders[0];
+                    const isAllSkuSelected = item.orders.every((o) => selectedOrderIds.has(o.id));
+                    const isSomeSkuSelected = item.orders.some((o) => selectedOrderIds.has(o.id));
+
                     return (
                       <tr key={item.sku} className="hover:bg-indigo-50/20 transition-colors">
+                        {canManage && (
+                          <td className="px-2 py-2.5 text-center" onClick={(e) => e.stopPropagation()}>
+                            <button
+                              type="button"
+                              onClick={() => handleToggleSelectSku(item.orders)}
+                              className="text-slate-400 hover:text-indigo-600 transition cursor-pointer"
+                              title={isAllSkuSelected ? 'Bỏ chọn mã này' : 'Chọn mã này để tạo PO'}
+                            >
+                              {isAllSkuSelected ? (
+                                <CheckSquare className="w-4 h-4 text-indigo-600" />
+                              ) : isSomeSkuSelected ? (
+                                <CheckSquare className="w-4 h-4 text-indigo-400 opacity-60" />
+                              ) : (
+                                <Square className="w-4 h-4" />
+                              )}
+                            </button>
+                          </td>
+                        )}
                         <td className="px-3.5 py-2.5 font-mono font-bold text-blue-700">
                           {item.sku}
                         </td>
@@ -467,13 +546,25 @@ export const ContractOrdersWarehouseTable: React.FC<ContractOrdersWarehouseTable
               <ShoppingCart className="w-4 h-4 text-indigo-600" />
               <span>Danh sách chi tiết từng yêu cầu đặt hàng theo hợp đồng: <strong>{filteredOrders.length}</strong> đơn.</span>
             </div>
-            <span className="text-[11px] text-slate-500 italic">Kho toàn quyền nhập số lượng thực tế ≥ nhu cầu</span>
+            <div className="flex items-center space-x-2">
+              {canManage && (
+                <button
+                  type="button"
+                  onClick={handleSelectAllFiltered}
+                  className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded text-[11px] font-semibold transition cursor-pointer"
+                >
+                  {selectedOrderIds.size === filteredOrders.length ? 'Bỏ chọn tất cả' : 'Chọn tất cả'}
+                </button>
+              )}
+              <span className="text-[11px] text-slate-500 italic">Kho toàn quyền nhập số lượng thực tế ≥ nhu cầu</span>
+            </div>
           </div>
 
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs">
               <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-bold uppercase text-[11px]">
                 <tr>
+                  {canManage && <th className="px-2 py-3 text-center w-8">Chọn</th>}
                   <th className="px-3.5 py-3">Mã Hàng & Sản Phẩm</th>
                   <th className="px-3 py-3 text-center bg-indigo-50/40 border-x border-indigo-100">Nhu Cầu Sales</th>
                   <th className="px-3 py-3 text-center bg-emerald-50/40 border-r border-emerald-100 text-emerald-900">Đã Đáp Ứng</th>
@@ -487,7 +578,7 @@ export const ContractOrdersWarehouseTable: React.FC<ContractOrdersWarehouseTable
               <tbody className="divide-y divide-slate-100">
                 {filteredOrders.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="px-4 py-8 text-center text-slate-400">
+                    <td colSpan={9} className="px-4 py-8 text-center text-slate-400">
                       Không có yêu cầu đặt hàng nào trong danh sách.
                     </td>
                   </tr>
@@ -497,8 +588,21 @@ export const ContractOrdersWarehouseTable: React.FC<ContractOrdersWarehouseTable
                       order.remainingQuantity !== undefined
                         ? order.remainingQuantity
                         : Math.max(0, order.orderQuantity - (order.receivedQuantity || 0));
+                    const isSelected = selectedOrderIds.has(order.id);
+
                     return (
                       <tr key={order.id} className="hover:bg-indigo-50/20">
+                        {canManage && (
+                          <td className="px-2 py-2.5 text-center" onClick={(e) => e.stopPropagation()}>
+                            <button
+                              type="button"
+                              onClick={() => handleToggleSelectOrder(order.id)}
+                              className="text-slate-400 hover:text-indigo-600 transition cursor-pointer"
+                            >
+                              {isSelected ? <CheckSquare className="w-4 h-4 text-indigo-600" /> : <Square className="w-4 h-4" />}
+                            </button>
+                          </td>
+                        )}
                         <td className="px-3.5 py-2.5">
                           <div className="font-mono font-bold text-indigo-700">{order.sku}</div>
                           <div className="font-bold text-slate-900">{order.productName}</div>
@@ -598,6 +702,19 @@ export const ContractOrdersWarehouseTable: React.FC<ContractOrdersWarehouseTable
           productName={selectedSkuForModal.name}
           brand={selectedSkuForModal.brand}
           onClose={() => setSelectedSkuForModal(null)}
+        />
+      )}
+
+      {/* Create Purchase Order Modal */}
+      {isCreatePOModalOpen && (
+        <CreatePurchaseOrderModal
+          isOpen={isCreatePOModalOpen}
+          selectedSalesRequests={orderItems.filter((o) => selectedOrderIds.has(o.id))}
+          onClose={() => setIsCreatePOModalOpen(false)}
+          onSuccess={() => {
+            setSelectedOrderIds(new Set());
+            setIsCreatePOModalOpen(false);
+          }}
         />
       )}
 
