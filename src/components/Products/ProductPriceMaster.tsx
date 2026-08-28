@@ -31,6 +31,7 @@ const ProductPriceMasterContent: React.FC = () => {
   const {
     products,
     inventory,
+    isProductsHydrated,
     addProduct,
     updateProduct,
     deleteProduct,
@@ -458,12 +459,21 @@ const ProductPriceMasterContent: React.FC = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-slate-700">
-              {displayedProducts.length === 0 ? (
+              {!isProductsHydrated ? (
+                <tr>
+                  <td colSpan={canManageProducts ? 13 : 12} className="px-4 py-12 text-center text-slate-500">
+                    <div className="flex flex-col items-center justify-center space-y-2">
+                      <div className="w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+                      <p className="text-xs font-semibold text-slate-600">Đang nạp dữ liệu Master Data Giá từ IndexedDB...</p>
+                    </div>
+                  </td>
+                </tr>
+              ) : displayedProducts.length === 0 ? (
                 <tr>
                   <td colSpan={canManageProducts ? 13 : 12} className="px-4 py-8 text-center text-slate-400">
-                    {currentUser.role === 'super_admin'
-                      ? 'Tài khoản Super Admin không hiển thị data giá bán lẻ của các công ty. Vui lòng đăng nhập tài khoản Cấp 1 tương ứng để xem và quản lý.'
-                      : 'Chưa có sản phẩm nào trong Data Giá của công ty. Vui lòng bấm "Import Data Giá" hoặc "+ Thêm Sản Phẩm" để bắt đầu.'}
+                    {searchTerm || categoryFilter !== 'all' || brandFilter !== 'all' || stockStatusFilter !== 'all'
+                      ? 'Không tìm thấy sản phẩm nào khớp với bộ lọc tìm kiếm.'
+                      : 'Chưa có sản phẩm nào trong Data Giá. Vui lòng bấm "Import Data Giá" hoặc "+ Thêm Sản Phẩm" để bắt đầu.'}
                   </td>
                 </tr>
               ) : (

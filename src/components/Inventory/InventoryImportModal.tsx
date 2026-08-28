@@ -294,7 +294,7 @@ export const InventoryImportModal: React.FC<InventoryImportModalProps> = ({ isOp
     }
   };
 
-  const handleConfirmImport = () => {
+  const handleConfirmImport = async () => {
     const validRows = parsedRows.filter((r) => r.status !== 'error');
     if (validRows.length === 0) {
       alert('Không có dữ liệu hợp lệ để import!');
@@ -312,10 +312,17 @@ export const InventoryImportModal: React.FC<InventoryImportModalProps> = ({ isOp
       updatedAt: new Date().toISOString().split('T')[0],
     }));
 
-    importInventory(itemsToSave);
-
-    alert(`Đã cập nhật tồn kho thành công cho ${itemsToSave.length} sản phẩm!`);
-    onClose();
+    setIsProcessing(true);
+    try {
+      const importedCount = await importInventory(itemsToSave);
+      alert(`Đã cập nhật tồn kho thành công cho ${importedCount} sản phẩm (IndexedDB & Cloud Firestore)!`);
+      onClose();
+    } catch (err) {
+      console.error('[InventoryImport] Error:', err);
+      alert(`Đã xảy ra lỗi khi import tồn kho: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
   const totalCount = parsedRows.length;

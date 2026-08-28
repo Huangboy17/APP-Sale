@@ -17,9 +17,15 @@ const IDB_KEYS = {
   INVENTORY: 'master_inventory_data',
 };
 
-// Open or initialize IndexedDB connection
+// Open or initialize IndexedDB connection with connection reuse
+let cachedDbPromise: Promise<IDBDatabase> | null = null;
+
 function openDB(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
+  if (cachedDbPromise) {
+    return cachedDbPromise;
+  }
+
+  cachedDbPromise = new Promise((resolve, reject) => {
     if (typeof window === 'undefined' || !window.indexedDB) {
       reject(new Error('IndexedDB not supported in this browser environment'));
       return;
@@ -36,13 +42,26 @@ function openDB(): Promise<IDBDatabase> {
       }
     };
 
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
+    request.onsuccess = () => {
+      const db = request.result;
+      db.onclose = () => {
+        cachedDbPromise = null;
+      };
+      resolve(db);
+    };
+
+    request.onerror = () => {
+      cachedDbPromise = null;
+      reject(request.error);
+    };
   });
+
+  return cachedDbPromise;
 }
 
 /**
  * Save data directly to IndexedDB (No localStorage quota limits)
+ * Uses transaction 'oncomplete' to guarantee physical persistence before resolving.
  */
 export async function saveToIDB<T>(storeName: string, key: string, data: T): Promise<void> {
   try {
@@ -50,12 +69,21 @@ export async function saveToIDB<T>(storeName: string, key: string, data: T): Pro
     return new Promise((resolve, reject) => {
       const tx = db.transaction(storeName, 'readwrite');
       const store = tx.objectStore(storeName);
-      const req = store.put(data, key);
-      req.onsuccess = () => resolve();
-      req.onerror = () => reject(req.error);
+      store.put(data, key);
+
+      tx.oncomplete = () => {
+        resolve();
+      };
+      tx.onerror = () => {
+        reject(tx.error || new Error(`IndexedDB transaction error in ${storeName}`));
+      };
+      tx.onabort = () => {
+        reject(new Error(`IndexedDB transaction aborted in ${storeName}`));
+      };
     });
   } catch (err) {
-    console.warn(`[LocalDB] IndexedDB save warning for ${storeName}/${key}:`, err);
+    console.error(`[LocalDB] IndexedDB save error for ${storeName}/${key}:`, err);
+    throw err;
   }
 }
 
@@ -69,8 +97,13 @@ export async function loadFromIDB<T>(storeName: string, key: string): Promise<T 
       const tx = db.transaction(storeName, 'readonly');
       const store = tx.objectStore(storeName);
       const req = store.get(key);
-      req.onsuccess = () => resolve((req.result as T) || null);
-      req.onerror = () => reject(req.error);
+
+      req.onsuccess = () => {
+        resolve((req.result as T) || null);
+      };
+      req.onerror = () => {
+        reject(req.error || new Error(`IndexedDB read error in ${storeName}`));
+      };
     });
   } catch (err) {
     console.warn(`[LocalDB] IndexedDB load warning for ${storeName}/${key}:`, err);
@@ -82,24 +115,44 @@ export async function loadFromIDB<T>(storeName: string, key: string): Promise<T 
  * Dedicated Product Persistence (IndexedDB ONLY - Zero localStorage)
  */
 export async function saveProductsToIndexedDB(products: ProductPriceItem[]): Promise<void> {
-  console.log(`[PRICE_IMPORT] LOCAL_SAVED (IndexedDB: ${products.length} products)`);
+  console.log(`[LocalDB] SAVING products to IndexedDB (${products.length} records)`);
   await saveToIDB(IDB_STORES.PRODUCTS, IDB_KEYS.PRODUCTS, products);
+  console.log(`[LocalDB] SAVED products to IndexedDB successfully (${products.length} records)`);
 }
 
 export async function loadProductsFromIndexedDB(): Promise<ProductPriceItem[] | null> {
-  return loadFromIDB<ProductPriceItem[]>(IDB_STORES.PRODUCTS, IDB_KEYS.PRODUCTS);
+  const result = await loadFromIDB<ProductPriceItem[]>(IDB_STORES.PRODUCTS, IDB_KEYS.PRODUCTS);
+  if (result && Array.isArray(result)) {
+    console.log(`[LocalDB] LOADED ${result.length} products from IndexedDB`);
+  }
+  return result;
+}
+
+export async function verifyProductCountInIndexedDB(): Promise<number> {
+  const prods = await loadProductsFromIndexedDB();
+  return prods ? prods.length : 0;
 }
 
 /**
  * Dedicated Inventory Persistence (IndexedDB ONLY - Zero localStorage)
  */
 export async function saveInventoryToIndexedDB(inventory: InventoryItem[]): Promise<void> {
-  console.log(`[INVENTORY_IMPORT] LOCAL_SAVED (IndexedDB: ${inventory.length} items)`);
+  console.log(`[LocalDB] SAVING inventory to IndexedDB (${inventory.length} items)`);
   await saveToIDB(IDB_STORES.INVENTORY, IDB_KEYS.INVENTORY, inventory);
+  console.log(`[LocalDB] SAVED inventory to IndexedDB successfully (${inventory.length} items)`);
 }
 
 export async function loadInventoryFromIndexedDB(): Promise<InventoryItem[] | null> {
-  return loadFromIDB<InventoryItem[]>(IDB_STORES.INVENTORY, IDB_KEYS.INVENTORY);
+  const result = await loadFromIDB<InventoryItem[]>(IDB_STORES.INVENTORY, IDB_KEYS.INVENTORY);
+  if (result && Array.isArray(result)) {
+    console.log(`[LocalDB] LOADED ${result.length} inventory items from IndexedDB`);
+  }
+  return result;
+}
+
+export async function verifyInventoryCountInIndexedDB(): Promise<number> {
+  const inv = await loadInventoryFromIndexedDB();
+  return inv ? inv.length : 0;
 }
 
 /**

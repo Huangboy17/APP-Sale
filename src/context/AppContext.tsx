@@ -38,8 +38,10 @@ import {
 import {
   saveProductsToIndexedDB,
   loadProductsFromIndexedDB,
+  verifyProductCountInIndexedDB,
   saveInventoryToIndexedDB,
   loadInventoryFromIndexedDB,
+  verifyInventoryCountInIndexedDB,
   migrateAndCleanupLegacyStorage,
   safeSetLocalStorage,
   safeGetLocalStorage,
@@ -202,19 +204,21 @@ interface AppContextType {
   // Products (Data Giá theo từng công ty C1)
   products: ProductPriceItem[];
   allProducts?: ProductPriceItem[];
+  isProductsHydrated: boolean;
   addProduct: (product: ProductPriceItem) => void;
   updateProduct: (product: ProductPriceItem) => void;
   deleteProduct: (sku: string) => void;
-  importProducts: (newProducts: ProductPriceItem[]) => void;
-  importPriceRecords: (records: PriceImportRecord[], mode?: 'upsert' | 'new_only') => void;
+  importProducts: (newProducts: ProductPriceItem[]) => Promise<number>;
+  importPriceRecords: (records: PriceImportRecord[], mode?: 'upsert' | 'new_only') => Promise<number>;
 
   // Inventory (Tồn kho theo từng công ty C1)
   inventory: InventoryItem[];
   allInventory?: InventoryItem[];
+  isInventoryHydrated: boolean;
   updateInventoryItem: (item: InventoryItem) => void;
   addInventoryItem: (item: Omit<InventoryItem, 'availableQuantity' | 'reservedQuantity' | 'updatedAt'>) => void;
   deleteInventoryItem: (sku: string) => void;
-  importInventory: (newInventory: InventoryItem[]) => void;
+  importInventory: (newInventory: InventoryItem[]) => Promise<number>;
   quickAdjustStock: (sku: string, deltaQty: number, notes?: string) => void;
   receiveOrderToWarehouseAndReserve: (orderId: string, warehouseLocation?: string) => void;
 
@@ -389,8 +393,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return saved ? JSON.parse(saved) : INITIAL_CUSTOMERS;
   });
 
-  const [products, setProducts] = useState<ProductPriceItem[]>(INITIAL_PRODUCTS);
+  const [isProductsHydrated, setIsProductsHydrated] = useState<boolean>(false);
+  const [isInventoryHydrated, setIsInventoryHydrated] = useState<boolean>(false);
 
+  const [products, setProducts] = useState<ProductPriceItem[]>(INITIAL_PRODUCTS);
   const [inventory, setInventory] = useState<InventoryItem[]>(INITIAL_INVENTORY);
 
   const [quotations, setQuotations] = useState<Quotation[]>(() => {
@@ -413,40 +419,54 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return saved ? JSON.parse(saved) : INITIAL_ORDER_ITEMS;
   });
 
-  // Hydrate large datasets (Products & Inventory) from IndexedDB and cleanup any legacy localStorage bloat
+  // BOOTSTRAP: Hydrate large datasets (Products & Inventory) from IndexedDB FIRST, then mark hydrated
   useEffect(() => {
-    migrateAndCleanupLegacyStorage().finally(() => {
+    let isMounted = true;
+
+    const bootstrapStorage = async () => {
+      await migrateAndCleanupLegacyStorage();
+
       // 1. Load Products from IndexedDB
-      loadProductsFromIndexedDB()
-        .then((cachedProds) => {
+      try {
+        const cachedProds = await loadProductsFromIndexedDB();
+        if (isMounted) {
           if (cachedProds && Array.isArray(cachedProds) && cachedProds.length > 0) {
             const normalizedProds = cachedProds.map((p) => normalizeProductPriceItem(p));
-            setProducts((prev) => {
-              if (prev.length <= INITIAL_PRODUCTS.length || prev.length < normalizedProds.length) {
-                console.log(`[LocalDB] Hydrated ${normalizedProds.length} products from IndexedDB`);
-                return normalizedProds;
-              }
-              return prev;
-            });
+            console.log(`[LocalDB] Bootstrap hydrated ${normalizedProds.length} products from IndexedDB`);
+            setProducts(normalizedProds);
+          } else {
+            console.log('[LocalDB] Bootstrap: No cached products in IndexedDB (0 records)');
           }
-        })
-        .catch((err) => console.warn('[LocalDB] Products hydration error:', err));
+          setIsProductsHydrated(true);
+        }
+      } catch (err) {
+        console.warn('[LocalDB] Products bootstrap error:', err);
+        if (isMounted) setIsProductsHydrated(true);
+      }
 
       // 2. Load Inventory from IndexedDB
-      loadInventoryFromIndexedDB()
-        .then((cachedInv) => {
+      try {
+        const cachedInv = await loadInventoryFromIndexedDB();
+        if (isMounted) {
           if (cachedInv && Array.isArray(cachedInv) && cachedInv.length > 0) {
-            setInventory((prev) => {
-              if (prev.length <= INITIAL_INVENTORY.length || prev.length < cachedInv.length) {
-                console.log(`[LocalDB] Hydrated ${cachedInv.length} inventory items from IndexedDB`);
-                return cachedInv;
-              }
-              return prev;
-            });
+            console.log(`[LocalDB] Bootstrap hydrated ${cachedInv.length} inventory items from IndexedDB`);
+            setInventory(cachedInv);
+          } else {
+            console.log('[LocalDB] Bootstrap: No cached inventory in IndexedDB (0 records)');
           }
-        })
-        .catch((err) => console.warn('[LocalDB] Inventory hydration error:', err));
-    });
+          setIsInventoryHydrated(true);
+        }
+      } catch (err) {
+        console.warn('[LocalDB] Inventory bootstrap error:', err);
+        if (isMounted) setIsInventoryHydrated(true);
+      }
+    };
+
+    bootstrapStorage();
+
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   // Master Company Information (Synced to all C1 & C2 users)
@@ -589,48 +609,51 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
             console.log('[PRICE_IMPORT] SNAPSHOT_MERGE cloud items count:', cloudList.length);
 
-            // CRITICAL: Merge cloud data WITH existing local products.
-            // Preserve organizationId & createdBy from local state if cloud item lacks them.
-            setProducts((prevLocal) => {
-              const map = new Map<string, ProductPriceItem>();
-              
-              // Layer 1: Preserve all existing local products
-              prevLocal.forEach((p) => {
-                const normalized = normalizeProductPriceItem(p);
-                const orgKey = normalized.organizationId || normalized.companyId || 'global';
-                map.set(`${orgKey}_${normalized.sku}`, normalized);
-              });
+            // CRITICAL: Only merge cloud data IF cloud has records.
+            // If cloud is empty (e.g. initial load, quota reached, offline), DO NOT wipe local products!
+            if (cloudList.length > 0) {
+              setProducts((prevLocal) => {
+                const map = new Map<string, ProductPriceItem>();
+                
+                // Layer 1: Preserve all existing local products
+                prevLocal.forEach((p) => {
+                  const normalized = normalizeProductPriceItem(p);
+                  const orgKey = normalized.organizationId || normalized.companyId || 'global';
+                  map.set(`${orgKey}_${normalized.sku}`, normalized);
+                });
 
-              // Layer 2: Overlay cloud data without losing tenant ownership
-              cloudList.forEach((cloudItem) => {
-                const skuUpper = cloudItem.sku;
-                let existingLocalKey = Array.from(map.keys()).find((k) => k.endsWith(`_${skuUpper}`));
-                let existingLocal = existingLocalKey ? map.get(existingLocalKey) : undefined;
+                // Layer 2: Overlay cloud data without losing tenant ownership
+                cloudList.forEach((cloudItem) => {
+                  const skuUpper = cloudItem.sku;
+                  let existingLocalKey = Array.from(map.keys()).find((k) => k.endsWith(`_${skuUpper}`));
+                  let existingLocal = existingLocalKey ? map.get(existingLocalKey) : undefined;
 
-                const orgId = cloudItem.organizationId || cloudItem.companyId || existingLocal?.organizationId || existingLocal?.companyId;
-                const createdBy = cloudItem.createdBy || existingLocal?.createdBy;
-                const createdByName = cloudItem.createdByName || existingLocal?.createdByName;
+                  const orgId = cloudItem.organizationId || cloudItem.companyId || existingLocal?.organizationId || existingLocal?.companyId;
+                  const createdBy = cloudItem.createdBy || existingLocal?.createdBy;
+                  const createdByName = cloudItem.createdByName || existingLocal?.createdByName;
 
-                const mergedItem: ProductPriceItem = {
-                  ...cloudItem,
-                  organizationId: orgId,
-                  companyId: orgId,
-                  createdBy: createdBy || 'system',
-                  createdByName: createdByName || 'System',
-                };
+                  const mergedItem: ProductPriceItem = {
+                    ...cloudItem,
+                    organizationId: orgId,
+                    companyId: orgId,
+                    createdBy: createdBy || 'system',
+                    createdByName: createdByName || 'System',
+                  };
 
-                const targetKey = `${orgId || 'global'}_${skuUpper}`;
-                if (existingLocalKey && existingLocalKey !== targetKey) {
-                  map.delete(existingLocalKey);
+                  const targetKey = `${orgId || 'global'}_${skuUpper}`;
+                  if (existingLocalKey && existingLocalKey !== targetKey) {
+                    map.delete(existingLocalKey);
+                  }
+                  map.set(targetKey, mergedItem);
+                });
+
+                const mergedResult = Array.from(map.values());
+                if (mergedResult.length > 0) {
+                  saveProductsToIndexedDB(mergedResult).catch(() => {});
                 }
-                map.set(targetKey, mergedItem);
+                return mergedResult;
               });
-
-              const mergedResult = Array.from(map.values());
-              // Update local persistence via IndexedDB (Zero localStorage usage)
-              saveProductsToIndexedDB(mergedResult);
-              return mergedResult;
-            });
+            }
             setCloudSyncStatus((prev) => (prev === 'quota-exceeded' ? 'quota-exceeded' : 'connected'));
             setLastCloudSyncTime(new Date());
           },
@@ -661,24 +684,27 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                 });
               }
             });
-            // CRITICAL: Merge cloud data WITH existing local inventory.
-            // Never discard locally-imported inventory that hasn't synced to cloud yet.
-            setInventory((prevLocal) => {
-              const map = new Map<string, InventoryItem>();
-              // Layer 1: Preserve all existing local inventory
-              prevLocal.forEach((i) => {
-                const key = `${i.organizationId || i.companyId || 'global'}_${(i.sku || '').trim().toUpperCase()}`;
-                map.set(key, i);
+
+            if (cloudList.length > 0) {
+              setInventory((prevLocal) => {
+                const map = new Map<string, InventoryItem>();
+                // Layer 1: Preserve all existing local inventory
+                prevLocal.forEach((i) => {
+                  const key = `${i.organizationId || i.companyId || 'global'}_${(i.sku || '').trim().toUpperCase()}`;
+                  map.set(key, i);
+                });
+                // Layer 2: Overlay cloud data (source of truth for synced items)
+                cloudList.forEach((i) => {
+                  const key = `${i.organizationId || i.companyId || 'global'}_${(i.sku || '').trim().toUpperCase()}`;
+                  map.set(key, i);
+                });
+                const mergedResult = Array.from(map.values());
+                if (mergedResult.length > 0) {
+                  saveInventoryToIndexedDB(mergedResult).catch(() => {});
+                }
+                return mergedResult;
               });
-              // Layer 2: Overlay cloud data (source of truth for synced items)
-              cloudList.forEach((i) => {
-                const key = `${i.organizationId || i.companyId || 'global'}_${(i.sku || '').trim().toUpperCase()}`;
-                map.set(key, i);
-              });
-              const mergedResult = Array.from(map.values());
-              saveInventoryToIndexedDB(mergedResult);
-              return mergedResult;
-            });
+            }
             setCloudSyncStatus((prev) => (prev === 'quota-exceeded' ? 'quota-exceeded' : 'connected'));
             setLastCloudSyncTime(new Date());
           },
@@ -891,12 +917,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, [customers]);
 
   useEffect(() => {
-    saveProductsToIndexedDB(products);
-  }, [products]);
+    if (!isProductsHydrated) {
+      // GUARD: Do NOT write products to storage before bootstrap hydration completes!
+      return;
+    }
+    saveProductsToIndexedDB(products).catch((err) => {
+      console.warn('[LocalDB] Auto-save products to IndexedDB warning:', err);
+    });
+  }, [products, isProductsHydrated]);
 
   useEffect(() => {
-    saveInventoryToIndexedDB(inventory);
-  }, [inventory]);
+    if (!isInventoryHydrated) {
+      // GUARD: Do NOT write inventory to storage before bootstrap hydration completes!
+      return;
+    }
+    saveInventoryToIndexedDB(inventory).catch((err) => {
+      console.warn('[LocalDB] Auto-save inventory to IndexedDB warning:', err);
+    });
+  }, [inventory, isInventoryHydrated]);
 
   useEffect(() => {
     safeSetLocalStorage(STORAGE_KEYS.QUOTATIONS, quotations);
@@ -1822,12 +1860,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, [currentUser, users]);
 
   // Products Data Giá - Scoped by Company:
-  // - Super Admin: returns [] (Super Admin quản trị hệ thống tài khoản & công ty, không can thiệp bảng giá bán lẻ của các C1)
-  // - Cấp 1 (Công ty A): CHỈ xem & quản lý data giá của công ty A
+  // - Super Admin: xem toàn bộ Master Data Giá trên toàn hệ thống
+  // - Cấp 1 (Công ty A): CHỈ xem & quản lý data giá của công ty A và sản phẩm chung
   // - Cấp 2 (Sales của C1): Xem và dùng chung data giá của công ty C1 quản lý
   const filteredProducts = useMemo(() => {
     if (currentUser.role === 'super_admin') {
-      return [];
+      return products;
     }
     const myOrgId = resolveOrganizationId(currentUser, users);
     const myCompanyId = companyScope.companyId || myOrgId;
@@ -1837,15 +1875,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (pOrg) {
         return pOrg === myOrgId || pOrg === myCompanyId;
       }
-      // Backward compatibility nếu data cũ chưa gắn organizationId/companyId
-      if (currentUser.role === 'manager_c1') {
-        return p.createdBy === currentUser.id;
-      }
-      if (currentUser.role === 'sales_c2') {
-        const mgrId = currentUser.managerId || currentUser.createdBy;
-        return p.createdBy === currentUser.id || (mgrId ? p.createdBy === mgrId : false);
-      }
-      return false;
+      // Backward compatibility nếu data cũ chưa gắn organizationId/companyId -> Hiển thị chung cho toàn hệ thống
+      return true;
     });
   }, [products, currentUser, companyScope, users]);
 
@@ -1940,7 +1971,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     deleteInventoryItemFromCloud(sku, myCompanyId);
   };
 
-  const importProducts = (newProducts: ProductPriceItem[]) => {
+  const importProducts = async (newProducts: ProductPriceItem[]): Promise<number> => {
     const myOrgId = resolveOrganizationId(currentUser, users);
     const myCompanyId = companyScope.companyId || myOrgId;
 
@@ -1951,49 +1982,58 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     console.log('[PRICE_IMPORT] NORMALIZED count:', stampedProducts.length);
     console.log('[PRICE_IMPORT] STAMPED count:', stampedProducts.length, 'org:', myOrgId);
 
-    setProducts((prev) => {
-      // Products belonging explicitly to OTHER organizations
-      const otherOrgProducts = prev.filter((p) => {
-        const pOrg = p.organizationId || p.companyId;
-        return pOrg && pOrg !== myOrgId && pOrg !== myCompanyId;
-      });
+    // 1. Calculate merged product list
+    const otherOrgProducts = products.filter((p) => {
+      const pOrg = p.organizationId || p.companyId;
+      return pOrg && pOrg !== myOrgId && pOrg !== myCompanyId;
+    });
 
-      // Products belonging to current org OR unassigned products
-      const myMap = new Map<string, ProductPriceItem>();
-      prev.filter((p) => {
+    const myMap = new Map<string, ProductPriceItem>();
+    products
+      .filter((p) => {
         const pOrg = p.organizationId || p.companyId;
         return !pOrg || pOrg === myOrgId || pOrg === myCompanyId;
-      }).forEach((p) => {
+      })
+      .forEach((p) => {
         const stampedExisting = normalizeProductPriceItem(p, myOrgId, currentUser.id, currentUser.name);
         myMap.set(stampedExisting.sku, stampedExisting);
       });
 
-      // Overlay newly imported products
-      stampedProducts.forEach((p) => myMap.set(p.sku, p));
+    // Overlay newly imported products
+    stampedProducts.forEach((p) => myMap.set(p.sku, p));
 
-      const updatedCompanyProducts = Array.from(myMap.values());
-      const fullList = [...otherOrgProducts, ...updatedCompanyProducts];
-      
-      console.log('[PRICE_IMPORT] STORE_UPDATED full products count:', fullList.length);
+    const updatedCompanyProducts = Array.from(myMap.values());
+    const fullList = [...otherOrgProducts, ...updatedCompanyProducts];
 
-      // Save to IndexedDB (Zero localStorage usage)
-      saveProductsToIndexedDB(fullList);
+    console.log('[PRICE_IMPORT] STORE_UPDATED full products count:', fullList.length);
 
-      return fullList;
+    // 2. TRANSACTION: Save directly to IndexedDB FIRST
+    await saveProductsToIndexedDB(fullList);
+
+    // 3. VERIFY STORAGE COUNT: Confirm physical records in IndexedDB
+    const verifiedCount = await verifyProductCountInIndexedDB();
+    console.log('[PRICE_IMPORT] VERIFIED IndexedDB count:', verifiedCount);
+    if (verifiedCount < fullList.length) {
+      throw new Error(`Xác minh lưu trữ thất bại: Kì vọng ${fullList.length} nhưng IndexedDB chỉ lưu được ${verifiedCount}`);
+    }
+
+    // 4. Update React state after verified persistence
+    setProducts(fullList);
+    setIsProductsHydrated(true);
+
+    // 5. Ensure corresponding inventory entries exist for this company
+    const otherOrgInventory = inventory.filter((i) => {
+      const iOrg = i.organizationId || i.companyId;
+      return iOrg && iOrg !== myOrgId && iOrg !== myCompanyId;
     });
 
-    // Ensure inventory entries exist for this company
-    setInventory((prev) => {
-      const otherOrgInventory = prev.filter((i) => {
-        const iOrg = i.organizationId || i.companyId;
-        return iOrg && iOrg !== myOrgId && iOrg !== myCompanyId;
-      });
-
-      const myInvMap = new Map<string, InventoryItem>();
-      prev.filter((i) => {
+    const myInvMap = new Map<string, InventoryItem>();
+    inventory
+      .filter((i) => {
         const iOrg = i.organizationId || i.companyId;
         return !iOrg || iOrg === myOrgId || iOrg === myCompanyId;
-      }).forEach((i) => {
+      })
+      .forEach((i) => {
         const stampedInv: InventoryItem = {
           ...i,
           organizationId: i.organizationId || myOrgId,
@@ -2004,46 +2044,48 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         myInvMap.set((i.sku || '').toUpperCase(), stampedInv);
       });
 
-      const newlyAdded: InventoryItem[] = [];
-      stampedProducts.forEach((p) => {
-        const skuKey = (p.sku || '').toUpperCase();
-        if (skuKey && !myInvMap.has(skuKey)) {
-          const item: InventoryItem = {
-            sku: p.sku,
-            name: p.name,
-            unit: p.unit,
-            totalQuantity: 0,
-            reservedQuantity: 0,
-            availableQuantity: 0,
-            warehouseLocation: 'Kho Mới',
-            updatedAt: new Date().toISOString().split('T')[0],
-            organizationId: myOrgId,
-            companyId: myCompanyId,
-            createdBy: currentUser.id || 'system',
-            createdByName: currentUser.name || 'System Manager',
-          };
-          myInvMap.set(skuKey, item);
-          newlyAdded.push(item);
-        }
-      });
-
-      if (newlyAdded.length > 0) {
-        batchSyncInventoryToCloud(newlyAdded);
+    const newlyAdded: InventoryItem[] = [];
+    stampedProducts.forEach((p) => {
+      const skuKey = (p.sku || '').toUpperCase();
+      if (skuKey && !myInvMap.has(skuKey)) {
+        const item: InventoryItem = {
+          sku: p.sku,
+          name: p.name,
+          unit: p.unit,
+          totalQuantity: 0,
+          reservedQuantity: 0,
+          availableQuantity: 0,
+          warehouseLocation: 'Kho Mới',
+          updatedAt: new Date().toISOString().split('T')[0],
+          organizationId: myOrgId,
+          companyId: myCompanyId,
+          createdBy: currentUser.id || 'system',
+          createdByName: currentUser.name || 'System Manager',
+        };
+        myInvMap.set(skuKey, item);
+        newlyAdded.push(item);
       }
-
-      const fullInvList = [...otherOrgInventory, ...Array.from(myInvMap.values())];
-      saveInventoryToIndexedDB(fullInvList);
-      return fullInvList;
     });
 
-    // Trigger cloud sync outside state updater
+    const fullInvList = [...otherOrgInventory, ...Array.from(myInvMap.values())];
+    await saveInventoryToIndexedDB(fullInvList);
+    setInventory(fullInvList);
+    setIsInventoryHydrated(true);
+
+    if (newlyAdded.length > 0) {
+      batchSyncInventoryToCloud(newlyAdded).catch(() => {});
+    }
+
+    // 6. Asynchronous Cloud Sync in background chunks
     console.log('[PRICE_IMPORT] FIRESTORE_SYNC_START');
     batchSyncProductsToCloud(stampedProducts)
       .then(() => console.log('[PRICE_IMPORT] FIRESTORE_SAVED count:', stampedProducts.length))
-      .catch((err) => console.error('[PRICE_IMPORT] FIRESTORE_SYNC_ERROR:', err));
+      .catch((err) => console.warn('[PRICE_IMPORT] FIRESTORE_SYNC_WARNING (Local persistence intact):', err));
+
+    return stampedProducts.length;
   };
 
-  const importPriceRecords = (records: PriceImportRecord[], mode: 'upsert' | 'new_only' = 'upsert') => {
+  const importPriceRecords = async (records: PriceImportRecord[], mode: 'upsert' | 'new_only' = 'upsert'): Promise<number> => {
     console.log('[PRICE_IMPORT] INPUT_RECORDS count:', records.length, 'mode:', mode);
 
     const existingSkuSet = new Set(products.map((p) => (p.sku || '').toUpperCase()).filter(Boolean));
@@ -2069,7 +2111,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       status: 'active',
     }));
 
-    importProducts(convertedProducts);
+    return await importProducts(convertedProducts);
   };
 
   // Inventory Tồn kho - Unified Inventory Engine (Single Source of Truth for Sales & Warehouse):
@@ -2768,7 +2810,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     receiveInboundOrderBatch(orderId, remaining > 0 ? remaining : order.orderQuantity, warehouseLocation);
   };
 
-  const importInventory = (newInvList: InventoryItem[]) => {
+  const importInventory = async (newInvList: InventoryItem[]): Promise<number> => {
     const myOrgId = resolveOrganizationId(currentUser, users);
     const myCompanyId = companyScope.companyId || myOrgId;
 
@@ -2788,39 +2830,52 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       updatedAt: new Date().toISOString().split('T')[0],
     }));
 
-    setInventory((prev) => {
-      const otherOrgInventory = prev.filter((i) => {
-        const iOrg = i.organizationId || i.companyId;
-        return iOrg && iOrg !== myOrgId && iOrg !== myCompanyId;
-      });
-
-      const myMap = new Map<string, InventoryItem>();
-      prev.filter((i) => {
-        const iOrg = i.organizationId || i.companyId;
-        return iOrg === myOrgId || iOrg === myCompanyId;
-      }).forEach((i) => myMap.set((i.sku || '').toUpperCase(), i));
-
-      stampedList.forEach((item) => {
-        const skuKey = (item.sku || '').toUpperCase();
-        const existing = myMap.get(skuKey);
-        const reserved = existing ? existing.reservedQuantity : (item.reservedQuantity || 0);
-        const available = Math.max(0, item.totalQuantity - reserved);
-        myMap.set(skuKey, {
-          ...item,
-          reservedQuantity: reserved,
-          availableQuantity: available,
-          updatedAt: new Date().toISOString().split('T')[0],
-        });
-      });
-
-      const updatedCompanyInv = Array.from(myMap.values());
-      const fullList = [...otherOrgInventory, ...updatedCompanyInv];
-      saveInventoryToIndexedDB(fullList);
-      return fullList;
+    const otherOrgInventory = inventory.filter((i) => {
+      const iOrg = i.organizationId || i.companyId;
+      return iOrg && iOrg !== myOrgId && iOrg !== myCompanyId;
     });
 
-    // Trigger cloud sync outside state updater
-    batchSyncInventoryToCloud(stampedList);
+    const myMap = new Map<string, InventoryItem>();
+    inventory
+      .filter((i) => {
+        const iOrg = i.organizationId || i.companyId;
+        return iOrg === myOrgId || iOrg === myCompanyId;
+      })
+      .forEach((i) => myMap.set((i.sku || '').toUpperCase(), i));
+
+    stampedList.forEach((item) => {
+      const skuKey = (item.sku || '').toUpperCase();
+      const existing = myMap.get(skuKey);
+      const reserved = existing ? existing.reservedQuantity : (item.reservedQuantity || 0);
+      const available = Math.max(0, item.totalQuantity - reserved);
+      myMap.set(skuKey, {
+        ...item,
+        reservedQuantity: reserved,
+        availableQuantity: available,
+        updatedAt: new Date().toISOString().split('T')[0],
+      });
+    });
+
+    const updatedCompanyInv = Array.from(myMap.values());
+    const fullList = [...otherOrgInventory, ...updatedCompanyInv];
+
+    // 1. Transaction save to IndexedDB
+    await saveInventoryToIndexedDB(fullList);
+
+    // 2. Verify count
+    const verifiedCount = await verifyInventoryCountInIndexedDB();
+    if (verifiedCount < fullList.length) {
+      throw new Error(`Xác minh lưu trữ tồn kho thất bại: Kì vọng ${fullList.length} nhưng IndexedDB chỉ lưu được ${verifiedCount}`);
+    }
+
+    // 3. Update React state
+    setInventory(fullList);
+    setIsInventoryHydrated(true);
+
+    // 4. Cloud sync in background
+    batchSyncInventoryToCloud(stampedList).catch(() => {});
+
+    return stampedList.length;
   };
 
   // Quotations - RBAC Filter:
@@ -4016,6 +4071,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         revokeCustomerAccess,
         products: filteredProducts,
         allProducts: products,
+        isProductsHydrated,
         addProduct,
         updateProduct,
         deleteProduct,
@@ -4023,6 +4079,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         importPriceRecords,
         inventory: filteredInventory,
         allInventory: inventory,
+        isInventoryHydrated,
         updateInventoryItem,
         addInventoryItem,
         deleteInventoryItem,

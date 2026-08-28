@@ -129,7 +129,7 @@ export const ProductImportModal: React.FC<ProductImportModalProps> = ({ isOpen, 
     downloadPriceRecordsAsJson(cleanRecords, `bang-gia-normalized-${new Date().toISOString().split('T')[0]}.json`);
   };
 
-  const handleConfirmImport = () => {
+  const handleConfirmImport = async () => {
     console.log('[PRICE_IMPORT] START');
     if (!validationResult) return;
 
@@ -142,17 +142,18 @@ export const ProductImportModal: React.FC<ProductImportModalProps> = ({ isOpen, 
     const recordsToImport = validRows.map((r) => r.record);
     console.log('[PRICE_IMPORT] INPUT_RECORDS count:', recordsToImport.length);
 
+    setIsProcessing(true);
     try {
-      importPriceRecords(recordsToImport, importMode);
-      console.log('[PRICE_IMPORT] COMPLETE');
+      const importedCount = await importPriceRecords(recordsToImport, importMode);
+      console.log('[PRICE_IMPORT] COMPLETE verified count:', importedCount);
+      alert(`Import thành công và đã xác minh lưu trữ ${importedCount} sản phẩm vào Master Data Giá (IndexedDB & Cloud Firestore)!`);
+      onClose();
     } catch (err) {
       console.error('[PRICE_IMPORT] IMPORT_ERROR:', err);
       alert(`Đã xảy ra lỗi khi import: ${err instanceof Error ? err.message : String(err)}`);
-      return;
+    } finally {
+      setIsProcessing(false);
     }
-
-    alert(`Import thành công ${recordsToImport.length} sản phẩm vào Master Data Giá (Firestore & Local persistence)!`);
-    onClose();
   };
 
   return (
