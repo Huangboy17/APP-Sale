@@ -17,6 +17,7 @@ import { AuthScreen } from './components/Auth/AuthScreen';
 import { PendingApprovalScreen } from './components/Auth/PendingApprovalScreen';
 import { BlockedScreen } from './components/Auth/BlockedScreen';
 import { ClearDataModal } from './components/Modals/ClearDataModal';
+import { ErrorBoundary } from './components/Common/ErrorBoundary';
 import { isUserActive, isUserPending, isUserBlocked } from './types';
 
 const MainContent: React.FC = () => {
@@ -72,14 +73,16 @@ const MainContent: React.FC = () => {
         {/* Scrollable Work Area */}
         <main className="flex-1 p-4 sm:p-6 overflow-y-auto min-h-0 bg-[#F1F5F9]">
           <div className="max-w-7xl mx-auto w-full">
-            {activeTab === 'dashboard' && <Dashboard />}
-            {activeTab === 'customers' && <CustomerList />}
-            {activeTab === 'quotations' && <QuotationManager />}
-            {activeTab === 'contracts' && <ContractList />}
-            {activeTab === 'reserve_orders' && <ReserveAndOrderTables />}
-            {activeTab === 'products' && <ProductPriceMaster />}
-            {activeTab === 'inventory' && <InventoryMaster />}
-            {activeTab === 'team' && <TeamManagement />}
+            <ErrorBoundary>
+              {activeTab === 'dashboard' && <Dashboard />}
+              {activeTab === 'customers' && <CustomerList />}
+              {activeTab === 'quotations' && <QuotationManager />}
+              {activeTab === 'contracts' && <ContractList />}
+              {activeTab === 'reserve_orders' && <ReserveAndOrderTables />}
+              {activeTab === 'products' && <ProductPriceMaster />}
+              {activeTab === 'inventory' && <InventoryMaster />}
+              {activeTab === 'team' && <TeamManagement />}
+            </ErrorBoundary>
           </div>
         </main>
 

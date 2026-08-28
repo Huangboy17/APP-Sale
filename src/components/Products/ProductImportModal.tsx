@@ -1,7 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { useApp } from '../../context/AppContext';
 import { ProductPriceItem } from '../../types';
-import { formatVND, formatNumber, parseExcelFile, downloadProductTemplateExcel } from '../../utils/formatters';
+import { formatVND, formatNumber, parseExcelFile, downloadProductTemplateExcel, parseExcelNumber, cleanExcelString } from '../../utils/formatters';
 import {
   Upload,
   Download,
@@ -89,10 +89,16 @@ export const ProductImportModal: React.FC<ProductImportModalProps> = ({ isOpen, 
           return;
         }
 
-        const sku = String(rawSku || '').trim().toUpperCase();
-        const name = String(rawName || '').trim();
-        const listPrice = Number(String(rawListPrice).replace(/[^0-9.-]+/g, '')) || 0;
-        const dpPrice = Number(String(rawDpPrice).replace(/[^0-9.-]+/g, '')) || 0;
+        const sku = cleanExcelString(rawSku).toUpperCase();
+        const name = cleanExcelString(rawName);
+        const category = cleanExcelString(rawCategory, 'Chung');
+        const brand = cleanExcelString(rawBrand, 'Khác');
+        const color = cleanExcelString(rawColor, 'Tiêu chuẩn');
+        const size = cleanExcelString(rawSize, 'Tiêu chuẩn');
+        const unit = cleanExcelString(rawUnit, 'Bộ');
+        const listPrice = parseExcelNumber(rawListPrice, 0);
+        const dpPrice = parseExcelNumber(rawDpPrice, 0);
+        const description = cleanExcelString(rawDesc, '');
 
         let status: 'valid' | 'warning' | 'error' = 'valid';
         let statusMessage = 'Hợp lệ';
@@ -120,15 +126,15 @@ export const ProductImportModal: React.FC<ProductImportModalProps> = ({ isOpen, 
 
         rows.push({
           sku,
-          name,
-          category: String(rawCategory).trim(),
-          brand: String(rawBrand).trim(),
-          color: String(rawColor).trim(),
-          size: String(rawSize).trim(),
-          unit: String(rawUnit).trim(),
+          name: name || `Sản phẩm ${sku}`,
+          category,
+          brand,
+          color,
+          size,
+          unit,
           listPrice,
           dpPrice,
-          description: String(rawDesc).trim(),
+          description,
           status,
           statusMessage,
           isExisting,

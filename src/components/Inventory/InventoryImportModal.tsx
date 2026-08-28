@@ -84,11 +84,11 @@ export const InventoryImportModal: React.FC<InventoryImportModalProps> = ({ isOp
           return;
         }
 
-        const sku = String(rawSku || '').trim().toUpperCase();
-        let name = String(rawName || '').trim();
-        const unit = String(rawUnit || '').trim() || 'Bộ';
-        const importedQty = Number(String(rawQty).replace(/[^0-9.-]+/g, '')) || 0;
-        const warehouseLocation = String(rawLocation || 'Kho Tổng').trim();
+        const sku = cleanExcelString(rawSku).toUpperCase();
+        let name = cleanExcelString(rawName);
+        const unit = cleanExcelString(rawUnit, 'Bộ');
+        const importedQty = parseExcelNumber(rawQty, 0);
+        const warehouseLocation = cleanExcelString(rawLocation, 'Kho Tổng');
 
         if (!name && productPriceMap.has(sku)) {
           name = productPriceMap.get(sku)!;

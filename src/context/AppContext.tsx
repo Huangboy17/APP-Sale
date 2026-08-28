@@ -426,23 +426,38 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         const unsubUsers = onSnapshot(
           collection(db, COLLECTIONS.USERS),
           (snap) => {
-            const map = new Map<string, User>();
-            INITIAL_USERS.forEach((u) => map.set(u.id, u));
-            snap.forEach((d) => {
-              const u = d.data() as User;
-              if (u && u.id) {
-                map.set(u.id, u);
-              }
+            // CRITICAL: Merge cloud data WITH existing local users.
+            // Never discard locally-registered users that haven't synced to cloud yet.
+            setUsers((prevLocalUsers) => {
+              const map = new Map<string, User>();
+              
+              // Layer 1: Start with INITIAL_USERS as baseline
+              INITIAL_USERS.forEach((u) => map.set(u.id, u));
+              
+              // Layer 2: Preserve ALL existing local users (includes recently registered ones)
+              prevLocalUsers.forEach((u) => {
+                if (u && u.id) map.set(u.id, u);
+              });
+              
+              // Layer 3: Overlay cloud data (cloud is source of truth for users that exist there)
+              snap.forEach((d) => {
+                const u = d.data() as User;
+                if (u && u.id) {
+                  map.set(u.id, u);
+                }
+              });
+              
+              return Array.from(map.values());
             });
-            const list = Array.from(map.values());
-            setUsers(list);
 
             // Keep current user updated with cloud data if logged in
             const currentSavedId = localStorage.getItem(STORAGE_KEYS.CURRENT_USER_ID);
             if (currentSavedId) {
-              const matched = list.find((u) => u.id === currentSavedId);
-              if (matched) {
-                setCurrentUser(matched);
+              const cloudUser = snap.docs
+                .map((d) => d.data() as User)
+                .find((u) => u.id === currentSavedId);
+              if (cloudUser) {
+                setCurrentUser(cloudUser);
               }
             }
 
@@ -484,7 +499,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             const list: ProductPriceItem[] = [];
             snap.forEach((d) => {
               const item = d.data() as ProductPriceItem;
-              if (item && item.sku) list.push(item);
+              if (item && item.sku) {
+                list.push({
+                  ...item,
+                  sku: (item.sku || '').trim().toUpperCase(),
+                  name: (item.name || '').trim() || `Sản phẩm ${item.sku}`,
+                  category: (item.category || '').trim() || 'Chung',
+                  brand: (item.brand || '').trim() || 'Khác',
+                  color: (item.color || '').trim() || 'Tiêu chuẩn',
+                  size: (item.size || '').trim() || 'Tiêu chuẩn',
+                  unit: (item.unit || '').trim() || 'Bộ',
+                  listPrice: typeof item.listPrice === 'number' && !isNaN(item.listPrice) ? item.listPrice : 0,
+                  dpPrice: typeof item.dpPrice === 'number' && !isNaN(item.dpPrice) ? item.dpPrice : 0,
+                  description: (item.description || '').trim(),
+                  status: item.status || 'active',
+                });
+              }
             });
             if (list.length > 0) {
               setProducts(list);
@@ -505,7 +535,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             const list: InventoryItem[] = [];
             snap.forEach((d) => {
               const item = d.data() as InventoryItem;
-              if (item && item.sku) list.push(item);
+              if (item && item.sku) {
+                list.push({
+                  ...item,
+                  sku: (item.sku || '').trim().toUpperCase(),
+                  name: (item.name || '').trim() || `Sản phẩm ${item.sku}`,
+                  unit: (item.unit || '').trim() || 'Bộ',
+                  totalQuantity: typeof item.totalQuantity === 'number' && !isNaN(item.totalQuantity) ? item.totalQuantity : 0,
+                  reservedQuantity: typeof item.reservedQuantity === 'number' && !isNaN(item.reservedQuantity) ? item.reservedQuantity : 0,
+                  availableQuantity: typeof item.availableQuantity === 'number' && !isNaN(item.availableQuantity) ? item.availableQuantity : 0,
+                  warehouseLocation: (item.warehouseLocation || 'Kho Tổng').trim(),
+                  updatedAt: item.updatedAt || new Date().toISOString().split('T')[0],
+                });
+              }
             });
             if (list.length > 0) {
               setInventory(list);
@@ -759,6 +801,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       });
       const targetUser = updated.find((u) => u.id === userId);
       if (targetUser) syncUserToCloud(targetUser);
+      localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(updated));
       return updated;
     });
   };
@@ -770,6 +813,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const updated = prev.map((u) => (u.id === userId ? { ...u, status: 'inactive' as const } : u));
       const targetUser = updated.find((u) => u.id === userId);
       if (targetUser) syncUserToCloud(targetUser);
+      localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(updated));
       return updated;
     });
   };
@@ -787,7 +831,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       createdBy: currentUser.id,
       createdAt: new Date().toISOString().split('T')[0],
     };
-    setUsers((prev) => [...prev, newUser]);
+    setUsers((prev) => {
+      const updated = [...prev, newUser];
+      localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(updated));
+      return updated;
+    });
     syncUserToCloud(newUser);
     return newUser;
   };
@@ -806,7 +854,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       status: userData.status || 'active',
       createdAt: new Date().toISOString().split('T')[0],
     };
-    setUsers((prev) => [...prev, newUser]);
+    setUsers((prev) => {
+      const updated = [...prev, newUser];
+      localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(updated));
+      return updated;
+    });
     syncUserToCloud(newUser);
     return newUser;
   };
@@ -831,7 +883,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
     }
     
-    setUsers((prev) => prev.map((u) => (u.id === updated.id ? updated : u)));
+    setUsers((prev) => {
+      const newList = prev.map((u) => (u.id === updated.id ? updated : u));
+      localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(newList));
+      return newList;
+    });
     if (currentUser.id === updated.id) {
       setCurrentUser(updated);
     }
@@ -839,7 +895,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const deleteUser = (userId: string) => {
-    setUsers((prev) => prev.filter((u) => u.id !== userId));
+    setUsers((prev) => {
+      const newList = prev.filter((u) => u.id !== userId);
+      localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(newList));
+      return newList;
+    });
     deleteUserFromCloud(userId);
   };
 
@@ -848,7 +908,33 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // -------------------------------------------------------------
   const login = (email: string, password?: string) => {
     const cleanEmail = email.trim().toLowerCase();
-    const user = users.find((u) => u.email.toLowerCase() === cleanEmail);
+    let user = users.find((u) => u.email.toLowerCase() === cleanEmail);
+
+    // FALLBACK: If not found in current React state, check localStorage directly.
+    // This handles the case where onSnapshot may not have merged the user yet,
+    // or where a timing issue caused the user to be dropped from state.
+    if (!user) {
+      try {
+        const savedUsersStr = localStorage.getItem(STORAGE_KEYS.USERS);
+        if (savedUsersStr) {
+          const savedUsers: User[] = JSON.parse(savedUsersStr);
+          const localUser = savedUsers.find((u) => u.email.toLowerCase() === cleanEmail);
+          if (localUser) {
+            console.info('[Login] User not found in state but found in localStorage. Re-adding to state.');
+            user = localUser;
+            // Re-add this user to state so they're available going forward
+            setUsers((prev) => {
+              if (prev.find((u) => u.id === localUser.id)) return prev;
+              return [...prev, localUser];
+            });
+            // Retry cloud sync in case it failed before
+            syncUserToCloud(localUser);
+          }
+        }
+      } catch {
+        // localStorage parse error — ignore
+      }
+    }
 
     if (!user) {
       return {
@@ -945,9 +1031,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       avatar: `https://images.unsplash.com/photo-${1534528741775 + Math.floor(Math.random() * 50)}?w=120&auto=format&fit=crop&q=80`,
     };
 
-    setUsers((prev) => [...prev, newUser]);
-    syncUserToCloud(newUser);
-    syncOrganizationToCloud(newOrg);
+    setUsers((prev) => {
+      const updated = [...prev, newUser];
+      // CRITICAL: Immediately persist to localStorage so the user survives
+      // even if Firestore onSnapshot overwrites state before useEffect runs.
+      localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(updated));
+      return updated;
+    });
+    
+    // Sync to cloud (async, may fail if quota exceeded)
+    syncUserToCloud(newUser).catch((err) => {
+      console.warn('[Register] Cloud sync failed for user, will retry on next session:', err);
+    });
+    syncOrganizationToCloud(newOrg).catch((err) => {
+      console.warn('[Register] Cloud sync failed for organization:', err);
+    });
 
     setCurrentUser(newUser);
     setIsAuthenticated(true);
@@ -985,7 +1083,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       password: updatedPassword,
     };
 
-    setUsers((prev) => prev.map((u) => (u.id === targetUser.id ? updatedUser : u)));
+    setUsers((prev) => {
+      const newList = prev.map((u) => (u.id === targetUser.id ? updatedUser : u));
+      localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(newList));
+      return newList;
+    });
     if (currentUser.id === targetUser.id) {
       setCurrentUser(updatedUser);
     }
@@ -1229,13 +1331,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (currentUser.role === 'super_admin') {
       return [];
     }
-    const myCompanyId = companyScope.companyId;
+    const myOrgId = resolveOrganizationId(currentUser, users);
+    const myCompanyId = companyScope.companyId || myOrgId;
 
     return products.filter((p) => {
-      if (p.companyId) {
-        return p.companyId === myCompanyId;
+      const pOrg = p.organizationId || p.companyId;
+      if (pOrg) {
+        return pOrg === myOrgId || pOrg === myCompanyId;
       }
-      // Backward compatibility nếu data cũ chưa gắn companyId
+      // Backward compatibility nếu data cũ chưa gắn organizationId/companyId
       if (currentUser.role === 'manager_c1') {
         return p.createdBy === currentUser.id;
       }
@@ -1245,7 +1349,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
       return false;
     });
-  }, [products, currentUser, companyScope]);
+  }, [products, currentUser, companyScope, users]);
 
   const addProduct = (prod: ProductPriceItem) => {
     const myCompanyId = companyScope.companyId;
@@ -1339,35 +1443,60 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const importProducts = (newProducts: ProductPriceItem[]) => {
-    const myCompanyId = companyScope.companyId;
+    const myOrgId = resolveOrganizationId(currentUser, users);
+    const myCompanyId = companyScope.companyId || myOrgId;
+
     const stampedProducts: ProductPriceItem[] = newProducts.map((p) => ({
       ...p,
-      sku: p.sku.trim().toUpperCase(),
+      sku: (p.sku || '').trim().toUpperCase(),
+      name: (p.name || '').trim() || `Sản phẩm ${(p.sku || '').trim().toUpperCase()}`,
+      category: (p.category || '').trim() || 'Chung',
+      brand: (p.brand || '').trim() || 'Khác',
+      color: (p.color || '').trim() || 'Tiêu chuẩn',
+      size: (p.size || '').trim() || 'Tiêu chuẩn',
+      unit: (p.unit || '').trim() || 'Bộ',
+      listPrice: typeof p.listPrice === 'number' && !isNaN(p.listPrice) ? p.listPrice : 0,
+      dpPrice: typeof p.dpPrice === 'number' && !isNaN(p.dpPrice) ? p.dpPrice : 0,
+      description: (p.description || '').trim(),
+      status: p.status || 'active',
+      organizationId: myOrgId,
       companyId: myCompanyId,
       createdBy: currentUser.id,
       createdByName: currentUser.name,
     }));
 
     setProducts((prev) => {
-      // Retain products of other companies
-      const otherCompaniesProducts = prev.filter((p) => p.companyId && p.companyId !== myCompanyId);
+      // Retain products of other companies/organizations
+      const otherOrgProducts = prev.filter((p) => {
+        const pOrg = p.organizationId || p.companyId;
+        return pOrg && pOrg !== myOrgId && pOrg !== myCompanyId;
+      });
 
-      // Merge current company's products
+      // Merge current organization's products
       const myMap = new Map<string, ProductPriceItem>();
-      prev.filter((p) => p.companyId === myCompanyId).forEach((p) => myMap.set(p.sku.toUpperCase(), p));
+      prev.filter((p) => {
+        const pOrg = p.organizationId || p.companyId;
+        return pOrg === myOrgId || pOrg === myCompanyId;
+      }).forEach((p) => myMap.set(p.sku.toUpperCase(), p));
+
       stampedProducts.forEach((p) => myMap.set(p.sku.toUpperCase(), p));
 
       const updatedCompanyProducts = Array.from(myMap.values());
-      const combined = [...otherCompaniesProducts, ...updatedCompanyProducts];
-      batchSyncProductsToCloud(stampedProducts);
-      return combined;
+      return [...otherOrgProducts, ...updatedCompanyProducts];
     });
 
     // Ensure inventory entries exist for this company
     setInventory((prev) => {
-      const otherCompaniesInventory = prev.filter((i) => i.companyId && i.companyId !== myCompanyId);
+      const otherOrgInventory = prev.filter((i) => {
+        const iOrg = i.organizationId || i.companyId;
+        return iOrg && iOrg !== myOrgId && iOrg !== myCompanyId;
+      });
+
       const myInvMap = new Map<string, InventoryItem>();
-      prev.filter((i) => i.companyId === myCompanyId).forEach((i) => myInvMap.set(i.sku.toUpperCase(), i));
+      prev.filter((i) => {
+        const iOrg = i.organizationId || i.companyId;
+        return iOrg === myOrgId || iOrg === myCompanyId;
+      }).forEach((i) => myInvMap.set(i.sku.toUpperCase(), i));
 
       const newlyAdded: InventoryItem[] = [];
       stampedProducts.forEach((p) => {
@@ -1381,6 +1510,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             availableQuantity: 0,
             warehouseLocation: 'Kho Mới',
             updatedAt: new Date().toISOString().split('T')[0],
+            organizationId: myOrgId,
             companyId: myCompanyId,
             createdBy: currentUser.id,
             createdByName: currentUser.name,
@@ -1394,8 +1524,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         batchSyncInventoryToCloud(newlyAdded);
       }
 
-      return [...otherCompaniesInventory, ...Array.from(myInvMap.values())];
+      return [...otherOrgInventory, ...Array.from(myInvMap.values())];
     });
+
+    // Trigger cloud sync outside state updater
+    batchSyncProductsToCloud(stampedProducts);
   };
 
   // Inventory Tồn kho - Scoped by Company & Synced with Holds:
@@ -1403,19 +1536,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (currentUser.role === 'super_admin') {
       return [];
     }
-    const myCompanyId = companyScope.companyId;
+    const myOrgId = resolveOrganizationId(currentUser, users);
+    const myCompanyId = companyScope.companyId || myOrgId;
 
-    // Find all user names in this company (C1 manager + C2 team) to compute company-level reserve holding accurately
+    // Find all user names in this organization to compute organization-level reserve holding accurately
     const companyUserNames = users
       .filter((u) => {
-        if (currentUser.role === 'manager_c1') {
-          return u.id === currentUser.id || u.managerId === currentUser.id || u.createdBy === currentUser.id;
-        }
-        if (currentUser.role === 'sales_c2') {
-          const mgrId = currentUser.managerId || currentUser.createdBy;
-          return u.id === currentUser.id || u.id === mgrId || (mgrId ? u.managerId === mgrId || u.createdBy === mgrId : false);
-        }
-        return false;
+        const uOrg = u.organizationId || resolveOrganizationId(u, users);
+        return uOrg === myOrgId || u.id === currentUser.id;
       })
       .map((u) => u.name);
 
@@ -1431,8 +1559,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
 
     const companyInv = inventory.filter((item) => {
-      if (item.companyId) {
-        return item.companyId === myCompanyId;
+      const itemOrg = item.organizationId || item.companyId;
+      if (itemOrg) {
+        return itemOrg === myOrgId || itemOrg === myCompanyId;
       }
       if (currentUser.role === 'manager_c1') {
         return item.createdBy === currentUser.id;
@@ -1455,7 +1584,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         availableQuantity: actualAvailable,
       };
     });
-  }, [inventory, reserveItems, currentUser, companyScope]);
+  }, [inventory, reserveItems, currentUser, companyScope, users]);
 
   const updateInventoryItem = (item: InventoryItem) => {
     const myCompanyId = companyScope.companyId;
@@ -1613,23 +1742,40 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const importInventory = (newInvList: InventoryItem[]) => {
-    const myCompanyId = companyScope.companyId;
+    const myOrgId = resolveOrganizationId(currentUser, users);
+    const myCompanyId = companyScope.companyId || myOrgId;
+
     const stampedList: InventoryItem[] = newInvList.map((item) => ({
       ...item,
-      sku: item.sku.trim().toUpperCase(),
+      sku: (item.sku || '').trim().toUpperCase(),
+      name: (item.name || '').trim() || `Sản phẩm ${(item.sku || '').trim().toUpperCase()}`,
+      unit: (item.unit || '').trim() || 'Bộ',
+      totalQuantity: typeof item.totalQuantity === 'number' && !isNaN(item.totalQuantity) ? item.totalQuantity : 0,
+      reservedQuantity: typeof item.reservedQuantity === 'number' && !isNaN(item.reservedQuantity) ? item.reservedQuantity : 0,
+      availableQuantity: typeof item.availableQuantity === 'number' && !isNaN(item.availableQuantity) ? item.availableQuantity : 0,
+      warehouseLocation: (item.warehouseLocation || 'Kho Tổng').trim(),
+      organizationId: myOrgId,
       companyId: myCompanyId,
       createdBy: currentUser.id,
       createdByName: currentUser.name,
+      updatedAt: new Date().toISOString().split('T')[0],
     }));
 
     setInventory((prev) => {
-      const otherCompaniesInventory = prev.filter((i) => i.companyId && i.companyId !== myCompanyId);
+      const otherOrgInventory = prev.filter((i) => {
+        const iOrg = i.organizationId || i.companyId;
+        return iOrg && iOrg !== myOrgId && iOrg !== myCompanyId;
+      });
+
       const myMap = new Map<string, InventoryItem>();
-      prev.filter((i) => i.companyId === myCompanyId).forEach((i) => myMap.set(i.sku.toUpperCase(), i));
+      prev.filter((i) => {
+        const iOrg = i.organizationId || i.companyId;
+        return iOrg === myOrgId || iOrg === myCompanyId;
+      }).forEach((i) => myMap.set(i.sku.toUpperCase(), i));
 
       stampedList.forEach((item) => {
         const existing = myMap.get(item.sku.toUpperCase());
-        const reserved = existing ? existing.reservedQuantity : 0;
+        const reserved = existing ? existing.reservedQuantity : (item.reservedQuantity || 0);
         const available = Math.max(0, item.totalQuantity - reserved);
         myMap.set(item.sku.toUpperCase(), {
           ...item,
@@ -1640,9 +1786,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       });
 
       const updatedCompanyInv = Array.from(myMap.values());
-      batchSyncInventoryToCloud(updatedCompanyInv);
-      return [...otherCompaniesInventory, ...updatedCompanyInv];
+      return [...otherOrgInventory, ...updatedCompanyInv];
     });
+
+    // Trigger cloud sync outside state updater
+    batchSyncInventoryToCloud(stampedList);
   };
 
   // Quotations - RBAC Filter:

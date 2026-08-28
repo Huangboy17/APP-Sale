@@ -87,13 +87,21 @@ export const ProductPriceMaster: React.FC = () => {
       const avail = inv ? inv.availableQuantity : 0;
       const total = inv ? inv.totalQuantity : 0;
 
+      const sTerm = (searchTerm || '').toLowerCase();
+      const pSku = (p.sku || '').toLowerCase();
+      const pName = (p.name || '').toLowerCase();
+      const pBrand = (p.brand || '').toLowerCase();
+      const pCat = (p.category || '').toLowerCase();
+      const pColor = (p.color || '').toLowerCase();
+      const pSize = (p.size || '').toLowerCase();
+
       const matchSearch =
-        p.sku.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        p.brand.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        p.category.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        (p.color && p.color.toLowerCase().includes(searchTerm.toLowerCase())) ||
-        (p.size && p.size.toLowerCase().includes(searchTerm.toLowerCase()));
+        pSku.includes(sTerm) ||
+        pName.includes(sTerm) ||
+        pBrand.includes(sTerm) ||
+        pCat.includes(sTerm) ||
+        pColor.includes(sTerm) ||
+        pSize.includes(sTerm);
 
       const matchCat = categoryFilter === 'all' || p.category === categoryFilter;
       const matchBrand = brandFilter === 'all' || p.brand === brandFilter;

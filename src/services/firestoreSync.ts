@@ -181,19 +181,17 @@ export async function deleteCustomerFromCloud(customerId: string) {
   }
 }
 
-// Product Actions (Scoped by companyId so different C1 companies never collide)
+// Product Actions (Scoped by organizationId/companyId so different C1 companies never collide)
 export function getProductDocId(product: ProductPriceItem): string {
-  if (product.companyId) {
-    return `${product.companyId}_${product.sku}`;
-  }
-  return product.sku;
+  const scopeId = product.organizationId || product.companyId || 'global';
+  const cleanSku = (product.sku || '').trim().toUpperCase().replace(/[/\\#?]/g, '_');
+  return `${scopeId}_${cleanSku}`;
 }
 
 export function getInventoryDocId(item: InventoryItem): string {
-  if (item.companyId) {
-    return `${item.companyId}_${item.sku}`;
-  }
-  return item.sku;
+  const scopeId = item.organizationId || item.companyId || 'global';
+  const cleanSku = (item.sku || '').trim().toUpperCase().replace(/[/\\#?]/g, '_');
+  return `${scopeId}_${cleanSku}`;
 }
 
 export async function syncProductToCloud(product: ProductPriceItem) {
@@ -225,7 +223,8 @@ export async function batchSyncProductsToCloud(products: ProductPriceItem[]) {
 export async function deleteProductFromCloud(sku: string, companyId?: string) {
   try {
     if (companyId) {
-      await deleteDoc(doc(db, COLLECTIONS.PRODUCTS, `${companyId}_${sku}`));
+      const cleanSku = sku.trim().toUpperCase().replace(/[/\\#?]/g, '_');
+      await deleteDoc(doc(db, COLLECTIONS.PRODUCTS, `${companyId}_${cleanSku}`));
     }
     await deleteDoc(doc(db, COLLECTIONS.PRODUCTS, sku));
   } catch (err) {
@@ -243,7 +242,7 @@ export async function clearCompanyProductsFromCloud(companyId: string) {
     let count = 0;
     snapshot.docs.forEach((d) => {
       const data = d.data() as ProductPriceItem;
-      if (data.companyId === companyId || d.id.startsWith(`${companyId}_`)) {
+      if (data.organizationId === companyId || data.companyId === companyId || d.id.startsWith(`${companyId}_`)) {
         batch.delete(d.ref);
         count++;
       }
@@ -256,7 +255,7 @@ export async function clearCompanyProductsFromCloud(companyId: string) {
   }
 }
 
-// Inventory Actions (Scoped by companyId)
+// Inventory Actions (Scoped by organizationId/companyId)
 export async function syncInventoryItemToCloud(item: InventoryItem) {
   try {
     const docId = getInventoryDocId(item);
@@ -268,12 +267,16 @@ export async function syncInventoryItemToCloud(item: InventoryItem) {
 
 export async function batchSyncInventoryToCloud(inventoryItems: InventoryItem[]) {
   try {
-    const batch = writeBatch(db);
-    inventoryItems.forEach((i) => {
-      const docId = getInventoryDocId(i);
-      batch.set(doc(db, COLLECTIONS.INVENTORY, docId), cleanForFirestore(i), { merge: true });
-    });
-    await batch.commit();
+    const CHUNK_SIZE = 400;
+    for (let i = 0; i < inventoryItems.length; i += CHUNK_SIZE) {
+      const chunk = inventoryItems.slice(i, i + CHUNK_SIZE);
+      const batch = writeBatch(db);
+      chunk.forEach((iItem) => {
+        const docId = getInventoryDocId(iItem);
+        batch.set(doc(db, COLLECTIONS.INVENTORY, docId), cleanForFirestore(iItem), { merge: true });
+      });
+      await batch.commit();
+    }
   } catch (err) {
     handleFirestoreError(err, 'Batch save inventory');
   }

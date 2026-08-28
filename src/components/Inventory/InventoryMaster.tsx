@@ -81,10 +81,15 @@ export const InventoryMaster: React.FC = () => {
 
   // Filtered inventory list
   const displayedInventory = inventory.filter((item) => {
+    const sTerm = (searchTerm || '').toLowerCase();
+    const iSku = (item.sku || '').toLowerCase();
+    const iName = (item.name || '').toLowerCase();
+    const iLoc = (item.warehouseLocation || '').toLowerCase();
+
     const matchSearch =
-      item.sku.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (item.warehouseLocation && item.warehouseLocation.toLowerCase().includes(searchTerm.toLowerCase()));
+      iSku.includes(sTerm) ||
+      iName.includes(sTerm) ||
+      iLoc.includes(sTerm);
 
     let matchStock = true;
     if (stockStatusFilter === 'available') {

@@ -307,3 +307,47 @@ export const parseExcelFile = async (file: File): Promise<any[]> => {
     reader.readAsArrayBuffer(file);
   });
 };
+
+/**
+ * Safely parse numeric values from Excel cells.
+ * Handles: numbers, strings with commas/dots ("1,500,000" or "1.500.000" or "1500.5"),
+ * empty strings, null, undefined, text.
+ * NEVER returns NaN. Fallback to defaultVal (default 0).
+ */
+export const parseExcelNumber = (val: any, defaultVal = 0): number => {
+  if (val === null || val === undefined || val === '') return defaultVal;
+  if (typeof val === 'number') {
+    return isNaN(val) ? defaultVal : val;
+  }
+  const str = String(val).trim();
+  if (!str) return defaultVal;
+
+  let cleaned = str;
+  if (cleaned.includes(',') && cleaned.includes('.')) {
+    cleaned = cleaned.replace(/,/g, '');
+  } else if ((cleaned.match(/\./g) || []).length > 1) {
+    cleaned = cleaned.replace(/\./g, '');
+  } else if (cleaned.includes(',') && !cleaned.includes('.')) {
+    if (/^\d{1,3}(,\d{3})+$/.test(cleaned)) {
+      cleaned = cleaned.replace(/,/g, '');
+    } else {
+      cleaned = cleaned.replace(',', '.');
+    }
+  }
+
+  cleaned = cleaned.replace(/[^0-9.-]+/g, '');
+  const parsed = parseFloat(cleaned);
+  return isNaN(parsed) ? defaultVal : parsed;
+};
+
+/**
+ * Safely clean string values from Excel cells.
+ * Prevents literal "undefined" or "null" strings, null, undefined.
+ */
+export const cleanExcelString = (val: any, fallback = ''): string => {
+  if (val === null || val === undefined) return fallback;
+  const str = String(val).trim();
+  if (str === 'undefined' || str === 'null' || str === '') return fallback;
+  return str;
+};
+
