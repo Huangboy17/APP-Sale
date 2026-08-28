@@ -326,18 +326,34 @@ export const ProductInventoryDrawer: React.FC<ProductInventoryDrawerProps> = ({
                               </span>
                               <span
                                 className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                                  isHolding
-                                    ? 'bg-amber-100 text-amber-900 border border-amber-300'
-                                    : res.status === 'dispatched'
+                                  res.status === 'active' || res.status === 'holding'
                                     ? 'bg-emerald-100 text-emerald-900 border border-emerald-300'
-                                    : 'bg-slate-200 text-slate-700'
+                                    : res.status === 'allocated'
+                                    ? 'bg-blue-100 text-blue-900 border border-blue-300'
+                                    : res.status === 'picking'
+                                    ? 'bg-amber-100 text-amber-900 border border-amber-300'
+                                    : res.status === 'ready_to_ship'
+                                    ? 'bg-purple-100 text-purple-900 border border-purple-300'
+                                    : res.status === 'shipped' || res.status === 'dispatched'
+                                    ? 'bg-orange-100 text-orange-900 border border-orange-300'
+                                    : res.status === 'delivered'
+                                    ? 'bg-teal-100 text-teal-900 border border-teal-300'
+                                    : 'bg-rose-100 text-rose-800 border border-rose-200'
                                 }`}
                               >
-                                {isHolding
-                                  ? 'Đang giữ (Holding)'
-                                  : res.status === 'dispatched'
-                                  ? 'Đã xuất kho (Dispatched)'
-                                  : 'Đã hủy (Cancelled)'}
+                                {res.status === 'active' || res.status === 'holding'
+                                  ? 'Đang giữ (Active)'
+                                  : res.status === 'allocated'
+                                  ? 'Đã phân bổ (Allocated)'
+                                  : res.status === 'picking'
+                                  ? 'Đang chuẩn bị (Picking)'
+                                  : res.status === 'ready_to_ship'
+                                  ? 'Sẵn sàng xuất (Ready)'
+                                  : res.status === 'shipped' || res.status === 'dispatched'
+                                  ? 'Đã xuất kho (Shipped)'
+                                  : res.status === 'delivered'
+                                  ? 'Đã giao khách (Delivered)'
+                                  : 'Đã giải phóng (Released)'}
                               </span>
                             </div>
                             <div className="text-[11px] text-slate-600 flex flex-wrap items-center gap-3">
@@ -428,21 +444,33 @@ export const ProductInventoryDrawer: React.FC<ProductInventoryDrawerProps> = ({
                               </span>
                               <span
                                 className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                                  ord.status === 'pending_order'
+                                  ord.status === 'pending' || ord.status === 'pending_order'
                                     ? 'bg-amber-100 text-amber-900 border border-amber-300'
                                     : ord.status === 'ordered'
-                                    ? 'bg-indigo-100 text-indigo-900 border border-indigo-300'
-                                    : ord.status === 'arrived_in_stock'
+                                    ? 'bg-blue-100 text-blue-900 border border-blue-300'
+                                    : ord.status === 'in_transit'
+                                    ? 'bg-purple-100 text-purple-900 border border-purple-300'
+                                    : ord.status === 'partial'
+                                    ? 'bg-orange-100 text-orange-900 border border-orange-300'
+                                    : ord.status === 'received' || ord.status === 'arrived_in_stock' || ord.status === 'ready_to_deliver'
                                     ? 'bg-emerald-100 text-emerald-900 border border-emerald-300'
-                                    : 'bg-slate-200 text-slate-700'
+                                    : ord.status === 'delivered'
+                                    ? 'bg-teal-100 text-teal-900 border border-teal-300'
+                                    : 'bg-rose-100 text-rose-800 border border-rose-200'
                                 }`}
                               >
-                                {ord.status === 'pending_order'
+                                {ord.status === 'pending' || ord.status === 'pending_order'
                                   ? 'Cần đặt (Pending)'
                                   : ord.status === 'ordered'
                                   ? 'Đã đặt NCC (Ordered)'
-                                  : ord.status === 'arrived_in_stock'
-                                  ? 'Đã nhập kho (Arrived)'
+                                  : ord.status === 'in_transit'
+                                  ? 'Đang vận chuyển (In Transit)'
+                                  : ord.status === 'partial'
+                                  ? `Đã về 1 phần (${ord.receivedQuantity || 0}/${ord.orderQuantity})`
+                                  : ord.status === 'received' || ord.status === 'arrived_in_stock' || ord.status === 'ready_to_deliver'
+                                  ? '🟢 Đã đủ hàng (Received)'
+                                  : ord.status === 'delivered'
+                                  ? 'Đã giao khách (Delivered)'
                                   : 'Đã hủy'}
                               </span>
                             </div>

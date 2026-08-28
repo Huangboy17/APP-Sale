@@ -212,21 +212,29 @@ const InventoryMasterContent: React.FC = () => {
 
   const handleConfirmDispatch = (
     reserveId: string,
-    dispatchData: { receiverName: string; receiverPhone: string; notes: string; dispatchDate: string }
+    dispatchData: { receiverName: string; receiverPhone: string; notes: string; dispatchDate: string; dispatchQty?: number }
   ) => {
-    updateReserveStatus(reserveId, 'dispatched');
+    dispatchReserveWarehouse(reserveId, dispatchData);
     setDispatchModalItem(null);
   };
 
-  const handleConfirmReceiveOrder = (orderId: string, warehouseLocation: string) => {
-    receiveOrderToWarehouseAndReserve(orderId, warehouseLocation);
+  const handleConfirmReceiveOrder = (
+    orderId: string,
+    receiveQuantity: number,
+    warehouseLocation: string,
+    notes?: string,
+    receiptNumber?: string
+  ) => {
+    receiveInboundOrderBatch(orderId, receiveQuantity, warehouseLocation, notes, receiptNumber);
     setReceiveModalOrder(null);
   };
 
   // Holding & Pending Order counts
-  const activeReservesCount = filteredReserveItems.filter((r) => r.status === 'holding').length;
+  const isHolding = (status?: string) =>
+    status === 'holding' || status === 'active' || status === 'allocated' || status === 'picking' || status === 'ready_to_ship';
+  const activeReservesCount = filteredReserveItems.filter((r) => isHolding(r.status)).length;
   const activeOrdersCount = filteredOrderItems.filter(
-    (o) => o.status === 'pending_order' || o.status === 'ordered'
+    (o) => o.status === 'pending' || o.status === 'pending_order' || o.status === 'ordered' || o.status === 'in_transit' || o.status === 'partial'
   ).length;
   const criticalCount = inventory.filter((i) => i.availableQuantity <= 5).length;
 
@@ -929,7 +937,9 @@ const InventoryMasterContent: React.FC = () => {
           customer={customers.find((c) => c.id === receiveModalOrder.customerId)}
           contract={contracts.find((c) => c.id === receiveModalOrder.contractId)}
           onClose={() => setReceiveModalOrder(null)}
-          onConfirm={(orderId, warehouseLocation) => handleConfirmReceiveOrder(orderId, warehouseLocation)}
+          onConfirm={(orderId, receiveQuantity, warehouseLocation, notes, receiptNumber) =>
+            handleConfirmReceiveOrder(orderId, receiveQuantity, warehouseLocation, notes, receiptNumber)
+          }
         />
       )}
     </div>

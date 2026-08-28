@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { OrderItem, Contract } from '../../types';
+import { OrderItem, Contract, Customer } from '../../types';
 import { formatDate } from '../../utils/formatters';
 import {
   PackagePlus,
@@ -12,6 +12,8 @@ import {
   MapPin,
   Calendar,
   Sparkles,
+  Receipt,
+  Boxes,
 } from 'lucide-react';
 
 interface ReceiveOrderModalProps {
@@ -19,7 +21,13 @@ interface ReceiveOrderModalProps {
   customer?: Customer;
   contract?: Contract;
   onClose: () => void;
-  onConfirm: (orderId: string, warehouseLocation: string) => void;
+  onConfirm: (
+    orderId: string,
+    receiveQuantity: number,
+    warehouseLocation: string,
+    notes?: string,
+    receiptNumber?: string
+  ) => void;
 }
 
 export const ReceiveOrderModal: React.FC<ReceiveOrderModalProps> = ({
@@ -29,17 +37,43 @@ export const ReceiveOrderModal: React.FC<ReceiveOrderModalProps> = ({
   onClose,
   onConfirm,
 }) => {
+  const currentRemaining = order
+    ? order.remainingQuantity !== undefined
+      ? order.remainingQuantity
+      : order.orderQuantity - (order.receivedQuantity || 0)
+    : 0;
+
+  const [receiveQuantity, setReceiveQuantity] = useState<number>(currentRemaining > 0 ? currentRemaining : 1);
+  const [receiptNumber, setReceiptNumber] = useState<string>(
+    `PN-${new Date().getFullYear()}/${Date.now().toString().slice(-6)}`
+  );
   const [warehouseLocation, setWarehouseLocation] = useState('Kho Tổng TP.HCM (Kệ A1-03)');
-  const [notes, setNotes] = useState('Hàng nhà cung cấp giao đủ, bao bì nguyên vẹn');
+  const [notes, setNotes] = useState('Hàng nhà cung cấp giao nguyên kiện, đã kiểm tra đạt chuẩn');
 
   if (!order) return null;
 
   const assignedSalesName = customer?.assignedToName || order.salesRepName;
   const customerDisplayName = customer?.name || order.customerName;
+  const prevReceived = order.receivedQuantity || 0;
+  const nextRemaining = Math.max(0, currentRemaining - (receiveQuantity || 0));
+  const isFullInbound = nextRemaining === 0;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onConfirm(order.id, warehouseLocation);
+    if (receiveQuantity <= 0) {
+      alert('Số lượng nhận phải lớn hơn 0');
+      return;
+    }
+    if (receiveQuantity > currentRemaining) {
+      if (
+        !window.confirm(
+          `Số lượng nhập (${receiveQuantity}) lớn hơn số lượng còn thiếu (${currentRemaining}). Bạn có chắc chắn muốn nhập vượt số lượng đặt?`
+        )
+      ) {
+        return;
+      }
+    }
+    onConfirm(order.id, receiveQuantity, warehouseLocation, notes, receiptNumber);
   };
 
   return (
@@ -49,7 +83,7 @@ export const ReceiveOrderModal: React.FC<ReceiveOrderModalProps> = ({
         <div className="p-4 bg-gradient-to-r from-blue-700 to-indigo-700 text-white flex items-center justify-between">
           <div className="flex items-center space-x-2">
             <PackagePlus className="w-5 h-5" />
-            <h3 className="font-bold text-sm">Xác Nhận Hàng Đã Về Kho & Tự Động Giữ Hàng</h3>
+            <h3 className="font-bold text-sm">Nhập Hàng Vào Kho & Tự Động Phân Bổ Giữ Hàng</h3>
           </div>
           <button
             onClick={onClose}
@@ -62,12 +96,19 @@ export const ReceiveOrderModal: React.FC<ReceiveOrderModalProps> = ({
         {/* Modal Body */}
         <form onSubmit={handleSubmit} className="p-4 space-y-3.5">
           {/* Order Summary Card */}
-          <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
+          <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl space-y-2.5">
             <div className="flex items-center justify-between">
               <span className="font-mono font-bold text-sm text-blue-700">{order.sku}</span>
-              <span className="text-xs font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded-full">
-                Nhập kho: {order.orderQuantity} {order.unit}
-              </span>
+              <div className="flex items-center space-x-1.5">
+                <span className="text-xs font-bold text-slate-700 bg-slate-200 px-2 py-0.5 rounded-full">
+                  Tổng đặt: {order.orderQuantity} {order.unit}
+                </span>
+                {prevReceived > 0 && (
+                  <span className="text-xs font-bold text-emerald-700 bg-emerald-100 border border-emerald-300 px-2 py-0.5 rounded-full">
+                    Đã về: {prevReceived}
+                  </span>
+                )}
+              </div>
             </div>
             <div className="font-bold text-slate-900 text-xs">{order.productName}</div>
 
@@ -85,16 +126,65 @@ export const ReceiveOrderModal: React.FC<ReceiveOrderModalProps> = ({
                 <strong className="text-slate-900">{assignedSalesName}</strong>
               </div>
               <div>
-                <span className="text-slate-500">Dự kiến ETA:</span>{' '}
-                <strong className="text-slate-900">{order.supplierETA ? formatDate(order.supplierETA) : 'Chưa ghi nhận'}</strong>
+                <span className="text-slate-500">Còn thiếu:</span>{' '}
+                <strong className="text-amber-700 font-mono font-bold">
+                  {currentRemaining} {order.unit}
+                </strong>
               </div>
             </div>
           </div>
 
-          {/* Form Fields */}
+          {/* Quantity Input with Batch Calculation */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-bold text-slate-800 mb-1">
+                Số Lượng Nhập Đợt Này <span className="text-rose-500">*</span>
+              </label>
+              <div className="relative">
+                <input
+                  type="number"
+                  required
+                  min={1}
+                  max={order.orderQuantity * 2}
+                  value={receiveQuantity}
+                  onChange={(e) => setReceiveQuantity(parseInt(e.target.value) || 0)}
+                  className="w-full px-3 py-2 border-2 border-blue-300 rounded-lg text-sm font-bold text-blue-900 font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-600 outline-hidden"
+                />
+                <span className="absolute right-3 top-2.5 text-xs text-slate-500 font-bold">{order.unit}</span>
+              </div>
+              <div className="text-[10px] text-slate-500 mt-1 flex justify-between">
+                <span>Còn thiếu: <strong>{currentRemaining}</strong></span>
+                <button
+                  type="button"
+                  onClick={() => setReceiveQuantity(currentRemaining)}
+                  className="text-blue-600 hover:underline font-bold"
+                >
+                  Nhập hết ({currentRemaining})
+                </button>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-800 mb-1">
+                Mã Số Phiếu Nhập Kho <span className="text-rose-500">*</span>
+              </label>
+              <div className="relative">
+                <input
+                  type="text"
+                  required
+                  value={receiptNumber}
+                  onChange={(e) => setReceiptNumber(e.target.value)}
+                  placeholder="PN-2026/08..."
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs font-mono font-medium focus:ring-2 focus:ring-blue-500 outline-hidden"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Location & Notes */}
           <div>
-            <label className="block font-bold text-slate-700 mb-1">
-              Chọn Vị Trí / Kệ Lưu Kho <span className="text-rose-500">*</span>
+            <label className="block text-xs font-bold text-slate-800 mb-1">
+              Vị Trí / Kệ Kho Lưu Hàng <span className="text-rose-500">*</span>
             </label>
             <input
               type="text"
@@ -107,7 +197,7 @@ export const ReceiveOrderModal: React.FC<ReceiveOrderModalProps> = ({
           </div>
 
           <div>
-            <label className="block font-bold text-slate-700 mb-1">Ghi Chú Kiểm Nhập Kho</label>
+            <label className="block text-xs font-bold text-slate-800 mb-1">Ghi Chú Kiểm Nhập Kho</label>
             <textarea
               rows={2}
               value={notes}
@@ -117,17 +207,35 @@ export const ReceiveOrderModal: React.FC<ReceiveOrderModalProps> = ({
             />
           </div>
 
-          {/* Smart Automation Notice */}
-          <div className="p-3 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-900 text-[11px] space-y-1">
-            <div className="font-bold flex items-center space-x-1 text-emerald-800">
-              <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
-              <span>Quy trình tự động hóa kho:</span>
+          {/* Inbound Progression Calculation Strip */}
+          <div className="p-3 rounded-xl bg-indigo-50/70 border border-indigo-200 text-indigo-950 text-xs space-y-1.5">
+            <div className="flex items-center justify-between font-bold text-[11px]">
+              <span className="flex items-center space-x-1 text-indigo-800">
+                <Boxes className="w-3.5 h-3.5" />
+                <span>Tiến trình sau khi nhập:</span>
+              </span>
+              <span className={isFullInbound ? 'text-emerald-700 font-bold' : 'text-amber-700 font-bold'}>
+                {isFullInbound ? '🟢 Đã đủ 100% hàng' : `🟡 Hàng về 1 phần (còn thiếu ${nextRemaining} ${order.unit})`}
+              </span>
             </div>
-            <ul className="list-disc pl-4 space-y-0.5 text-emerald-800">
-              <li>Cộng <strong>+{order.orderQuantity} {order.unit}</strong> vào Tồn thực tế của mã <strong>{order.sku}</strong>.</li>
-              <li>Tự động chuyển mã này sang <strong>Bảng Giữ Hàng</strong> cho hợp đồng <strong>{order.contractNumber}</strong> của Sale <strong>{assignedSalesName}</strong>.</li>
-              <li>Đánh dấu đơn đặt hàng này là <strong>Đã về kho</strong>.</li>
-            </ul>
+            <div className="w-full bg-slate-200 rounded-full h-2 overflow-hidden">
+              <div
+                className={`h-2 rounded-full transition-all duration-300 ${
+                  isFullInbound ? 'bg-emerald-500' : 'bg-blue-600'
+                }`}
+                style={{
+                  width: `${Math.min(
+                    100,
+                    Math.round(((prevReceived + (receiveQuantity || 0)) / order.orderQuantity) * 100)
+                  )}%`,
+                }}
+              />
+            </div>
+            <div className="text-[10px] text-indigo-800 flex items-center justify-between">
+              <span>Đã về: <strong>{prevReceived + (receiveQuantity || 0)}</strong> / {order.orderQuantity} {order.unit}</span>
+              <span>Tồn thực tế: <strong>+{receiveQuantity}</strong></span>
+              <span>Tạo giữ hàng: <strong>+{receiveQuantity}</strong></span>
+            </div>
           </div>
 
           {/* Modal Footer */}
@@ -135,16 +243,16 @@ export const ReceiveOrderModal: React.FC<ReceiveOrderModalProps> = ({
             <button
               type="button"
               onClick={onClose}
-              className="px-3 py-1.5 rounded-lg border border-slate-300 text-slate-700 font-semibold hover:bg-slate-100 transition cursor-pointer"
+              className="px-3 py-1.5 rounded-lg border border-slate-300 text-slate-700 font-semibold hover:bg-slate-100 transition cursor-pointer text-xs"
             >
               Hủy
             </button>
             <button
               type="submit"
-              className="px-4 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-bold transition flex items-center space-x-1.5 shadow-xs cursor-pointer"
+              className="px-4 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-bold transition flex items-center space-x-1.5 shadow-xs cursor-pointer text-xs"
             >
               <CheckCircle2 className="w-3.5 h-3.5" />
-              <span>Nhập Kho & Khóa Giữ Hàng ({order.orderQuantity} {order.unit})</span>
+              <span>Xác Nhận Nhập Kho ({receiveQuantity} {order.unit})</span>
             </button>
           </div>
         </form>

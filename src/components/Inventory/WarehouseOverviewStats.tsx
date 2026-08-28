@@ -32,22 +32,45 @@ export const WarehouseOverviewStats: React.FC<WarehouseOverviewStatsProps> = ({
 }) => {
   const customerMap = React.useMemo(() => new Map(customers.map((c) => [c.id, c])), [customers]);
 
+  const isHolding = (status?: string) =>
+    status === 'holding' ||
+    status === 'active' ||
+    status === 'allocated' ||
+    status === 'picking' ||
+    status === 'ready_to_ship';
+
+  const isPendingOrder = (status?: string) =>
+    status === 'pending' ||
+    status === 'pending_order' ||
+    status === 'ordered' ||
+    status === 'in_transit' ||
+    status === 'partial';
+
   // Calculations
   const totalSkus = inventory.length;
   const totalPhysicalStock = inventory.reduce((sum, i) => sum + (i.totalQuantity || 0), 0);
 
-  const activeReserves = reserveItems.filter((r) => r.status === 'holding');
+  const activeReserves = reserveItems.filter((r) => isHolding(r.status));
   const totalReservedStock = activeReserves.reduce((sum, r) => sum + (r.reservedQuantity || 0), 0);
   const holdingSkusCount = new Set(activeReserves.map((r) => (r.sku || '').trim().toLowerCase())).size;
 
   const totalAvailableStock = inventory.reduce((sum, i) => sum + (i.availableQuantity || 0), 0);
   const availableRate = totalPhysicalStock > 0 ? Math.round((totalAvailableStock / totalPhysicalStock) * 100) : 0;
 
-  const activeOrders = orderItems.filter((o) => o.status === 'pending_order' || o.status === 'ordered');
-  const totalOrderQty = activeOrders.reduce((sum, o) => sum + (o.orderQuantity || 0), 0);
+  const activeOrders = orderItems.filter((o) => isPendingOrder(o.status));
+  const totalOrderQty = activeOrders.reduce((sum, o) => {
+    const rem = o.remainingQuantity !== undefined ? o.remainingQuantity : o.orderQuantity - (o.receivedQuantity || 0);
+    return sum + Math.max(0, rem);
+  }, 0);
 
   const outOfStockCount = inventory.filter((i) => i.availableQuantity === 0).length;
   const lowStockCount = inventory.filter((i) => i.availableQuantity > 0 && i.availableQuantity <= 5).length;
+
+  const partialOrdersCount = orderItems.filter((o) => o.status === 'partial').length;
+  const readyToDeliverOrdersCount = orderItems.filter(
+    (o) => o.status === 'ready_to_deliver' || o.status === 'received' || o.status === 'arrived_in_stock'
+  ).length;
+  const readyToShipHoldsCount = reserveItems.filter((r) => r.status === 'ready_to_ship').length;
 
   const salesWithHolds = new Set(
     activeReserves.map((r) => customerMap.get(r.customerId)?.assignedToName || r.salesRepName)
@@ -200,6 +223,47 @@ export const WarehouseOverviewStats: React.FC<WarehouseOverviewStatsProps> = ({
             <span>Kiểm tra cảnh báo & Nhu cầu Pipeline</span>
             <ArrowRight className="w-3 h-3" />
           </button>
+        </div>
+      )}
+
+      {/* 3 Smart Notification Badges for Sales & Warehouse */}
+      {(readyToDeliverOrdersCount > 0 || partialOrdersCount > 0 || readyToShipHoldsCount > 0) && (
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
+          {readyToDeliverOrdersCount > 0 && (
+            <div
+              onClick={() => onSelectTab('contract_orders')}
+              className="p-2.5 bg-emerald-50 border border-emerald-200 rounded-lg flex items-center space-x-2 text-emerald-900 cursor-pointer hover:bg-emerald-100/70 transition"
+            >
+              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+              <span>
+                <strong>{readyToDeliverOrdersCount}</strong> đơn đặt đã về đủ hàng, sẵn sàng giao
+              </span>
+            </div>
+          )}
+
+          {partialOrdersCount > 0 && (
+            <div
+              onClick={() => onSelectTab('contract_orders')}
+              className="p-2.5 bg-orange-50 border border-orange-200 rounded-lg flex items-center space-x-2 text-orange-900 cursor-pointer hover:bg-orange-100/70 transition"
+            >
+              <Clock className="w-4 h-4 text-orange-600 shrink-0" />
+              <span>
+                <strong>{partialOrdersCount}</strong> đơn đã về 1 phần, chờ đợt tiếp theo
+              </span>
+            </div>
+          )}
+
+          {readyToShipHoldsCount > 0 && (
+            <div
+              onClick={() => onSelectTab('holding_reserves')}
+              className="p-2.5 bg-purple-50 border border-purple-200 rounded-lg flex items-center space-x-2 text-purple-900 cursor-pointer hover:bg-purple-100/70 transition"
+            >
+              <ShieldCheck className="w-4 h-4 text-purple-600 shrink-0" />
+              <span>
+                <strong>{readyToShipHoldsCount}</strong> phiếu giữ đã gom xong, sẵn sàng xuất kho
+              </span>
+            </div>
+          )}
         </div>
       )}
     </div>

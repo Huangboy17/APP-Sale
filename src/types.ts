@@ -497,8 +497,30 @@ export interface Contract {
 }
 
 // =============================================================================
-// RESERVE ITEM
 // =============================================================================
+// RESERVE ITEM (BẢNG GIỮ HÀNG)
+// =============================================================================
+
+export type ReserveItemStatus =
+  | 'active' // Sales đã giữ hàng thành công từ HĐ (tương đương 'holding')
+  | 'allocated' // Kho đã xác nhận/phân bổ hàng
+  | 'picking' // Kho đang lấy/chuẩn bị hàng
+  | 'ready_to_ship' // Hàng đã chuẩn bị xong, sẵn sàng xuất
+  | 'shipped' // Kho đã xuất hàng khỏi kho (tương đương 'dispatched')
+  | 'delivered' // Khách đã nhận hàng thành công
+  | 'released' // Hủy giữ hàng, giải phóng tồn khả dụng
+  | 'cancelled' // Đã hủy
+  | 'holding' // Tương thích ngược: đang giữ
+  | 'dispatched'; // Tương thích ngược: đã xuất
+
+export interface TimelineEvent {
+  status: string;
+  statusLabel: string;
+  timestamp: string;
+  actorId?: string;
+  actorName: string;
+  note?: string;
+}
 
 export interface ReserveItem {
   id: string;
@@ -508,22 +530,52 @@ export interface ReserveItem {
   quoteNumber: string;
   customerId: string;
   customerName: string;
-  salesRepId?: string; // ID của Sales phụ trách khách hàng
+  salesRepId?: string; // ID của Sales phụ trách khách hàng (Customer Master)
   salesRepName: string; // Tên Sales phụ trách
   createdBy?: string; // ID người thao tác tạo phiếu
   sku: string;
   productName: string;
   unit: string;
   reservedQuantity: number;
+  dispatchedQuantity?: number;
+  deliveredQuantity?: number;
   warehouseLocation: string;
   reservedDate: string;
-  status: 'holding' | 'dispatched' | 'cancelled';
+  status: ReserveItemStatus;
   expectedDeliveryDate: string;
+  stockTransactionIds?: string[];
+  timeline?: TimelineEvent[];
+  releasedReason?: string;
 }
 
 // =============================================================================
-// ORDER ITEM
+// ORDER ITEM (BẢNG ĐẶT HÀNG NHÀ CUNG CẤP)
 // =============================================================================
+
+export type OrderItemStatus =
+  | 'pending' // Nhu cầu thiếu hàng cần đặt (tương đương 'pending_order')
+  | 'ordered' // Đã lên PO đặt hàng nhà cung cấp
+  | 'in_transit' // Nhà cung cấp đang vận chuyển
+  | 'arrived' // Hàng đã về tới kho nhưng đang chờ kiểm nhận
+  | 'partial' // Đã về một phần (ví dụ 40/100)
+  | 'received' // Kho đã nhập đủ hàng (tương đương 'arrived_in_stock')
+  | 'ready_to_deliver' // Đã đủ hàng, sẵn sàng giao khách
+  | 'delivered' // Đã giao hàng thành công cho khách
+  | 'cancelled' // Đã hủy đơn đặt hàng
+  | 'pending_order' // Tương thích ngược
+  | 'arrived_in_stock'; // Tương thích ngược
+
+export interface InboundReceiptEntry {
+  id: string;
+  receiptNumber: string;
+  date: string;
+  quantity: number;
+  warehouseLocation: string;
+  note?: string;
+  transactionId?: string;
+  actorId?: string;
+  actorName: string;
+}
 
 export interface OrderItem {
   id: string;
@@ -533,20 +585,25 @@ export interface OrderItem {
   quoteNumber: string;
   customerId: string;
   customerName: string;
-  salesRepId?: string; // ID của Sales phụ trách khách hàng
+  salesRepId?: string; // ID của Sales phụ trách khách hàng (Customer Master)
   salesRepName: string; // Tên Sales phụ trách
   createdBy?: string; // ID người thao tác tạo đơn
   sku: string;
   productName: string;
   unit: string;
-  orderQuantity: number; // Số lượng cần đặt mua thêm
+  orderQuantity: number; // Tổng số lượng cần đặt mua
+  receivedQuantity?: number; // Số lượng đã về kho thực tế (hỗ trợ nhập nhiều đợt)
+  remainingQuantity?: number; // Số lượng còn thiếu (orderQuantity - receivedQuantity)
   brand: string;
   size: string;
   color: string;
   orderDate: string;
-  status: 'pending_order' | 'ordered' | 'arrived_in_stock' | 'cancelled';
+  status: OrderItemStatus;
   supplierETA?: string;
   notes?: string;
+  stockTransactionIds?: string[];
+  inboundReceipts?: InboundReceiptEntry[];
+  timeline?: TimelineEvent[];
 }
 
 // =============================================================================

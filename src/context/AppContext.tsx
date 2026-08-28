@@ -11,7 +11,11 @@ import {
   QuotationStatus,
   Contract,
   ReserveItem,
+  ReserveItemStatus,
   OrderItem,
+  OrderItemStatus,
+  TimelineEvent,
+  InboundReceiptEntry,
   QuoteProductRow,
   PaymentMilestone,
   Organization,
@@ -251,15 +255,22 @@ interface AppContextType {
   updateContract: (contract: Contract) => void;
   updateContractMilestoneStatus: (contractId: string, milestoneId: string, status: 'pending' | 'completed' | 'overdue') => void;
 
-  // Split Tables: Giữ hàng & Đặt hàng
+  // Split Tables: Giữ hàng & Đặt hàng (Sales & Warehouse Progress Engine)
   reserveItems: ReserveItem[];
   filteredReserveItems: ReserveItem[];
-  updateReserveStatus: (id: string, status: 'holding' | 'dispatched' | 'cancelled') => void;
+  updateReserveStatus: (id: string, status: ReserveItemStatus) => void;
   updateReserveItem: (item: ReserveItem) => void;
+  updateReserveWarehouseStatus: (reserveId: string, newStatus: ReserveItemStatus, notes?: string) => void;
+  dispatchReserveWarehouse: (reserveId: string, dispatchData: { receiverName: string; receiverPhone: string; notes: string; dispatchDate: string; dispatchQty?: number }) => void;
+  confirmDeliveryToCustomer: (reserveId: string, deliveryData: { receiverName: string; receiverPhone: string; deliveryDate: string; notes?: string }) => void;
+  releaseReservation: (reserveId: string, reason?: string) => void;
   orderItems: OrderItem[];
   filteredOrderItems: OrderItem[];
-  updateOrderStatus: (id: string, status: 'pending_order' | 'ordered' | 'arrived_in_stock' | 'cancelled', notes?: string) => void;
+  updateOrderStatus: (id: string, status: OrderItemStatus, notes?: string) => void;
   updateOrderItem: (item: OrderItem) => void;
+  updateOrderWarehouseStatus: (orderId: string, newStatus: OrderItemStatus, notes?: string, supplierETA?: string) => void;
+  receiveInboundOrderBatch: (orderId: string, receiveQuantity: number, warehouseLocation?: string, notes?: string, receiptNumber?: string) => void;
+  cancelOrderItem: (orderId: string, reason?: string) => void;
 
   // Active view navigation
   activeTab: NavTabType;
@@ -2590,51 +2601,98 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     syncStockAuditVoucherToCloud(updatedVoucher);
   };
 
-  const receiveOrderToWarehouseAndReserve = (orderId: string, warehouseLocation?: string) => {
+  const receiveInboundOrderBatch = (
+    orderId: string,
+    receiveQuantity: number,
+    warehouseLocation?: string,
+    notes?: string,
+    receiptNumber?: string
+  ) => {
     const order = orderItems.find((o) => o.id === orderId);
-    if (!order) return;
+    if (!order || receiveQuantity <= 0) return;
 
-    const myCompanyId = companyScope.companyId;
+    const myOrgId = resolveOrganizationId(currentUser, users);
+    const myCompanyId = companyScope.companyId || myOrgId;
     const contract = contracts.find((c) => c.id === order.contractId);
     const loc = warehouseLocation || 'Kho Tổng TP.HCM (Kệ A1)';
     const now = new Date().toISOString().split('T')[0];
+    const generatedReceiptNo = receiptNumber || `PN-${new Date().getFullYear()}/${Date.now().toString().slice(-6)}`;
 
-    // 1. Mark order item as arrived_in_stock
+    const prevReceived = order.receivedQuantity || 0;
+    const newReceived = prevReceived + receiveQuantity;
+    const remaining = Math.max(0, order.orderQuantity - newReceived);
+    const newStatus: OrderItemStatus = remaining === 0 ? 'ready_to_deliver' : 'partial';
+
+    const newReceiptEntry: InboundReceiptEntry = {
+      id: `rec-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      receiptNumber: generatedReceiptNo,
+      date: now,
+      quantity: receiveQuantity,
+      warehouseLocation: loc,
+      note: notes || `Nhập kho đợt: +${receiveQuantity} ${order.unit}`,
+      actorId: currentUser.id,
+      actorName: currentUser.name,
+    };
+
+    const newTimelineEvent: TimelineEvent = {
+      status: newStatus,
+      statusLabel: newStatus === 'ready_to_deliver' ? 'Đã về đủ kho' : `Đã về đợt (${newReceived}/${order.orderQuantity})`,
+      timestamp: new Date().toISOString(),
+      actorId: currentUser.id,
+      actorName: currentUser.name,
+      note: notes || `Nhập kho +${receiveQuantity} ${order.unit} theo phiếu ${generatedReceiptNo}`,
+    };
+
+    // 1. Update order item
     const updatedOrder: OrderItem = {
       ...order,
-      status: 'arrived_in_stock',
-      notes: `${order.notes || ''} [Đã nhập kho ngày ${now}]`.trim(),
+      receivedQuantity: newReceived,
+      remainingQuantity: remaining,
+      status: newStatus,
+      notes: notes || order.notes,
+      inboundReceipts: [newReceiptEntry, ...(order.inboundReceipts || [])],
+      timeline: [newTimelineEvent, ...(order.timeline || [])],
     };
+
     setOrderItems((prev) => prev.map((o) => (o.id === orderId ? updatedOrder : o)));
     syncOrderItemToCloud(updatedOrder);
 
     // 2. Increase inventory totalQuantity for this company
+    let beforeOnHand = 0;
+    let afterOnHand = 0;
+
     setInventory((prev) => {
       const existing = prev.find(
         (i) => i.sku.trim().toUpperCase() === order.sku.trim().toUpperCase() && (i.companyId === myCompanyId || !i.companyId)
       );
       let updatedInv: InventoryItem;
       if (existing) {
+        beforeOnHand = existing.totalQuantity || 0;
+        afterOnHand = beforeOnHand + receiveQuantity;
         updatedInv = {
           ...existing,
           companyId: myCompanyId,
-          totalQuantity: existing.totalQuantity + order.orderQuantity,
+          totalQuantity: afterOnHand,
           warehouseLocation: existing.warehouseLocation || loc,
           updatedAt: now,
         };
         syncInventoryItemToCloud(updatedInv);
-        return prev.map((i) =>
+        const nextList = prev.map((i) =>
           i.sku.trim().toUpperCase() === order.sku.trim().toUpperCase() && (i.companyId === myCompanyId || !i.companyId)
             ? updatedInv
             : i
         );
+        saveInventoryToIndexedDB(nextList);
+        return nextList;
       } else {
+        beforeOnHand = 0;
+        afterOnHand = receiveQuantity;
         updatedInv = {
           sku: order.sku,
           name: order.productName,
-          unit: order.unit || 'Cái',
-          totalQuantity: order.orderQuantity,
-          reservedQuantity: order.orderQuantity,
+          unit: order.unit || 'Bộ',
+          totalQuantity: receiveQuantity,
+          reservedQuantity: receiveQuantity,
           availableQuantity: 0,
           warehouseLocation: loc,
           updatedAt: now,
@@ -2643,14 +2701,34 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           createdByName: currentUser.name,
         };
         syncInventoryItemToCloud(updatedInv);
-        return [...prev, updatedInv];
+        const nextList = [...prev, updatedInv];
+        saveInventoryToIndexedDB(nextList);
+        return nextList;
       }
     });
 
-    // 3. Create a holding reserve item for this contract/customer
+    // 3. Log StockTransaction
+    addStockTransaction({
+      sku: order.sku,
+      productName: order.productName,
+      unit: order.unit || 'Bộ',
+      type: 'STOCK_IN',
+      deltaQuantity: receiveQuantity,
+      beforeOnHand,
+      afterOnHand,
+      referenceCode: generatedReceiptNo,
+      partnerName: order.brand || 'Nhà cung cấp',
+      performedById: currentUser.id,
+      performedByName: currentUser.name,
+      organizationId: myOrgId,
+      notes: `Nhập hàng PO cho HĐ ${order.contractNumber} (${order.customerName})`,
+    });
+
+    // 4. Automatically create / link a ReserveItem for this contract/customer
     const targetCustomer = customers.find((c) => c.id === order.customerId);
     const newReserve: ReserveItem = {
       id: `res-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      organizationId: myOrgId,
       contractId: order.contractId,
       contractNumber: order.contractNumber,
       quoteNumber: order.quoteNumber,
@@ -2662,15 +2740,32 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       sku: order.sku,
       productName: order.productName,
       unit: order.unit,
-      reservedQuantity: order.orderQuantity,
+      reservedQuantity: receiveQuantity,
       warehouseLocation: loc,
       reservedDate: now,
-      status: 'holding',
+      status: 'allocated', // Allocated by warehouse immediately upon receipt
       expectedDeliveryDate: contract?.deliveryDate || now,
+      timeline: [
+        {
+          status: 'allocated',
+          statusLabel: 'Kho đã nhập & tự động phân bổ',
+          timestamp: new Date().toISOString(),
+          actorId: currentUser.id,
+          actorName: currentUser.name,
+          note: `Hàng về theo phiếu ${generatedReceiptNo}, phân bổ giữ cho HĐ ${order.contractNumber}`,
+        },
+      ],
     };
 
     setReserveItems((prev) => [newReserve, ...prev]);
     syncReserveItemToCloud(newReserve);
+  };
+
+  const receiveOrderToWarehouseAndReserve = (orderId: string, warehouseLocation?: string) => {
+    const order = orderItems.find((o) => o.id === orderId);
+    if (!order) return;
+    const remaining = order.remainingQuantity !== undefined ? order.remainingQuantity : order.orderQuantity;
+    receiveInboundOrderBatch(orderId, remaining > 0 ? remaining : order.orderQuantity, warehouseLocation);
   };
 
   const importInventory = (newInvList: InventoryItem[]) => {
@@ -3067,10 +3162,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           productName: item.name,
           unit: item.unit,
           reservedQuantity: required,
+          dispatchedQuantity: 0,
+          deliveredQuantity: 0,
           warehouseLocation: inv?.warehouseLocation || 'Kho Tổng',
           reservedDate: now,
-          status: 'holding',
+          status: 'active',
           expectedDeliveryDate: newContract.deliveryDate,
+          timeline: [
+            {
+              status: 'active',
+              statusLabel: 'Sales đã tạo giữ hàng theo HĐ',
+              timestamp: new Date().toISOString(),
+              actorId: currentUser.id,
+              actorName: currentUser.name,
+              note: `Giữ đủ ${required} ${item.unit} cho HĐ ${contractNumber}`,
+            },
+          ],
         });
 
         // Khóa tồn kho
@@ -3099,10 +3206,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           productName: item.name,
           unit: item.unit,
           reservedQuantity: holdingQty,
+          dispatchedQuantity: 0,
+          deliveredQuantity: 0,
           warehouseLocation: inv?.warehouseLocation || 'Kho Tổng',
           reservedDate: now,
-          status: 'holding',
+          status: 'active',
           expectedDeliveryDate: newContract.deliveryDate,
+          timeline: [
+            {
+              status: 'active',
+              statusLabel: 'Sales đã tạo giữ hàng (1 phần) theo HĐ',
+              timestamp: new Date().toISOString(),
+              actorId: currentUser.id,
+              actorName: currentUser.name,
+              note: `Giữ ${holdingQty}/${required} ${item.unit} có sẵn tại kho cho HĐ ${contractNumber}`,
+            },
+          ],
         });
 
         newOrderList.push({
@@ -3120,12 +3239,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           productName: item.name,
           unit: item.unit,
           orderQuantity: missingQty,
+          receivedQuantity: 0,
+          remainingQuantity: missingQty,
           brand: item.brand,
           size: item.size,
           color: item.color,
           orderDate: now,
-          status: 'pending_order',
-          notes: `Hợp đồng ${contractNumber} cần gấp ${missingQty} ${item.unit}`,
+          status: 'pending',
+          notes: `Hợp đồng ${contractNumber} cần đặt thêm ${missingQty} ${item.unit}`,
+          timeline: [
+            {
+              status: 'pending',
+              statusLabel: 'Phát sinh nhu cầu đặt NCC',
+              timestamp: new Date().toISOString(),
+              actorId: currentUser.id,
+              actorName: currentUser.name,
+              note: `Phát sinh nhu cầu đặt ${missingQty} ${item.unit} còn thiếu cho HĐ ${contractNumber}`,
+            },
+          ],
         });
 
         // Khóa toàn bộ tồn khả dụng hiện có
@@ -3151,12 +3282,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           productName: item.name,
           unit: item.unit,
           orderQuantity: required,
+          receivedQuantity: 0,
+          remainingQuantity: required,
           brand: item.brand,
           size: item.size,
           color: item.color,
           orderDate: now,
-          status: 'pending_order',
+          status: 'pending',
           notes: `Hợp đồng ${contractNumber} đặt mới ${required} ${item.unit}`,
+          timeline: [
+            {
+              status: 'pending',
+              statusLabel: 'Phát sinh nhu cầu đặt NCC',
+              timestamp: new Date().toISOString(),
+              actorId: currentUser.id,
+              actorName: currentUser.name,
+              note: `Phát sinh nhu cầu đặt mới ${required} ${item.unit} cho HĐ ${contractNumber}`,
+            },
+          ],
         });
       }
     });
@@ -3284,13 +3427,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Derived synced inventory: ensures reservedQuantity matches active holding reserves of VALID existing customers,
   // and available is total - reserved
+  const isHoldingReserve = (status?: string): boolean => {
+    if (!status) return false;
+    return (
+      status === 'holding' ||
+      status === 'active' ||
+      status === 'allocated' ||
+      status === 'picking' ||
+      status === 'ready_to_ship'
+    );
+  };
+
   const syncedInventory = useMemo(() => {
     const validCustomerIds = new Set(customers.map((c) => c.id));
     const reserveMap = new Map<string, number>();
 
     reserveItems.forEach((r) => {
-      // ONLY holding reserves linked to an ACTIVE, VALID customer lock inventory stock
-      if (r.status === 'holding' && r.customerId && validCustomerIds.has(r.customerId)) {
+      // ONLY holding/active/allocated/picking/ready reserves linked to an ACTIVE, VALID customer lock inventory stock
+      if (isHoldingReserve(r.status) && r.customerId && validCustomerIds.has(r.customerId)) {
         const cleanSku = (r.sku || '').trim().toLowerCase();
         reserveMap.set(cleanSku, (reserveMap.get(cleanSku) || 0) + (r.reservedQuantity || 0));
       }
@@ -3309,7 +3463,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
   }, [inventory, reserveItems, customers]);
 
-  const updateReserveStatus = (id: string, status: 'holding' | 'dispatched' | 'cancelled') => {
+  const updateReserveStatus = (id: string, status: ReserveItemStatus) => {
     setReserveItems((prev) => {
       const oldItem = prev.find((r) => r.id === id);
       if (!oldItem) return prev;
@@ -3321,8 +3475,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       syncReserveItemToCloud(targetRes);
 
       // Handle stock balance changes:
-      // 1. Moving TO dispatched: deduct stock
-      if (previousStatus !== 'dispatched' && status === 'dispatched') {
+      const wasDispatched = previousStatus === 'dispatched' || previousStatus === 'shipped';
+      const isNowDispatched = status === 'dispatched' || status === 'shipped';
+
+      // 1. Moving TO dispatched/shipped: deduct stock
+      if (!wasDispatched && isNowDispatched) {
         setInventory((invPrev) => {
           let updatedInv: InventoryItem | null = null;
           const newInv = invPrev.map((inv) => {
@@ -3338,11 +3495,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             return inv;
           });
           if (updatedInv) syncInventoryItemToCloud(updatedInv);
+          saveInventoryToIndexedDB(newInv);
           return newInv;
         });
       }
-      // 2. Reverting FROM dispatched back to holding/cancelled (e.g. user clicked by mistake): restore stock
-      else if (previousStatus === 'dispatched' && status !== 'dispatched') {
+      // 2. Reverting FROM dispatched/shipped back (e.g. user mistake): restore stock
+      else if (wasDispatched && !isNowDispatched) {
         setInventory((invPrev) => {
           let updatedInv: InventoryItem | null = null;
           const newInv = invPrev.map((inv) => {
@@ -3358,11 +3516,200 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             return inv;
           });
           if (updatedInv) syncInventoryItemToCloud(updatedInv);
+          saveInventoryToIndexedDB(newInv);
           return newInv;
         });
       }
 
       return updated;
+    });
+  };
+
+  const updateReserveWarehouseStatus = (
+    reserveId: string,
+    newStatus: ReserveItemStatus,
+    notes?: string
+  ) => {
+    setReserveItems((prev) => {
+      const target = prev.find((r) => r.id === reserveId);
+      if (!target) return prev;
+
+      const timelineEvent: TimelineEvent = {
+        status: newStatus,
+        statusLabel:
+          newStatus === 'allocated'
+            ? 'Đã phân bổ hàng'
+            : newStatus === 'picking'
+            ? 'Đang chuẩn bị hàng'
+            : newStatus === 'ready_to_ship'
+            ? 'Sẵn sàng xuất kho'
+            : newStatus === 'shipped'
+            ? 'Đã xuất kho'
+            : newStatus === 'delivered'
+            ? 'Đã giao khách'
+            : newStatus === 'released'
+            ? 'Đã giải phóng'
+            : newStatus,
+        timestamp: new Date().toISOString(),
+        actorId: currentUser.id,
+        actorName: currentUser.name,
+        note: notes,
+      };
+
+      const updatedRes: ReserveItem = {
+        ...target,
+        status: newStatus,
+        timeline: [timelineEvent, ...(target.timeline || [])],
+      };
+
+      syncReserveItemToCloud(updatedRes);
+      return prev.map((r) => (r.id === reserveId ? updatedRes : r));
+    });
+  };
+
+  const dispatchReserveWarehouse = (
+    reserveId: string,
+    dispatchData: { receiverName: string; receiverPhone: string; notes: string; dispatchDate: string; dispatchQty?: number }
+  ) => {
+    setReserveItems((prev) => {
+      const target = prev.find((r) => r.id === reserveId);
+      if (!target) return prev;
+
+      const myOrgId = resolveOrganizationId(currentUser, users);
+      const qtyToDispatch = dispatchData.dispatchQty || target.reservedQuantity;
+
+      const timelineEvent: TimelineEvent = {
+        status: 'shipped',
+        statusLabel: 'Đã xuất kho giao khách',
+        timestamp: new Date().toISOString(),
+        actorId: currentUser.id,
+        actorName: currentUser.name,
+        note: `Xuất ${qtyToDispatch} ${target.unit} cho ${dispatchData.receiverName} (${dispatchData.receiverPhone}). Ghi chú: ${dispatchData.notes}`,
+      };
+
+      const updatedRes: ReserveItem = {
+        ...target,
+        status: 'shipped',
+        dispatchedQuantity: qtyToDispatch,
+        timeline: [timelineEvent, ...(target.timeline || [])],
+      };
+
+      // Deduct inventory totalQuantity
+      let beforeOnHand = 0;
+      let afterOnHand = 0;
+
+      setInventory((invPrev) => {
+        const nextList = invPrev.map((inv) => {
+          if (inv.sku.trim().toLowerCase() === target.sku.trim().toLowerCase()) {
+            beforeOnHand = inv.totalQuantity;
+            afterOnHand = Math.max(0, inv.totalQuantity - qtyToDispatch);
+            const updatedInv = {
+              ...inv,
+              totalQuantity: afterOnHand,
+              updatedAt: new Date().toISOString().split('T')[0],
+            };
+            syncInventoryItemToCloud(updatedInv);
+            return updatedInv;
+          }
+          return inv;
+        });
+        saveInventoryToIndexedDB(nextList);
+        return nextList;
+      });
+
+      // Log StockTransaction
+      addStockTransaction({
+        sku: target.sku,
+        productName: target.productName,
+        unit: target.unit,
+        type: 'STOCK_OUT',
+        deltaQuantity: -qtyToDispatch,
+        beforeOnHand,
+        afterOnHand,
+        referenceCode: target.contractNumber,
+        partnerName: target.customerName,
+        performedById: currentUser.id,
+        performedByName: currentUser.name,
+        organizationId: myOrgId,
+        notes: `Xuất kho bàn giao HĐ ${target.contractNumber} (${target.customerName})`,
+      });
+
+      syncReserveItemToCloud(updatedRes);
+      return prev.map((r) => (r.id === reserveId ? updatedRes : r));
+    });
+  };
+
+  const confirmDeliveryToCustomer = (
+    reserveId: string,
+    deliveryData: { receiverName: string; receiverPhone: string; deliveryDate: string; notes?: string }
+  ) => {
+    setReserveItems((prev) => {
+      const target = prev.find((r) => r.id === reserveId);
+      if (!target) return prev;
+
+      const timelineEvent: TimelineEvent = {
+        status: 'delivered',
+        statusLabel: 'Khách hàng đã nhận đủ',
+        timestamp: new Date().toISOString(),
+        actorId: currentUser.id,
+        actorName: currentUser.name,
+        note: `Bàn giao thành công cho ${deliveryData.receiverName} (${deliveryData.receiverPhone}) ngày ${deliveryData.deliveryDate}. ${deliveryData.notes || ''}`.trim(),
+      };
+
+      const updatedRes: ReserveItem = {
+        ...target,
+        status: 'delivered',
+        deliveredQuantity: target.reservedQuantity,
+        timeline: [timelineEvent, ...(target.timeline || [])],
+      };
+
+      syncReserveItemToCloud(updatedRes);
+      return prev.map((r) => (r.id === reserveId ? updatedRes : r));
+    });
+  };
+
+  const releaseReservation = (reserveId: string, reason?: string) => {
+    setReserveItems((prev) => {
+      const target = prev.find((r) => r.id === reserveId);
+      if (!target) return prev;
+
+      const myOrgId = resolveOrganizationId(currentUser, users);
+
+      const timelineEvent: TimelineEvent = {
+        status: 'released',
+        statusLabel: 'Đã giải phóng tồn kho / Hủy giữ',
+        timestamp: new Date().toISOString(),
+        actorId: currentUser.id,
+        actorName: currentUser.name,
+        note: reason || 'Giải phóng hàng theo yêu cầu',
+      };
+
+      const updatedRes: ReserveItem = {
+        ...target,
+        status: 'released',
+        releasedReason: reason,
+        timeline: [timelineEvent, ...(target.timeline || [])],
+      };
+
+      // Log StockTransaction
+      addStockTransaction({
+        sku: target.sku,
+        productName: target.productName,
+        unit: target.unit,
+        type: 'RELEASE_RESERVATION',
+        deltaQuantity: 0,
+        beforeOnHand: 0,
+        afterOnHand: 0,
+        referenceCode: target.contractNumber,
+        partnerName: target.customerName,
+        performedById: currentUser.id,
+        performedByName: currentUser.name,
+        organizationId: myOrgId,
+        notes: `Hủy giữ hàng HĐ ${target.contractNumber} (${target.customerName}): ${reason || 'Không có lý do'}`,
+      });
+
+      syncReserveItemToCloud(updatedRes);
+      return prev.map((r) => (r.id === reserveId ? updatedRes : r));
     });
   };
 
@@ -3374,7 +3721,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       // Check if status changed regarding dispatched
       if (oldItem) {
-        if (oldItem.status !== 'dispatched' && item.status === 'dispatched') {
+        const wasDispatched = oldItem.status === 'dispatched' || oldItem.status === 'shipped';
+        const isNowDispatched = item.status === 'dispatched' || item.status === 'shipped';
+
+        if (!wasDispatched && isNowDispatched) {
           setInventory((invPrev) => {
             let updatedInv: InventoryItem | null = null;
             const newInv = invPrev.map((inv) => {
@@ -3390,9 +3740,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               return inv;
             });
             if (updatedInv) syncInventoryItemToCloud(updatedInv);
+            saveInventoryToIndexedDB(newInv);
             return newInv;
           });
-        } else if (oldItem.status === 'dispatched' && item.status !== 'dispatched') {
+        } else if (wasDispatched && !isNowDispatched) {
           setInventory((invPrev) => {
             let updatedInv: InventoryItem | null = null;
             const newInv = invPrev.map((inv) => {
@@ -3408,6 +3759,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               return inv;
             });
             if (updatedInv) syncInventoryItemToCloud(updatedInv);
+            saveInventoryToIndexedDB(newInv);
             return newInv;
           });
         }
@@ -3419,7 +3771,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const updateOrderStatus = (
     id: string,
-    status: 'pending_order' | 'ordered' | 'arrived_in_stock' | 'cancelled',
+    status: OrderItemStatus,
     notes?: string
   ) => {
     setOrderItems((prev) => {
@@ -3434,6 +3786,55 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (targetOrder) syncOrderItemToCloud(targetOrder);
       return updated;
     });
+  };
+
+  const updateOrderWarehouseStatus = (
+    orderId: string,
+    newStatus: OrderItemStatus,
+    notes?: string,
+    supplierETA?: string
+  ) => {
+    setOrderItems((prev) => {
+      const target = prev.find((o) => o.id === orderId);
+      if (!target) return prev;
+
+      const timelineEvent: TimelineEvent = {
+        status: newStatus,
+        statusLabel:
+          newStatus === 'ordered'
+            ? 'Đã đặt hàng NCC'
+            : newStatus === 'in_transit'
+            ? 'NCC đang vận chuyển'
+            : newStatus === 'arrived'
+            ? 'Hàng đã về kho'
+            : newStatus === 'ready_to_deliver'
+            ? 'Đủ hàng sẵn sàng giao'
+            : newStatus === 'delivered'
+            ? 'Đã giao khách'
+            : newStatus === 'cancelled'
+            ? 'Đã hủy đơn'
+            : newStatus,
+        timestamp: new Date().toISOString(),
+        actorId: currentUser.id,
+        actorName: currentUser.name,
+        note: notes,
+      };
+
+      const updatedOrder: OrderItem = {
+        ...target,
+        status: newStatus,
+        supplierETA: supplierETA !== undefined ? supplierETA : target.supplierETA,
+        notes: notes || target.notes,
+        timeline: [timelineEvent, ...(target.timeline || [])],
+      };
+
+      syncOrderItemToCloud(updatedOrder);
+      return prev.map((o) => (o.id === orderId ? updatedOrder : o));
+    });
+  };
+
+  const cancelOrderItem = (orderId: string, reason?: string) => {
+    updateOrderWarehouseStatus(orderId, 'cancelled', reason || 'Đã hủy đơn đặt hàng NCC');
   };
 
   const updateOrderItem = (item: OrderItem) => {
@@ -3659,10 +4060,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         filteredReserveItems,
         updateReserveStatus,
         updateReserveItem,
+        updateReserveWarehouseStatus,
+        dispatchReserveWarehouse,
+        confirmDeliveryToCustomer,
+        releaseReservation,
         orderItems,
         filteredOrderItems,
         updateOrderStatus,
         updateOrderItem,
+        updateOrderWarehouseStatus,
+        receiveInboundOrderBatch,
+        cancelOrderItem,
         activeTab,
         setActiveTab,
         isCreateCustomerModalOpen,

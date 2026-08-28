@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ReserveItem, Customer, Contract } from '../../types';
+import { ReserveItem, ReserveItemStatus, Customer, Contract } from '../../types';
 import { formatDate } from '../../utils/formatters';
 import { useApp } from '../../context/AppContext';
 import { EditReserveItemModal } from './EditReserveItemModal';
@@ -23,6 +23,12 @@ import {
   Edit2,
   RotateCcw,
   XCircle,
+  Eye,
+  Boxes,
+  ArrowRight,
+  PackageCheck,
+  ShieldCheck,
+  Warehouse,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
@@ -41,20 +47,27 @@ export const ReservedItemsWarehouseTable: React.FC<ReservedItemsWarehouseTablePr
   onOpenDispatchModal,
   onOpenContractPdf,
 }) => {
-  const { updateReserveItem, updateReserveStatus } = useApp();
+  const {
+    inventory,
+    updateReserveItem,
+    updateReserveStatus,
+    updateReserveWarehouseStatus,
+    releaseReservation,
+    confirmDeliveryToCustomer,
+    currentUser,
+  } = useApp();
+
   const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'all' | 'holding' | 'dispatched' | 'cancelled'>('holding');
+  const [statusFilter, setStatusFilter] = useState<string>('all_active');
   const [selectedSalesRep, setSelectedSalesRep] = useState<string>('all');
   const [editingReserveItem, setEditingReserveItem] = useState<ReserveItem | null>(null);
+  const [detailItem, setDetailItem] = useState<ReserveItem | null>(null);
 
-  // Customer & contract lookup maps
-  const customerMap = new Map<string, Customer>();
-  customers.forEach((c) => customerMap.set(c.id, c));
+  // Customer, contract & inventory lookup maps
+  const customerMap = React.useMemo(() => new Map(customers.map((c) => [c.id, c])), [customers]);
+  const contractMap = React.useMemo(() => new Map(contracts.map((c) => [c.id, c])), [contracts]);
+  const inventoryMap = React.useMemo(() => new Map(inventory.map((i) => [i.sku.toUpperCase(), i])), [inventory]);
 
-  const contractMap = new Map<string, Contract>();
-  contracts.forEach((c) => contractMap.set(c.id, c));
-
-  // Helper to dynamically resolve Sales Rep from Customer Master (Single Source of Truth)
   const getAssignedSalesRepName = (r: ReserveItem): string => {
     const cust = customerMap.get(r.customerId);
     if (cust) {
@@ -68,12 +81,92 @@ export const ReservedItemsWarehouseTable: React.FC<ReservedItemsWarehouseTablePr
     return cust?.name || r.customerName || 'ORPHAN CUSTOMER';
   };
 
-  // Extract distinct sales reps from dynamic resolution
+  const isHoldingStatus = (status: string) => {
+    return (
+      status === 'holding' ||
+      status === 'active' ||
+      status === 'allocated' ||
+      status === 'picking' ||
+      status === 'ready_to_ship'
+    );
+  };
+
+  const getStatusMeta = (status: ReserveItemStatus | string) => {
+    switch (status) {
+      case 'active':
+      case 'holding':
+        return {
+          label: 'Đã Giữ Hàng',
+          bgColor: 'bg-emerald-100 text-emerald-800 border-emerald-300',
+          dotColor: 'bg-emerald-600',
+          progress: 20,
+          stepText: '1/5 Đã giữ',
+        };
+      case 'allocated':
+        return {
+          label: 'Đã Phân Bổ',
+          bgColor: 'bg-blue-100 text-blue-800 border-blue-300',
+          dotColor: 'bg-blue-600',
+          progress: 40,
+          stepText: '2/5 Phân bổ',
+        };
+      case 'picking':
+        return {
+          label: 'Đang Chuẩn Bị',
+          bgColor: 'bg-amber-100 text-amber-800 border-amber-300',
+          dotColor: 'bg-amber-600',
+          progress: 60,
+          stepText: '3/5 Đang gom hàng',
+        };
+      case 'ready_to_ship':
+        return {
+          label: 'Sẵn Sàng Xuất',
+          bgColor: 'bg-purple-100 text-purple-800 border-purple-300',
+          dotColor: 'bg-purple-600',
+          progress: 80,
+          stepText: '4/5 Sẵn sàng',
+        };
+      case 'shipped':
+      case 'dispatched':
+        return {
+          label: 'Đã Xuất Kho',
+          bgColor: 'bg-orange-100 text-orange-800 border-orange-300',
+          dotColor: 'bg-orange-600',
+          progress: 90,
+          stepText: '5/5 Đã xuất',
+        };
+      case 'delivered':
+        return {
+          label: 'Đã Giao Khách',
+          bgColor: 'bg-teal-100 text-teal-800 border-teal-300',
+          dotColor: 'bg-teal-600',
+          progress: 100,
+          stepText: 'Hoàn tất giao',
+        };
+      case 'released':
+      case 'cancelled':
+        return {
+          label: 'Đã Giải Phóng',
+          bgColor: 'bg-rose-100 text-rose-800 border-rose-300',
+          dotColor: 'bg-rose-600',
+          progress: 0,
+          stepText: 'Đã hủy giữ',
+        };
+      default:
+        return {
+          label: status,
+          bgColor: 'bg-slate-100 text-slate-800 border-slate-300',
+          dotColor: 'bg-slate-500',
+          progress: 20,
+          stepText: status,
+        };
+    }
+  };
+
   const salesRepList = Array.from(
     new Set(reserveItems.map((r) => getAssignedSalesRepName(r)).filter(Boolean))
   );
 
-  // Filtered items
   const filteredReserves = reserveItems.filter((r) => {
     const resolvedSales = getAssignedSalesRepName(r);
     const resolvedCustomer = getCustomerDisplayName(r);
@@ -88,91 +181,102 @@ export const ReservedItemsWarehouseTable: React.FC<ReservedItemsWarehouseTablePr
       (cust?.company && cust.company.toLowerCase().includes(searchTerm.toLowerCase())) ||
       (r.warehouseLocation && r.warehouseLocation.toLowerCase().includes(searchTerm.toLowerCase()));
 
-    const matchStatus = statusFilter === 'all' || r.status === statusFilter;
+    let matchStatus = true;
+    if (statusFilter === 'all_active') {
+      matchStatus = isHoldingStatus(r.status);
+    } else if (statusFilter !== 'all') {
+      matchStatus = r.status === statusFilter;
+    }
+
     const matchSales = selectedSalesRep === 'all' || resolvedSales === selectedSalesRep;
 
     return matchSearch && matchStatus && matchSales;
   });
 
-  const holdingCount = reserveItems.filter((r) => r.status === 'holding').length;
+  const activeHoldingCount = reserveItems.filter((r) => isHoldingStatus(r.status)).length;
   const totalHoldingUnits = reserveItems
-    .filter((r) => r.status === 'holding')
+    .filter((r) => isHoldingStatus(r.status))
     .reduce((sum, r) => sum + r.reservedQuantity, 0);
 
-  // Export Excel for Held Items
   const handleExportExcel = () => {
-    const exportData = filteredReserves.map((r, idx) => {
+    const data = filteredReserves.map((r, idx) => {
       const cust = customerMap.get(r.customerId);
       const ctr = contractMap.get(r.contractId);
       const resolvedSales = getAssignedSalesRepName(r);
       const resolvedCustomer = getCustomerDisplayName(r);
+      const meta = getStatusMeta(r.status);
 
       return {
         'STT': idx + 1,
-        'Mã Hàng (SKU)': r.sku,
+        'Mã SKU': r.sku,
         'Tên Sản Phẩm': r.productName,
         'Số Lượng Giữ': r.reservedQuantity,
         'ĐVT': r.unit,
+        'Trạng Thái Kho': meta.label,
+        'Tiến Trình (%)': `${meta.progress}%`,
         'Sales Phụ Trách': resolvedSales,
         'Khách Hàng': resolvedCustomer,
-        'Công Ty Khách': cust?.company || '',
-        'SĐT Khách': cust?.phone || '',
-        'Địa Chỉ Giao Hàng': ctr?.deliveryAddress || cust?.address || '',
+        'Công Ty / Dự Án': cust?.company || '',
+        'Số Điện Thoại': cust?.phone || '',
+        'Địa Chỉ Giao': ctr?.deliveryAddress || cust?.address || '',
         'Số Hợp Đồng': r.contractNumber,
         'Số Báo Giá': r.quoteNumber,
-        'Vị Trí Kho / Kệ': r.warehouseLocation,
-        'Ngày Bắt Đầu Giữ': r.reservedDate,
-        'Hạn Giao Hàng Dự Kiến': r.expectedDeliveryDate,
-        'Trạng Thái':
-          r.status === 'holding'
-            ? 'Đang giữ hàng'
-            : r.status === 'dispatched'
-            ? 'Đã xuất giao'
-            : 'Đã hủy',
+        'Vị Trí Kho': r.warehouseLocation || '',
+        'Ngày Giữ': r.reservedDate,
+        'Hạn Giao Dự Kiến': r.expectedDeliveryDate,
       };
     });
 
-    const worksheet = XLSX.utils.json_to_sheet(exportData);
+    const worksheet = XLSX.utils.json_to_sheet(data);
     const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, 'ChiTiet_GiuHang_KHO');
-    XLSX.writeFile(workbook, `Bang_Chi_Tiet_Giu_Hang_KHO_${new Date().toISOString().split('T')[0]}.xlsx`);
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'GiuHang_SalesFlow');
+    XLSX.writeFile(workbook, `Bang_Giu_Hang_Kho_${new Date().toISOString().split('T')[0]}.xlsx`);
+  };
+
+  const handleReleasePrompt = (reserve: ReserveItem) => {
+    const reason = window.prompt(`Nhập lý do hủy giữ hàng / giải phóng tồn kho cho mã ${reserve.sku}:`, 'Khách hàng thay đổi kế hoạch / Hủy hợp đồng');
+    if (reason !== null && reason.trim()) {
+      releaseReservation(reserve.id, reason.trim());
+    }
   };
 
   return (
     <div className="space-y-3">
-      {/* Search & Filter Header */}
-      <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-2xs flex flex-col md:flex-row items-center justify-between gap-2.5">
+      <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs flex flex-col md:flex-row items-center justify-between gap-2.5">
         <div className="relative w-full md:w-80">
-          <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5" />
+          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
           <input
             type="text"
-            placeholder="Tìm theo SKU, tên sản phẩm, Sale, khách hàng, số HĐ..."
+            placeholder="Tìm theo SKU, sản phẩm, khách, HĐ, Sales..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full pl-9 pr-3 py-1.5 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-amber-500 outline-hidden bg-slate-50/50"
+            className="w-full pl-9 pr-3 py-1.5 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-amber-500 outline-hidden bg-slate-50/50 font-medium"
           />
         </div>
 
         <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
-          {/* Status filter */}
           <select
             value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value as any)}
+            onChange={(e) => setStatusFilter(e.target.value)}
             className="px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg bg-white focus:ring-2 focus:ring-amber-500 outline-hidden font-medium text-slate-700"
           >
-            <option value="holding">Đang giữ kho ({holdingCount} mã)</option>
-            <option value="dispatched">Đã xuất kho</option>
-            <option value="cancelled">Đã hủy giữ</option>
-            <option value="all">Tất cả trạng thái ({reserveItems.length})</option>
+            <option value="all_active">Đang Giữ & Xử Lý ({activeHoldingCount} mã)</option>
+            <option value="active">1. Đã Giữ Hàng</option>
+            <option value="allocated">2. Đã Phân Bổ</option>
+            <option value="picking">3. Đang Chuẩn Bị</option>
+            <option value="ready_to_ship">4. Sẵn Sàng Xuất</option>
+            <option value="shipped">5. Đã Xuất Kho</option>
+            <option value="delivered">6. Đã Giao Khách</option>
+            <option value="released">Đã Giải Phóng / Hủy</option>
+            <option value="all">Tất cả ({reserveItems.length})</option>
           </select>
 
-          {/* Sales rep filter */}
           <select
             value={selectedSalesRep}
             onChange={(e) => setSelectedSalesRep(e.target.value)}
             className="px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg bg-white focus:ring-2 focus:ring-amber-500 outline-hidden font-medium text-slate-700"
           >
-            <option value="all">Tất cả Sales phụ trách ({salesRepList.length})</option>
+            <option value="all">Tất cả Sales ({salesRepList.length})</option>
             {salesRepList.map((sales) => (
               <option key={sales} value={sales}>
                 Sale: {sales}
@@ -180,29 +284,26 @@ export const ReservedItemsWarehouseTable: React.FC<ReservedItemsWarehouseTablePr
             ))}
           </select>
 
-          {/* Export button */}
           <button
             onClick={handleExportExcel}
             className="px-2.5 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 rounded-lg text-xs font-bold flex items-center space-x-1.5 transition cursor-pointer shadow-2xs"
           >
             <Download className="w-3.5 h-3.5 text-amber-700" />
-            <span>Xuất Excel Giữ Hàng ({filteredReserves.length})</span>
+            <span>Xuất Excel ({filteredReserves.length})</span>
           </button>
         </div>
       </div>
 
-      {/* Main Table */}
       <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-2xs">
-        {/* Banner Info */}
         <div className="p-3 bg-amber-50/70 border-b border-amber-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
           <div className="flex items-center space-x-2 text-amber-950">
             <Layers className="w-4 h-4 text-amber-600 shrink-0" />
             <span>
-              <strong>Danh sách hàng đang giữ:</strong> Tổng cộng <strong>{totalHoldingUnits.toLocaleString()}</strong> sản phẩm đang khóa cho các đơn hàng đã ký hợp đồng.
+              <strong>Quản lý tiến trình giữ hàng:</strong> Đang khóa <strong>{totalHoldingUnits.toLocaleString()}</strong> sản phẩm cho các hợp đồng của Sales. Kho cập nhật tiến trình phân bổ & xuất giao.
             </span>
           </div>
           <span className="text-[11px] font-bold text-amber-800 bg-amber-100 border border-amber-300 px-2.5 py-0.5 rounded-full self-start sm:self-auto">
-            {filteredReserves.length} dòng dữ liệu
+            {filteredReserves.length} mục hiển thị
           </span>
         </div>
 
@@ -214,50 +315,63 @@ export const ReservedItemsWarehouseTable: React.FC<ReservedItemsWarehouseTablePr
                 <th className="px-3 py-3 text-center bg-amber-50/80 text-amber-950 border-x border-amber-200">
                   SL Đang Giữ
                 </th>
+                <th className="px-3.5 py-3">Khách Hàng & Hợp Đồng</th>
                 <th className="px-3.5 py-3">Sales Phụ Trách</th>
-                <th className="px-3.5 py-3">Khách Hàng & Công Trình</th>
-                <th className="px-3.5 py-3">Số Hợp Đồng & Báo Giá</th>
+                <th className="px-3.5 py-3">Trạng Thái Kho & Tiến Trình</th>
                 <th className="px-3.5 py-3">Hạn Giao Hàng</th>
                 <th className="px-3.5 py-3">Vị Trí Kệ Kho</th>
-                <th className="px-3.5 py-3 text-center">Trạng Thái & Thao Tác</th>
+                <th className="px-3.5 py-3 text-center">Hành Động Kho</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-slate-700">
               {filteredReserves.length === 0 ? (
                 <tr>
                   <td colSpan={8} className="px-4 py-12 text-center text-slate-400">
-                    <div className="flex flex-col items-center justify-center space-y-2">
-                      <Layers className="w-8 h-8 text-slate-300" />
-                      <p className="font-semibold text-sm">Không có dữ liệu giữ hàng nào phù hợp</p>
-                      <p className="text-xs text-slate-400">Thử thay đổi từ khóa tìm kiếm hoặc bộ lọc trạng thái</p>
-                    </div>
+                    Không có dữ liệu giữ hàng nào phù hợp
                   </td>
                 </tr>
               ) : (
                 filteredReserves.map((reserve) => {
                   const cust = customerMap.get(reserve.customerId);
-                  const ctr = contractMap.get(reserve.contractId);
-                  const isHolding = reserve.status === 'holding';
+                  const meta = getStatusMeta(reserve.status);
+                  const isHolding = isHoldingStatus(reserve.status);
 
                   return (
-                    <tr key={reserve.id} className="hover:bg-amber-50/20 transition-colors">
-                      {/* SKU & Product */}
+                    <tr
+                      key={reserve.id}
+                      className="hover:bg-amber-50/20 transition-colors cursor-pointer"
+                      onClick={() => setDetailItem(reserve)}
+                    >
                       <td className="px-3.5 py-2.5">
                         <div className="font-mono font-bold text-blue-700">{reserve.sku}</div>
                         <div className="font-bold text-slate-900 line-clamp-1" title={reserve.productName}>
                           {reserve.productName}
                         </div>
                       </td>
-
-                      {/* Quantity */}
                       <td className="px-3 py-2.5 text-center bg-amber-50/40 border-x border-amber-100">
                         <span className="font-mono font-black text-sm text-amber-950 block">
                           {reserve.reservedQuantity}
                         </span>
                         <span className="text-[10px] text-amber-800 font-semibold">{reserve.unit}</span>
                       </td>
-
-                      {/* Sales Rep */}
+                      <td className="px-3.5 py-2.5">
+                        <div className="font-bold text-slate-900 flex items-center space-x-1">
+                          <Building className="w-3 h-3 text-slate-400 shrink-0" />
+                          <span>{getCustomerDisplayName(reserve)}</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onOpenContractPdf(reserve.contractId);
+                          }}
+                          className="font-mono text-[11px] font-bold text-blue-600 hover:text-blue-800 hover:underline flex items-center space-x-1 mt-0.5"
+                          title="Xem HĐ PDF"
+                        >
+                          <FileText className="w-3 h-3 text-blue-500 shrink-0" />
+                          <span>{reserve.contractNumber}</span>
+                        </button>
+                      </td>
                       <td className="px-3.5 py-2.5">
                         <div className="font-bold text-slate-900 flex items-center space-x-1">
                           <User className="w-3 h-3 text-blue-600 shrink-0" />
@@ -269,134 +383,140 @@ export const ReservedItemsWarehouseTable: React.FC<ReservedItemsWarehouseTablePr
                           {cust ? 'Phụ trách khách hàng' : '⚠️ Khách hàng không tồn tại'}
                         </div>
                       </td>
-
-                      {/* Customer & Company */}
-                      <td className="px-3.5 py-2.5">
-                        <div className="font-bold text-slate-900 flex items-center space-x-1">
-                          <Building className="w-3 h-3 text-slate-400 shrink-0" />
-                          <span>{getCustomerDisplayName(reserve)}</span>
-                        </div>
-                        {cust?.company && (
-                          <div className="text-[11px] text-slate-600 truncate max-w-xs" title={cust.company}>
-                            {cust.company}
+                      <td className="px-3.5 py-2.5 min-w-44">
+                        <div className="space-y-1">
+                          <div className="flex items-center justify-between">
+                            <span
+                              className={`px-2 py-0.5 rounded-full text-[10px] font-bold border inline-flex items-center space-x-1 ${meta.bgColor}`}
+                            >
+                              <span className={`w-1.5 h-1.5 rounded-full ${meta.dotColor}`} />
+                              <span>{meta.label}</span>
+                            </span>
+                            <span className="text-[10px] font-mono font-bold text-slate-500">
+                              {meta.progress}%
+                            </span>
                           </div>
-                        )}
-                        {(ctr?.deliveryAddress || cust?.address) && (
-                          <div className="text-[10px] text-slate-400 truncate max-w-xs flex items-center space-x-0.5 mt-0.5" title={ctr?.deliveryAddress || cust?.address}>
-                            <MapPin className="w-2.5 h-2.5 text-slate-400 shrink-0" />
-                            <span>{ctr?.deliveryAddress || cust?.address}</span>
+                          <div className="w-full bg-slate-200 rounded-full h-1.5 overflow-hidden">
+                            <div
+                              className={`h-1.5 rounded-full transition-all duration-300 ${
+                                meta.progress === 100
+                                  ? 'bg-teal-500'
+                                  : meta.progress >= 80
+                                  ? 'bg-purple-500'
+                                  : meta.progress >= 40
+                                  ? 'bg-blue-500'
+                                  : 'bg-emerald-500'
+                              }`}
+                              style={{ width: `${meta.progress}%` }}
+                            />
                           </div>
-                        )}
-                      </td>
-
-                      {/* Contract & Quote */}
-                      <td className="px-3.5 py-2.5">
-                        <button
-                          type="button"
-                          onClick={() => onOpenContractPdf(reserve.contractId)}
-                          className="font-bold text-blue-600 hover:text-blue-800 hover:underline flex items-center space-x-1 cursor-pointer"
-                          title="Bấm để xem hợp đồng PDF"
-                        >
-                          <FileText className="w-3 h-3 text-blue-500 shrink-0" />
-                          <span>{reserve.contractNumber}</span>
-                        </button>
-                        <div className="text-[10px] text-slate-500 font-mono mt-0.5">
-                          Báo giá: {reserve.quoteNumber}
                         </div>
                       </td>
-
-                      {/* Delivery Date */}
                       <td className="px-3.5 py-2.5 whitespace-nowrap">
                         <div className="font-semibold text-slate-800 flex items-center space-x-1">
                           <Calendar className="w-3 h-3 text-slate-400 shrink-0" />
                           <span>{reserve.expectedDeliveryDate ? formatDate(reserve.expectedDeliveryDate) : 'Chưa định'}</span>
                         </div>
                         <div className="text-[10px] text-slate-400 mt-0.5">
-                          Giữ từ: {formatDate(reserve.reservedDate)}
+                          Giữ: {formatDate(reserve.reservedDate)}
                         </div>
                       </td>
-
-                      {/* Rack location */}
                       <td className="px-3.5 py-2.5 font-medium text-slate-700">
                         <span className="px-2 py-0.5 bg-slate-100 rounded text-[11px] font-semibold text-slate-800 border border-slate-200 inline-block">
-                          {reserve.warehouseLocation || 'Kho Tổng TP.HCM (Kệ A1)'}
+                          {reserve.warehouseLocation || 'Kho Tổng (Kệ A1)'}
                         </span>
                       </td>
-
-                      {/* Actions */}
-                      <td className="px-3.5 py-2.5 text-center whitespace-nowrap">
+                      <td
+                        className="px-3.5 py-2.5 text-center whitespace-nowrap"
+                        onClick={(e) => e.stopPropagation()}
+                      >
                         <div className="flex items-center justify-center space-x-1.5">
+                          {(reserve.status === 'active' || reserve.status === 'holding') && (
+                            <button
+                              type="button"
+                              onClick={() => updateReserveWarehouseStatus(reserve.id, 'allocated')}
+                              className="px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-300 rounded-md text-[11px] font-bold transition flex items-center space-x-1 cursor-pointer"
+                              title="Kho xác nhận phân bổ hàng"
+                            >
+                              <CheckCircle2 className="w-3 h-3" />
+                              <span>Phân Bổ</span>
+                            </button>
+                          )}
+                          {reserve.status === 'allocated' && (
+                            <button
+                              type="button"
+                              onClick={() => updateReserveWarehouseStatus(reserve.id, 'picking')}
+                              className="px-2 py-1 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 rounded-md text-[11px] font-bold transition flex items-center space-x-1 cursor-pointer"
+                              title="Kho tiến hành lấy hàng và đóng gói"
+                            >
+                              <Clock className="w-3 h-3 text-amber-600" />
+                              <span>Gom Hàng</span>
+                            </button>
+                          )}
+                          {reserve.status === 'picking' && (
+                            <button
+                              type="button"
+                              onClick={() => updateReserveWarehouseStatus(reserve.id, 'ready_to_ship')}
+                              className="px-2 py-1 bg-purple-50 hover:bg-purple-100 text-purple-800 border border-purple-300 rounded-md text-[11px] font-bold transition flex items-center space-x-1 cursor-pointer"
+                              title="Hàng đã sẵn sàng tại cửa xuất"
+                            >
+                              <PackageCheck className="w-3 h-3 text-purple-600" />
+                              <span>Sẵn Sàng</span>
+                            </button>
+                          )}
                           {isHolding && (
-                            <>
-                              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-200 flex items-center space-x-1">
-                                <Clock className="w-2.5 h-2.5 text-amber-600" />
-                                <span>Đang Giữ</span>
-                              </span>
-                              <button
-                                type="button"
-                                onClick={() => onOpenDispatchModal(reserve)}
-                                className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-md text-xs font-bold transition flex items-center space-x-1 shadow-2xs cursor-pointer"
-                                title="Xuất kho giao cho khách hàng theo hợp đồng"
-                              >
-                                <Truck className="w-3 h-3" />
-                                <span>Xuất Kho</span>
-                              </button>
-                            </>
+                            <button
+                              type="button"
+                              onClick={() => onOpenDispatchModal(reserve)}
+                              className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-md text-xs font-bold transition flex items-center space-x-1 shadow-2xs cursor-pointer"
+                              title="Xuất kho giao cho khách hàng"
+                            >
+                              <Truck className="w-3 h-3" />
+                              <span>Xuất Kho</span>
+                            </button>
                           )}
-
-                          {reserve.status === 'dispatched' && (
-                            <>
-                              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-700 border border-slate-200 inline-flex items-center space-x-1">
-                                <CheckCircle2 className="w-2.5 h-2.5 text-emerald-600" />
-                                <span>Đã Xuất Kho</span>
-                              </span>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  if (
-                                    window.confirm(
-                                      `Khôi phục trạng thái ĐANG GIỮ cho ${reserve.productName}? Hệ thống sẽ tự động hoàn trả lại +${reserve.reservedQuantity} ${reserve.unit} vào tồn kho thực tế.`
-                                    )
-                                  ) {
-                                    updateReserveStatus(reserve.id, 'holding');
-                                  }
-                                }}
-                                className="px-2 py-1 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 rounded text-xs font-bold flex items-center space-x-1 transition cursor-pointer"
-                                title="Khôi phục lại trạng thái Đang Giữ (nếu ấn nhầm Xuất Kho)"
-                              >
-                                <RotateCcw className="w-3 h-3 text-amber-700" />
-                                <span>Hoàn Tác</span>
-                              </button>
-                            </>
+                          {(reserve.status === 'shipped' || reserve.status === 'dispatched') && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const receiver = window.prompt(
+                                  `Xác nhận khách hàng đã nhận đủ ${reserve.reservedQuantity} ${reserve.unit} cho HĐ ${reserve.contractNumber}. Tên người nhận:`,
+                                  cust?.name || reserve.customerName
+                                );
+                                if (receiver !== null && receiver.trim()) {
+                                  confirmDeliveryToCustomer(reserve.id, {
+                                    receiverName: receiver.trim(),
+                                    receiverPhone: cust?.phone || '',
+                                    deliveryDate: new Date().toISOString().split('T')[0],
+                                    notes: 'Đã bàn giao nghiệm thu thành công',
+                                  });
+                                }
+                              }}
+                              className="px-2 py-1 bg-teal-600 hover:bg-teal-700 text-white rounded-md text-[11px] font-bold transition flex items-center space-x-1 cursor-pointer"
+                              title="Xác nhận khách đã nhận hàng thành công"
+                            >
+                              <CheckCircle2 className="w-3 h-3" />
+                              <span>Đã Giao</span>
+                            </button>
                           )}
-
-                          {reserve.status === 'cancelled' && (
-                            <>
-                              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-100 text-rose-800 border border-rose-200 inline-flex items-center space-x-1">
-                                <XCircle className="w-2.5 h-2.5 text-rose-600" />
-                                <span>Đã Hủy Giữ</span>
-                              </span>
-                              <button
-                                type="button"
-                                onClick={() => updateReserveStatus(reserve.id, 'holding')}
-                                className="px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded text-xs font-bold flex items-center space-x-1 transition cursor-pointer"
-                                title="Khôi phục lại trạng thái giữ kho"
-                              >
-                                <RotateCcw className="w-3 h-3 text-blue-600" />
-                                <span>Khôi Phục</span>
-                              </button>
-                            </>
-                          )}
-
-                          {/* Quick Edit button to adjust info / status if wrong clicked */}
                           <button
                             type="button"
-                            onClick={() => setEditingReserveItem(reserve)}
-                            className="p-1 text-slate-400 hover:text-blue-600 hover:bg-slate-100 rounded transition cursor-pointer"
-                            title="Sửa trạng thái / số lượng / vị trí kho khi ấn nhầm"
+                            onClick={() => setDetailItem(reserve)}
+                            className="p-1 rounded-md text-slate-500 hover:text-slate-800 hover:bg-slate-100 transition cursor-pointer"
+                            title="Xem chi tiết tiến trình và thông số kho"
                           >
-                            <Edit2 className="w-3.5 h-3.5" />
+                            <Eye className="w-3.5 h-3.5" />
                           </button>
+                          {isHolding && (
+                            <button
+                              type="button"
+                              onClick={() => handleReleasePrompt(reserve)}
+                              className="p-1 rounded-md text-rose-500 hover:text-rose-700 hover:bg-rose-50 transition cursor-pointer"
+                              title="Hủy giữ hàng / Giải phóng tồn kho"
+                            >
+                              <XCircle className="w-3.5 h-3.5" />
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -408,7 +528,121 @@ export const ReservedItemsWarehouseTable: React.FC<ReservedItemsWarehouseTablePr
         </div>
       </div>
 
-      {/* Edit Reserve Item Modal */}
+      {detailItem && (
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-xl w-full overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+            <div className="p-4 bg-gradient-to-r from-slate-900 to-blue-900 text-white flex items-center justify-between">
+              <div className="flex items-center space-x-2">
+                <Boxes className="w-5 h-5 text-amber-400" />
+                <div>
+                  <h3 className="font-bold text-sm">Chi Tiết Tiến Trình Giữ Hàng</h3>
+                  <div className="text-[11px] text-slate-300 font-mono">Mã SKU: {detailItem.sku}</div>
+                </div>
+              </div>
+              <button
+                onClick={() => setDetailItem(null)}
+                className="p-1 rounded-lg bg-white/10 hover:bg-white/20 text-white transition cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="p-4 space-y-4 max-h-[80vh] overflow-y-auto">
+              <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-sm text-slate-900">{detailItem.productName}</span>
+                  <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-900 border border-amber-300">
+                    Giữ: {detailItem.reservedQuantity} {detailItem.unit}
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-2 text-xs text-slate-600 pt-2 border-t border-slate-200">
+                  <div>Khách hàng: <strong>{getCustomerDisplayName(detailItem)}</strong></div>
+                  <div>Hợp đồng: <strong>{detailItem.contractNumber}</strong></div>
+                  <div>Sales phụ trách: <strong>{getAssignedSalesRepName(detailItem)}</strong></div>
+                  <div>Hạn giao: <strong>{formatDate(detailItem.expectedDeliveryDate)}</strong></div>
+                </div>
+              </div>
+              {(() => {
+                const inv = inventoryMap.get(detailItem.sku.toUpperCase());
+                return (
+                  <div className="p-3 bg-blue-50/60 border border-blue-200 rounded-xl space-y-2">
+                    <div className="text-xs font-bold text-blue-950 flex items-center justify-between">
+                      <span className="flex items-center space-x-1.5">
+                        <Warehouse className="w-3.5 h-3.5 text-blue-700" />
+                        <span>Thông Số Tồn Kho Thực Tế (Read-Only)</span>
+                      </span>
+                      <span className="text-[10px] text-blue-700 font-normal">Nguồn: Inventory Engine</span>
+                    </div>
+                    <div className="grid grid-cols-3 gap-2 text-center">
+                      <div className="bg-white p-2 rounded-lg border border-blue-100">
+                        <div className="text-[10px] text-slate-500 font-semibold">Tồn Thực Tế</div>
+                        <div className="font-mono font-bold text-slate-900 text-sm">
+                          {inv?.totalQuantity ?? '—'} {detailItem.unit}
+                        </div>
+                      </div>
+                      <div className="bg-white p-2 rounded-lg border border-blue-100">
+                        <div className="text-[10px] text-slate-500 font-semibold">Tổng Đang Giữ</div>
+                        <div className="font-mono font-bold text-amber-700 text-sm">
+                          {inv?.reservedQuantity ?? '—'} {detailItem.unit}
+                        </div>
+                      </div>
+                      <div className="bg-white p-2 rounded-lg border border-blue-100">
+                        <div className="text-[10px] text-slate-500 font-semibold">Tồn Khả Dụng</div>
+                        <div className="font-mono font-bold text-emerald-700 text-sm">
+                          {inv?.availableQuantity ?? '—'} {detailItem.unit}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+              <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl space-y-3">
+                <div className="text-xs font-bold text-slate-800">Tiến Trình Thực Thi Vật Lý:</div>
+                <div className="space-y-2">
+                  {[
+                    { key: 'active', label: '1. Sales Tạo Giữ Hàng', desc: 'Đã khóa tồn khả dụng cho hợp đồng' },
+                    { key: 'allocated', label: '2. Kho Đã Phân Bổ', desc: 'Xác nhận sẵn hàng và gán vị trí xuất' },
+                    { key: 'picking', label: '3. Kho Đang Gom Hàng', desc: 'Đóng gói bao bì và dán nhãn' },
+                    { key: 'ready_to_ship', label: '4. Sẵn Sàng Xuất Kho', desc: 'Đặt tại cửa xuất chờ phương tiện' },
+                    { key: 'shipped', label: '5. Đã Xuất Kho', desc: 'Rời kho, trừ tồn kho thực tế' },
+                    { key: 'delivered', label: '6. Đã Giao Khách', desc: 'Nghiệm thu hoàn tất' },
+                  ].map((step, idx) => {
+                    const currentMeta = getStatusMeta(detailItem.status);
+                    const stepProgress = (idx + 1) * 16.6;
+                    const isPassed = currentMeta.progress >= stepProgress || detailItem.status === step.key;
+                    return (
+                      <div key={step.key} className="flex items-start space-x-2.5 text-xs">
+                        <div
+                          className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 text-[10px] font-bold ${
+                            isPassed ? 'bg-emerald-600 text-white' : 'bg-slate-200 text-slate-500'
+                          }`}
+                        >
+                          {isPassed ? '✓' : idx + 1}
+                        </div>
+                        <div>
+                          <div className={`font-bold ${isPassed ? 'text-slate-900' : 'text-slate-400'}`}>
+                            {step.label}
+                          </div>
+                          <div className="text-[11px] text-slate-500">{step.desc}</div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+            <div className="p-3 border-t border-slate-200 bg-slate-50 flex items-center justify-end space-x-2">
+              <button
+                type="button"
+                onClick={() => setDetailItem(null)}
+                className="px-3.5 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-800 rounded-lg text-xs font-bold cursor-pointer transition"
+              >
+                Đóng
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <EditReserveItemModal
         isOpen={!!editingReserveItem}
         item={editingReserveItem}
