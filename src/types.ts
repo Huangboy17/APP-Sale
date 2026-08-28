@@ -202,10 +202,12 @@ export interface InventoryItem {
   name: string;
   unit: string;
   totalQuantity: number; // Tồn thực tế (On Hand)
-  reservedQuantity: number; // Đang giữ hàng (Reserved)
+  reservedQuantity: number; // Đang giữ hàng / đã phân bổ (Reserved / Allocated)
   availableQuantity: number; // Khả dụng = On Hand - Reserved
-  onOrderQuantity?: number; // Đang đặt từ NCC (On Order)
-  reorderNeeded?: number; // Nhu cầu đặt thêm
+  onOrderQuantity?: number; // Đang đặt từ NCC / Hàng đang về (Incoming / On Order)
+  incomingQuantity?: number; // Alias for onOrderQuantity
+  reorderNeeded?: number; // Nhu cầu Sales chưa đáp ứng (Unfulfilled Demand)
+  unfulfilledDemand?: number; // Alias for reorderNeeded
   warehouseLocation?: string; // Vị trí kho (Kho Tổng, Kho A1, Kho B2...)
   updatedAt: string;
   organizationId?: string; // Tenant Level 1 ID

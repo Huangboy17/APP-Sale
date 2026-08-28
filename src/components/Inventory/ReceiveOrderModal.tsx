@@ -55,7 +55,9 @@ export const ReceiveOrderModal: React.FC<ReceiveOrderModalProps> = ({
   const assignedSalesName = customer?.assignedToName || order.salesRepName;
   const customerDisplayName = customer?.name || order.customerName;
   const prevReceived = order.receivedQuantity || 0;
-  const nextRemaining = Math.max(0, currentRemaining - (receiveQuantity || 0));
+  const allocatedToThisContract = Math.min(currentRemaining, receiveQuantity || 0);
+  const nextRemaining = Math.max(0, currentRemaining - allocatedToThisContract);
+  const surplusToAvailable = Math.max(0, (receiveQuantity || 0) - currentRemaining);
   const isFullInbound = nextRemaining === 0;
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -63,15 +65,6 @@ export const ReceiveOrderModal: React.FC<ReceiveOrderModalProps> = ({
     if (receiveQuantity <= 0) {
       alert('Số lượng nhận phải lớn hơn 0');
       return;
-    }
-    if (receiveQuantity > currentRemaining) {
-      if (
-        !window.confirm(
-          `Số lượng nhập (${receiveQuantity}) lớn hơn số lượng còn thiếu (${currentRemaining}). Bạn có chắc chắn muốn nhập vượt số lượng đặt?`
-        )
-      ) {
-        return;
-      }
     }
     onConfirm(order.id, receiveQuantity, warehouseLocation, notes, receiptNumber);
   };
@@ -83,7 +76,10 @@ export const ReceiveOrderModal: React.FC<ReceiveOrderModalProps> = ({
         <div className="p-4 bg-gradient-to-r from-blue-700 to-indigo-700 text-white flex items-center justify-between">
           <div className="flex items-center space-x-2">
             <PackagePlus className="w-5 h-5" />
-            <h3 className="font-bold text-sm">Nhập Hàng Vào Kho & Tự Động Phân Bổ Giữ Hàng</h3>
+            <div>
+              <h3 className="font-bold text-sm">Kho Nhập Hàng & Phân Bổ Tồn Kho</h3>
+              <p className="text-[11px] text-blue-100">Kho toàn quyền quyết định nhập số lượng thực tế (≥ nhu cầu Sales)</p>
+            </div>
           </div>
           <button
             onClick={onClose}
@@ -101,11 +97,11 @@ export const ReceiveOrderModal: React.FC<ReceiveOrderModalProps> = ({
               <span className="font-mono font-bold text-sm text-blue-700">{order.sku}</span>
               <div className="flex items-center space-x-1.5">
                 <span className="text-xs font-bold text-slate-700 bg-slate-200 px-2 py-0.5 rounded-full">
-                  Tổng đặt: {order.orderQuantity} {order.unit}
+                  Nhu cầu Sales: {order.orderQuantity} {order.unit}
                 </span>
                 {prevReceived > 0 && (
                   <span className="text-xs font-bold text-emerald-700 bg-emerald-100 border border-emerald-300 px-2 py-0.5 rounded-full">
-                    Đã về: {prevReceived}
+                    Đã đáp ứng: {prevReceived}
                   </span>
                 )}
               </div>
@@ -126,7 +122,7 @@ export const ReceiveOrderModal: React.FC<ReceiveOrderModalProps> = ({
                 <strong className="text-slate-900">{assignedSalesName}</strong>
               </div>
               <div>
-                <span className="text-slate-500">Còn thiếu:</span>{' '}
+                <span className="text-slate-500">HĐ còn thiếu:</span>{' '}
                 <strong className="text-amber-700 font-mono font-bold">
                   {currentRemaining} {order.unit}
                 </strong>
@@ -138,14 +134,13 @@ export const ReceiveOrderModal: React.FC<ReceiveOrderModalProps> = ({
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-bold text-slate-800 mb-1">
-                Số Lượng Nhập Đợt Này <span className="text-rose-500">*</span>
+                SL Kho Quyết Định Nhập <span className="text-rose-500">*</span>
               </label>
               <div className="relative">
                 <input
                   type="number"
                   required
                   min={1}
-                  max={order.orderQuantity * 2}
                   value={receiveQuantity}
                   onChange={(e) => setReceiveQuantity(parseInt(e.target.value) || 0)}
                   className="w-full px-3 py-2 border-2 border-blue-300 rounded-lg text-sm font-bold text-blue-900 font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-600 outline-hidden"
@@ -153,13 +148,13 @@ export const ReceiveOrderModal: React.FC<ReceiveOrderModalProps> = ({
                 <span className="absolute right-3 top-2.5 text-xs text-slate-500 font-bold">{order.unit}</span>
               </div>
               <div className="text-[10px] text-slate-500 mt-1 flex justify-between">
-                <span>Còn thiếu: <strong>{currentRemaining}</strong></span>
+                <span>Nhu cầu HĐ: <strong>{currentRemaining}</strong></span>
                 <button
                   type="button"
                   onClick={() => setReceiveQuantity(currentRemaining)}
-                  className="text-blue-600 hover:underline font-bold"
+                  className="text-blue-600 hover:underline font-bold cursor-pointer"
                 >
-                  Nhập hết ({currentRemaining})
+                  Nhập vừa đủ ({currentRemaining})
                 </button>
               </div>
             </div>
@@ -207,35 +202,38 @@ export const ReceiveOrderModal: React.FC<ReceiveOrderModalProps> = ({
             />
           </div>
 
-          {/* Inbound Progression Calculation Strip */}
-          <div className="p-3 rounded-xl bg-indigo-50/70 border border-indigo-200 text-indigo-950 text-xs space-y-1.5">
+          {/* Intelligent Allocation Breakdown Strip */}
+          <div className="p-3 rounded-xl bg-indigo-50/80 border border-indigo-200 text-indigo-950 text-xs space-y-2">
             <div className="flex items-center justify-between font-bold text-[11px]">
               <span className="flex items-center space-x-1 text-indigo-800">
                 <Boxes className="w-3.5 h-3.5" />
-                <span>Tiến trình sau khi nhập:</span>
+                <span>Phân bổ tồn kho sau khi nhập:</span>
               </span>
               <span className={isFullInbound ? 'text-emerald-700 font-bold' : 'text-amber-700 font-bold'}>
-                {isFullInbound ? '🟢 Đã đủ 100% hàng' : `🟡 Hàng về 1 phần (còn thiếu ${nextRemaining} ${order.unit})`}
+                {isFullInbound ? '🟢 HĐ đã đủ 100% hàng' : `🟡 HĐ đáp ứng 1 phần (còn thiếu ${nextRemaining} ${order.unit})`}
               </span>
             </div>
-            <div className="w-full bg-slate-200 rounded-full h-2 overflow-hidden">
-              <div
-                className={`h-2 rounded-full transition-all duration-300 ${
-                  isFullInbound ? 'bg-emerald-500' : 'bg-blue-600'
-                }`}
-                style={{
-                  width: `${Math.min(
-                    100,
-                    Math.round(((prevReceived + (receiveQuantity || 0)) / order.orderQuantity) * 100)
-                  )}%`,
-                }}
-              />
+
+            <div className="grid grid-cols-3 gap-2 pt-1 text-[11px] text-center border-t border-indigo-200/60">
+              <div className="bg-white/80 p-1.5 rounded-lg border border-indigo-100">
+                <div className="text-slate-500 text-[10px]">Tồn thực tế tăng</div>
+                <div className="font-mono font-bold text-blue-700 text-xs">+{receiveQuantity}</div>
+              </div>
+              <div className="bg-white/80 p-1.5 rounded-lg border border-indigo-100">
+                <div className="text-slate-500 text-[10px]">Phân bổ HĐ này</div>
+                <div className="font-mono font-bold text-emerald-700 text-xs">+{allocatedToThisContract}</div>
+              </div>
+              <div className="bg-white/80 p-1.5 rounded-lg border border-indigo-100">
+                <div className="text-slate-500 text-[10px]">Hàng dư / Khả dụng</div>
+                <div className="font-mono font-bold text-purple-700 text-xs">+{surplusToAvailable}</div>
+              </div>
             </div>
-            <div className="text-[10px] text-indigo-800 flex items-center justify-between">
-              <span>Đã về: <strong>{prevReceived + (receiveQuantity || 0)}</strong> / {order.orderQuantity} {order.unit}</span>
-              <span>Tồn thực tế: <strong>+{receiveQuantity}</strong></span>
-              <span>Tạo giữ hàng: <strong>+{receiveQuantity}</strong></span>
-            </div>
+
+            {surplusToAvailable > 0 && (
+              <div className="text-[10px] text-purple-800 bg-purple-50 border border-purple-200 px-2 py-1 rounded-md">
+                💡 <strong>{surplusToAvailable} {order.unit}</strong> hàng dư sẽ tự động chuyển vào <strong>Tồn kho khả dụng</strong> (hoặc phân bổ cho các HĐ khác cùng mã đang chờ).
+              </div>
+            )}
           </div>
 
           {/* Modal Footer */}

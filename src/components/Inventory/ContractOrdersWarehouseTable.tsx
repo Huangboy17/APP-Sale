@@ -76,16 +76,20 @@ export const ContractOrdersWarehouseTable: React.FC<ContractOrdersWarehouseTable
     switch (order.status) {
       case 'pending':
       case 'pending_order':
-        return { label: 'Chờ Đặt NCC', bgColor: 'bg-amber-100 text-amber-800 border-amber-300', dotColor: 'bg-amber-600', progress: 15, remainingQty };
+        return { label: '🔴 Chờ Kho Đáp Ứng', bgColor: 'bg-rose-50 text-rose-800 border-rose-300', dotColor: 'bg-rose-600', progress: 10, remainingQty };
       case 'ordered':
-        return { label: 'Đã Đặt NCC', bgColor: 'bg-blue-100 text-blue-800 border-blue-300', dotColor: 'bg-blue-600', progress: 35, remainingQty };
       case 'in_transit':
-        return { label: 'Đang Vận Chuyển', bgColor: 'bg-purple-100 text-purple-800 border-purple-300', dotColor: 'bg-purple-600', progress: 60, remainingQty };
+        return { label: '🟡 Hàng Đang Về', bgColor: 'bg-amber-50 text-amber-800 border-amber-300', dotColor: 'bg-amber-600', progress: 45, remainingQty };
+      case 'arrived':
+        return { label: '🔵 Đã Về Tới Kho', bgColor: 'bg-blue-50 text-blue-800 border-blue-300', dotColor: 'bg-blue-600', progress: 75, remainingQty };
       case 'partial':
-        return { label: `Về 1 Phần`, bgColor: 'bg-orange-100 text-orange-800 border-orange-300', dotColor: 'bg-orange-600', progress: Math.max(20, progress), remainingQty };
+        return { label: `🟠 Về 1 Phần (${receivedQty}/${orderQty})`, bgColor: 'bg-orange-50 text-orange-800 border-orange-300', dotColor: 'bg-orange-600', progress: Math.max(20, progress), remainingQty };
       case 'received':
+      case 'ready_to_deliver':
       case 'arrived_in_stock':
-        return { label: '🟢 Đã Đủ Hàng', bgColor: 'bg-emerald-100 text-emerald-800 border-emerald-300', dotColor: 'bg-emerald-600', progress: 100, remainingQty: 0 };
+        return { label: '🟢 Đã Đủ Hàng (Sẵn sàng giao)', bgColor: 'bg-emerald-50 text-emerald-800 border-emerald-300', dotColor: 'bg-emerald-600', progress: 100, remainingQty: 0 };
+      case 'delivered':
+        return { label: '📦 Đã Giao Khách', bgColor: 'bg-slate-100 text-slate-800 border-slate-300', dotColor: 'bg-slate-500', progress: 100, remainingQty: 0 };
       default:
         return { label: order.status, bgColor: 'bg-slate-100 text-slate-800 border-slate-300', dotColor: 'bg-slate-500', progress: 0, remainingQty };
     }
@@ -125,20 +129,21 @@ export const ContractOrdersWarehouseTable: React.FC<ContractOrdersWarehouseTable
         'STT': idx + 1,
         'Mã SKU': o.sku,
         'Tên Sản Phẩm': o.productName,
-        'SL Tổng Đặt': o.orderQuantity,
-        'SL Đã Về': o.receivedQuantity || 0,
-        'SL Còn Thiếu': meta.remainingQty,
-        'Trạng Thái': meta.label,
+        'Nhu Cầu Tối Thiểu (Sales)': o.orderQuantity,
+        'Kho Đã Đáp Ứng': o.receivedQuantity || 0,
+        'Còn Thiếu': meta.remainingQty,
+        'Trạng Thái Đáp Ứng': meta.label,
         'Số Hợp Đồng': o.contractNumber,
         'Khách Hàng': getCustomerDisplayName(o),
-        'Ngày Đặt': o.orderDate,
+        'Sales Phụ Trách': getAssignedSalesRepName(o),
+        'Ngày Yêu Cầu': o.orderDate,
         'Ghi Chú': o.notes || '',
       };
     });
     const ws = XLSX.utils.json_to_sheet(data);
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'DatHang_NCC');
-    XLSX.writeFile(wb, `Danh_Sach_Dat_Hang_${new Date().toISOString().split('T')[0]}.xlsx`);
+    XLSX.utils.book_append_sheet(wb, ws, 'NhuCau_DatHang');
+    XLSX.writeFile(wb, `Danh_Sach_Nhu_Cau_Dat_Hang_${new Date().toISOString().split('T')[0]}.xlsx`);
   };
 
   const handleSaveNotes = (id: string) => {
@@ -148,7 +153,7 @@ export const ContractOrdersWarehouseTable: React.FC<ContractOrdersWarehouseTable
   };
 
   const handleCancelOrderPrompt = (order: OrderItem) => {
-    const reason = window.prompt('Nhập lý do hủy đơn:', 'Nhà cung cấp hết hàng');
+    const reason = window.prompt('Nhập lý do hủy yêu cầu đặt hàng:', 'Nhà cung cấp hết hàng');
     if (reason) cancelOrderItem(order.id, reason);
   };
 
@@ -159,7 +164,7 @@ export const ContractOrdersWarehouseTable: React.FC<ContractOrdersWarehouseTable
           <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
           <input
             type="text"
-            placeholder="Tìm theo SKU, sản phẩm, HĐ..."
+            placeholder="Tìm theo SKU, tên sản phẩm, HĐ, khách..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             className="w-full pl-9 pr-3 py-1.5 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-hidden bg-slate-50/50"
@@ -167,78 +172,120 @@ export const ContractOrdersWarehouseTable: React.FC<ContractOrdersWarehouseTable
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg bg-white">
-            <option value="all_pending">Đang Đặt & Chờ Về ({pendingActiveCount})</option>
+            <option value="all_pending">Đang Cần Kho Đáp Ứng ({pendingActiveCount})</option>
             <option value="all">Tất cả ({orderItems.length})</option>
           </select>
-          <button onClick={handleExportExcel} className="px-2.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-900 border border-indigo-300 rounded-lg text-xs font-bold flex items-center gap-1.5">
+          <button onClick={handleExportExcel} className="px-2.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-900 border border-indigo-300 rounded-lg text-xs font-bold flex items-center gap-1.5 cursor-pointer">
             <Download className="w-3.5 h-3.5" /> Xuất Excel
           </button>
         </div>
       </div>
 
       <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-2xs">
-        <div className="p-3 bg-indigo-50/70 border-b border-indigo-200 flex items-center text-xs text-indigo-950">
-          <ShoppingCart className="w-4 h-4 mr-2 text-indigo-600" />
-          <span>Tiến độ đặt NCC: Cần nhập <strong>{totalShortageQty.toLocaleString()}</strong> sản phẩm còn thiếu.</span>
+        <div className="p-3 bg-indigo-50/70 border-b border-indigo-200 flex items-center justify-between text-xs text-indigo-950">
+          <div className="flex items-center space-x-2">
+            <ShoppingCart className="w-4 h-4 text-indigo-600" />
+            <span>Tổng nhu cầu Sales đang chờ Kho đáp ứng: <strong>{totalShortageQty.toLocaleString()}</strong> sản phẩm.</span>
+          </div>
+          <span className="text-[11px] text-slate-500 italic">Kho toàn quyền nhập số lượng thực tế ≥ nhu cầu</span>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs">
             <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-bold uppercase text-[11px]">
               <tr>
                 <th className="px-3.5 py-3">SKU & Sản Phẩm</th>
-                <th className="px-3 py-3 text-center border-x">SL Đặt / Về / Thiếu</th>
-                <th className="px-3.5 py-3">Hợp Đồng & Khách</th>
-                <th className="px-3.5 py-3">Trạng Thái & Tiến Trình</th>
-                <th className="px-3.5 py-3">Ghi Chú PO</th>
-                <th className="px-3.5 py-3 text-center">Hành Động</th>
+                <th className="px-3 py-3 text-center bg-indigo-50/40 border-x border-indigo-100">Nhu Cầu Sales</th>
+                <th className="px-3 py-3 text-center bg-emerald-50/40 border-r border-emerald-100 text-emerald-900">Đã Đáp Ứng</th>
+                <th className="px-3 py-3 text-center bg-amber-50/40 border-r border-amber-100 text-amber-900">Còn Thiếu</th>
+                <th className="px-3.5 py-3">Hợp Đồng & Khách Hàng</th>
+                <th className="px-3.5 py-3">Trạng Thái Đáp Ứng</th>
+                <th className="px-3.5 py-3">Ghi Chú</th>
+                <th className="px-3.5 py-3 text-center">Thao Tác Kho</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {filteredOrders.map((order) => {
-                const meta = getOrderMeta(order);
-                const isEditing = editingNotesId === order.id;
-                return (
-                  <tr key={order.id} className="hover:bg-indigo-50/20" onClick={() => setDetailOrder(order)}>
-                    <td className="px-3.5 py-2.5">
-                      <div className="font-mono font-bold text-indigo-700">{order.sku}</div>
-                      <div className="font-bold text-slate-900">{order.productName}</div>
-                    </td>
-                    <td className="px-3 py-2.5 text-center border-x">
-                      <div className="font-bold text-indigo-950">{order.orderQuantity}</div>
-                      <div className="text-[10px] text-emerald-700">Về: {order.receivedQuantity || 0} • Thiếu: {meta.remainingQty}</div>
-                    </td>
-                    <td className="px-3.5 py-2.5">
-                      <div className="font-bold text-blue-600 cursor-pointer" onClick={(e) => { e.stopPropagation(); onOpenContractPdf(order.contractId); }}>{order.contractNumber}</div>
-                      <div className="font-semibold text-slate-900">{getCustomerDisplayName(order)}</div>
-                    </td>
-                    <td className="px-3.5 py-2.5">
-                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${meta.bgColor}`}>{meta.label}</span>
-                      <div className="w-24 bg-slate-200 rounded-full h-1.5 mt-1 overflow-hidden"><div className="bg-indigo-600 h-1.5" style={{ width: `${meta.progress}%` }} /></div>
-                    </td>
-                    <td className="px-3.5 py-2.5">
-                      {isEditing ? (
-                        <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
-                          <input type="text" value={tempNotes} onChange={(e) => setTempNotes(e.target.value)} className="w-full border rounded px-1" />
-                          <Save className="cursor-pointer" onClick={() => handleSaveNotes(order.id)} />
+              {filteredOrders.length === 0 ? (
+                <tr>
+                  <td colSpan={8} className="px-4 py-8 text-center text-slate-400">
+                    Không có yêu cầu đặt hàng nào trong danh sách.
+                  </td>
+                </tr>
+              ) : (
+                filteredOrders.map((order) => {
+                  const meta = getOrderMeta(order);
+                  const isEditing = editingNotesId === order.id;
+                  return (
+                    <tr key={order.id} className="hover:bg-indigo-50/20 cursor-pointer" onClick={() => setDetailOrder(order)}>
+                      <td className="px-3.5 py-2.5">
+                        <div className="font-mono font-bold text-indigo-700">{order.sku}</div>
+                        <div className="font-bold text-slate-900">{order.productName}</div>
+                      </td>
+                      <td className="px-3 py-2.5 text-center font-bold text-slate-900 border-x bg-indigo-50/10">
+                        {order.orderQuantity} {order.unit}
+                      </td>
+                      <td className="px-3 py-2.5 text-center font-bold text-emerald-700 border-r bg-emerald-50/10">
+                        {order.receivedQuantity || 0}
+                      </td>
+                      <td className="px-3 py-2.5 text-center font-bold text-amber-700 border-r bg-amber-50/10">
+                        {meta.remainingQty}
+                      </td>
+                      <td className="px-3.5 py-2.5">
+                        <div className="font-bold text-blue-600 hover:underline cursor-pointer" onClick={(e) => { e.stopPropagation(); onOpenContractPdf(order.contractId); }}>
+                          {order.contractNumber}
                         </div>
-                      ) : (
-                        <span className="text-slate-600 truncate" onClick={(e) => { e.stopPropagation(); setEditingNotesId(order.id); setTempNotes(order.notes || ''); }}>{order.notes || '...'}</span>
-                      )}
-                    </td>
-                    <td className="px-3.5 py-2.5 text-center" onClick={(e) => e.stopPropagation()}>
-                      <div className="flex items-center justify-center gap-1">
-                        {isPendingOrder(order.status) && (
-                          <>
-                            <button onClick={() => updateOrderWarehouseStatus(order.id, 'ordered')} className="p-1"><CheckCircle2 className="w-4 h-4 text-blue-600" /></button>
-                            <button onClick={() => onOpenReceiveModal(order)} className="p-1"><PackagePlus className="w-4 h-4 text-indigo-600" /></button>
-                          </>
+                        <div className="font-semibold text-slate-900">{getCustomerDisplayName(order)}</div>
+                        <div className="text-[10px] text-slate-500">Sales: {getAssignedSalesRepName(order)}</div>
+                      </td>
+                      <td className="px-3.5 py-2.5">
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${meta.bgColor}`}>
+                          {meta.label}
+                        </span>
+                        <div className="w-24 bg-slate-200 rounded-full h-1.5 mt-1 overflow-hidden">
+                          <div className="bg-indigo-600 h-1.5 transition-all" style={{ width: `${meta.progress}%` }} />
+                        </div>
+                      </td>
+                      <td className="px-3.5 py-2.5">
+                        {isEditing ? (
+                          <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                            <input type="text" value={tempNotes} onChange={(e) => setTempNotes(e.target.value)} className="w-full border rounded px-1 text-xs" />
+                            <Save className="w-3.5 h-3.5 text-emerald-600 cursor-pointer" onClick={() => handleSaveNotes(order.id)} />
+                          </div>
+                        ) : (
+                          <span className="text-slate-600 truncate max-w-[120px] block" onClick={(e) => { e.stopPropagation(); setEditingNotesId(order.id); setTempNotes(order.notes || ''); }}>
+                            {order.notes || '...'}
+                          </span>
                         )}
-                        <button onClick={() => setDetailOrder(order)} className="p-1"><Eye className="w-4 h-4" /></button>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
+                      </td>
+                      <td className="px-3.5 py-2.5 text-center" onClick={(e) => e.stopPropagation()}>
+                        <div className="flex items-center justify-center gap-1.5">
+                          {isPendingOrder(order.status) && (
+                            <>
+                              <button
+                                onClick={() => updateOrderWarehouseStatus(order.id, 'ordered')}
+                                title="Đánh dấu Kho đã đặt NCC"
+                                className="p-1 rounded hover:bg-blue-50 text-blue-600 transition cursor-pointer"
+                              >
+                                <CheckCircle2 className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={() => onOpenReceiveModal(order)}
+                                title="Nhập hàng vào kho & phân bổ"
+                                className="px-2 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-md text-[11px] font-bold flex items-center space-x-1 shadow-2xs transition cursor-pointer"
+                              >
+                                <PackagePlus className="w-3.5 h-3.5" />
+                                <span>Nhập Kho</span>
+                              </button>
+                            </>
+                          )}
+                          <button onClick={() => setDetailOrder(order)} title="Xem chi tiết" className="p-1 rounded hover:bg-slate-100 text-slate-600 transition cursor-pointer">
+                            <Eye className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
             </tbody>
           </table>
         </div>

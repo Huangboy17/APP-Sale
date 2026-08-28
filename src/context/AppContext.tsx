@@ -2120,10 +2120,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const myOrgId = resolveOrganizationId(currentUser, users);
     const myCompanyId = companyScope.companyId || myOrgId;
 
-    // 1. Calculate active holding reserves for valid customers
+    // 1. Calculate active holding / allocated reserves for valid customers
     const reserveMap = new Map<string, number>();
     reserveItems.forEach((r) => {
-      if (r.status === 'holding' && r.customerId && validCustomerIds.has(r.customerId)) {
+      const isHoldingActive =
+        r.status === 'holding' ||
+        r.status === 'active' ||
+        r.status === 'allocated' ||
+        r.status === 'picking' ||
+        r.status === 'ready_to_ship';
+
+      if (isHoldingActive && r.customerId && validCustomerIds.has(r.customerId)) {
         if (currentUser.role === 'super_admin' || !r.organizationId || r.organizationId === myOrgId) {
           const cleanSku = (r.sku || '').trim().toUpperCase();
           reserveMap.set(cleanSku, (reserveMap.get(cleanSku) || 0) + (r.reservedQuantity || 0));
@@ -2131,22 +2138,40 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
     });
 
-    // 2. Calculate active pending / ordered PO quantities
-    const orderMap = new Map<string, number>();
+    // 2. Calculate incoming goods on order from supplier (ordered, in_transit, arrived)
+    const incomingMap = new Map<string, number>();
     orderItems.forEach((o) => {
-      if (
-        (o.status === 'pending_order' || o.status === 'ordered') &&
-        o.customerId &&
-        validCustomerIds.has(o.customerId)
-      ) {
+      const isIncoming = o.status === 'ordered' || o.status === 'in_transit' || o.status === 'arrived';
+      if (isIncoming && o.customerId && validCustomerIds.has(o.customerId)) {
         if (currentUser.role === 'super_admin' || !o.organizationId || o.organizationId === myOrgId) {
           const cleanSku = (o.sku || '').trim().toUpperCase();
-          orderMap.set(cleanSku, (orderMap.get(cleanSku) || 0) + (o.orderQuantity || 0));
+          const shortage = o.remainingQuantity !== undefined ? o.remainingQuantity : Math.max(0, o.orderQuantity - (o.receivedQuantity || 0));
+          incomingMap.set(cleanSku, (incomingMap.get(cleanSku) || 0) + shortage);
         }
       }
     });
 
-    // 3. Filter inventory items based on role / organization
+    // 3. Calculate unfulfilled Sales demand (pending, ordered, in_transit, arrived, partial)
+    const unfulfilledMap = new Map<string, number>();
+    orderItems.forEach((o) => {
+      const isUnfulfilled =
+        o.status === 'pending' ||
+        o.status === 'pending_order' ||
+        o.status === 'ordered' ||
+        o.status === 'in_transit' ||
+        o.status === 'arrived' ||
+        o.status === 'partial';
+
+      if (isUnfulfilled && o.customerId && validCustomerIds.has(o.customerId)) {
+        if (currentUser.role === 'super_admin' || !o.organizationId || o.organizationId === myOrgId) {
+          const cleanSku = (o.sku || '').trim().toUpperCase();
+          const shortage = o.remainingQuantity !== undefined ? o.remainingQuantity : Math.max(0, o.orderQuantity - (o.receivedQuantity || 0));
+          unfulfilledMap.set(cleanSku, (unfulfilledMap.get(cleanSku) || 0) + shortage);
+        }
+      }
+    });
+
+    // 4. Filter inventory items based on role / organization
     const scopedInventory = inventory.filter((item) => {
       if (currentUser.role === 'super_admin') return true;
       const itemOrg = item.organizationId || item.companyId;
@@ -2163,22 +2188,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return true;
     });
 
-    // 4. Compute On Hand, Reserved, Available, On Order, Reorder Needed
+    // 5. Compute On Hand, Reserved, Available, Incoming, Unfulfilled Demand
     return scopedInventory.map((item) => {
       const cleanSku = (item.sku || '').trim().toUpperCase();
       const actualOnHand = typeof item.totalQuantity === 'number' && !isNaN(item.totalQuantity) ? Math.max(0, item.totalQuantity) : 0;
       const actualReserved = reserveMap.get(cleanSku) || 0;
       const actualAvailable = Math.max(0, actualOnHand - actualReserved);
-      const actualOnOrder = orderMap.get(cleanSku) || 0;
-      const reorderNeeded = Math.max(0, actualReserved - actualAvailable - actualOnOrder);
+      const actualIncoming = incomingMap.get(cleanSku) || 0;
+      const actualUnfulfilled = unfulfilledMap.get(cleanSku) || 0;
 
       return {
         ...item,
         totalQuantity: actualOnHand,
         reservedQuantity: actualReserved,
         availableQuantity: actualAvailable,
-        onOrderQuantity: actualOnOrder,
-        reorderNeeded,
+        onOrderQuantity: actualIncoming,
+        incomingQuantity: actualIncoming,
+        reorderNeeded: actualUnfulfilled,
+        unfulfilledDemand: actualUnfulfilled,
       };
     });
   }, [inventory, reserveItems, orderItems, currentUser, companyScope, users, customers]);
@@ -2414,6 +2441,109 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (changed.length > 0) batchSyncInventoryToCloud(changed);
       return updated;
     });
+
+    // 3. Auto-allocate received quantities to pending OrderItems for these SKUs (FIFO)
+    const newlyUpdatedOrders: OrderItem[] = [];
+    const newlyCreatedReserves: ReserveItem[] = [];
+
+    itemMap.forEach((addQty, cleanSku) => {
+      let remainingToAllocate = addQty;
+      const pendingForSku = orderItems
+        .filter((o) => {
+          if (o.sku.trim().toUpperCase() !== cleanSku) return false;
+          if (o.organizationId && o.organizationId !== myOrgId && o.organizationId !== (companyScope.companyId || myOrgId)) return false;
+          const isPending = o.status !== 'ready_to_deliver' && o.status !== 'delivered' && o.status !== 'cancelled';
+          const needed = o.remainingQuantity !== undefined ? o.remainingQuantity : (o.orderQuantity - (o.receivedQuantity || 0));
+          return isPending && needed > 0;
+        })
+        .sort((a, b) => new Date(a.orderDate || 0).getTime() - new Date(b.orderDate || 0).getTime());
+
+      for (const order of pendingForSku) {
+        if (remainingToAllocate <= 0) break;
+        const needed = order.remainingQuantity !== undefined ? order.remainingQuantity : (order.orderQuantity - (order.receivedQuantity || 0));
+        const allocated = Math.min(needed, remainingToAllocate);
+        remainingToAllocate -= allocated;
+
+        const prevReceived = order.receivedQuantity || 0;
+        const newReceived = prevReceived + allocated;
+        const newRemaining = Math.max(0, order.orderQuantity - newReceived);
+        const newStatus: OrderItemStatus = newRemaining === 0 ? 'ready_to_deliver' : 'partial';
+
+        const receiptEntry: InboundReceiptEntry = {
+          id: `rec-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+          receiptNumber: updatedVoucher.voucherNumber,
+          date: now.toISOString().split('T')[0],
+          quantity: allocated,
+          warehouseLocation: voucher.warehouseLocation || 'Kho Tổng TP.HCM',
+          note: `Nhập kho theo phiếu ${updatedVoucher.voucherNumber} (phân bổ tự động: +${allocated} ${order.unit})`,
+          actorId: currentUser.id,
+          actorName: currentUser.name,
+        };
+
+        const timelineEvent: TimelineEvent = {
+          status: newStatus,
+          statusLabel: newStatus === 'ready_to_deliver' ? 'Đã về đủ kho' : `Đã về đợt (${newReceived}/${order.orderQuantity})`,
+          timestamp: now.toISOString(),
+          actorId: currentUser.id,
+          actorName: currentUser.name,
+          note: `Phiếu nhập ${updatedVoucher.voucherNumber}, tự động phân bổ +${allocated} cho HĐ ${order.contractNumber}`,
+        };
+
+        newlyUpdatedOrders.push({
+          ...order,
+          receivedQuantity: newReceived,
+          remainingQuantity: newRemaining,
+          status: newStatus,
+          inboundReceipts: [receiptEntry, ...(order.inboundReceipts || [])],
+          timeline: [timelineEvent, ...(order.timeline || [])],
+        });
+
+        // ReserveItem for this allocation
+        const targetCustomer = customers.find((c) => c.id === order.customerId);
+        const targetContract = contracts.find((c) => c.id === order.contractId);
+        newlyCreatedReserves.push({
+          id: `res-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+          organizationId: myOrgId,
+          contractId: order.contractId,
+          contractNumber: order.contractNumber,
+          quoteNumber: order.quoteNumber,
+          customerId: order.customerId,
+          customerName: targetCustomer?.name || order.customerName,
+          salesRepId: targetCustomer?.assignedToId || order.salesRepId || currentUser.id,
+          salesRepName: targetCustomer?.assignedToName || order.salesRepName || currentUser.name,
+          createdBy: currentUser.id,
+          sku: order.sku,
+          productName: order.productName,
+          unit: order.unit,
+          reservedQuantity: allocated,
+          warehouseLocation: voucher.warehouseLocation || 'Kho Tổng TP.HCM',
+          reservedDate: now.toISOString().split('T')[0],
+          status: 'allocated',
+          expectedDeliveryDate: targetContract?.deliveryDate || now.toISOString().split('T')[0],
+          timeline: [
+            {
+              status: 'allocated',
+              statusLabel: 'Kho đã nhập & tự động phân bổ',
+              timestamp: now.toISOString(),
+              actorId: currentUser.id,
+              actorName: currentUser.name,
+              note: `Hàng về theo phiếu ${updatedVoucher.voucherNumber}, phân bổ giữ cho HĐ ${order.contractNumber}`,
+            },
+          ],
+        });
+      }
+    });
+
+    if (newlyUpdatedOrders.length > 0) {
+      const orderIds = new Set(newlyUpdatedOrders.map((o) => o.id));
+      setOrderItems((prev) => prev.map((o) => (orderIds.has(o.id) ? newlyUpdatedOrders.find((u) => u.id === o.id)! : o)));
+      newlyUpdatedOrders.forEach((o) => syncOrderItemToCloud(o));
+    }
+
+    if (newlyCreatedReserves.length > 0) {
+      setReserveItems((prev) => [...newlyCreatedReserves, ...prev]);
+      batchSyncReservesToCloud(newlyCreatedReserves);
+    }
   };
 
   const cancelStockInVoucher = async (voucherId: string) => {
@@ -2650,62 +2780,217 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     notes?: string,
     receiptNumber?: string
   ) => {
-    const order = orderItems.find((o) => o.id === orderId);
-    if (!order || receiveQuantity <= 0) return;
+    const targetOrder = orderItems.find((o) => o.id === orderId);
+    if (!targetOrder || receiveQuantity <= 0) return;
 
     const myOrgId = resolveOrganizationId(currentUser, users);
     const myCompanyId = companyScope.companyId || myOrgId;
-    const contract = contracts.find((c) => c.id === order.contractId);
+    const targetSku = targetOrder.sku.trim().toUpperCase();
     const loc = warehouseLocation || 'Kho Tổng TP.HCM (Kệ A1)';
     const now = new Date().toISOString().split('T')[0];
     const generatedReceiptNo = receiptNumber || `PN-${new Date().getFullYear()}/${Date.now().toString().slice(-6)}`;
 
-    const prevReceived = order.receivedQuantity || 0;
-    const newReceived = prevReceived + receiveQuantity;
-    const remaining = Math.max(0, order.orderQuantity - newReceived);
-    const newStatus: OrderItemStatus = remaining === 0 ? 'ready_to_deliver' : 'partial';
+    // 1. Calculate Multi-Requirement Allocation:
+    // First allocate to targetOrder
+    let remainingToAllocate = receiveQuantity;
+    const targetNeeded = Math.max(0, targetOrder.orderQuantity - (targetOrder.receivedQuantity || 0));
+    const targetAllocated = Math.min(targetNeeded, remainingToAllocate);
+    remainingToAllocate -= targetAllocated;
 
-    const newReceiptEntry: InboundReceiptEntry = {
+    const updatedOrders: OrderItem[] = [];
+    const newReserves: ReserveItem[] = [];
+
+    // Target Order Update
+    const targetPrevReceived = targetOrder.receivedQuantity || 0;
+    const targetNewReceived = targetPrevReceived + targetAllocated;
+    const targetNewRemaining = Math.max(0, targetOrder.orderQuantity - targetNewReceived);
+    const targetNewStatus: OrderItemStatus = targetNewRemaining === 0 ? 'ready_to_deliver' : 'partial';
+
+    const targetReceiptEntry: InboundReceiptEntry = {
       id: `rec-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
       receiptNumber: generatedReceiptNo,
       date: now,
-      quantity: receiveQuantity,
+      quantity: targetAllocated,
       warehouseLocation: loc,
-      note: notes || `Nhập kho đợt: +${receiveQuantity} ${order.unit}`,
+      note: notes || `Nhập kho: +${targetAllocated}/${receiveQuantity} ${targetOrder.unit}`,
       actorId: currentUser.id,
       actorName: currentUser.name,
     };
 
-    const newTimelineEvent: TimelineEvent = {
-      status: newStatus,
-      statusLabel: newStatus === 'ready_to_deliver' ? 'Đã về đủ kho' : `Đã về đợt (${newReceived}/${order.orderQuantity})`,
+    const targetTimelineEvent: TimelineEvent = {
+      status: targetNewStatus,
+      statusLabel: targetNewStatus === 'ready_to_deliver' ? 'Đã về đủ kho' : `Đã về đợt (${targetNewReceived}/${targetOrder.orderQuantity})`,
       timestamp: new Date().toISOString(),
       actorId: currentUser.id,
       actorName: currentUser.name,
-      note: notes || `Nhập kho +${receiveQuantity} ${order.unit} theo phiếu ${generatedReceiptNo}`,
+      note: notes || `Nhập kho +${receiveQuantity} (phân bổ +${targetAllocated} cho HĐ ${targetOrder.contractNumber})`,
     };
 
-    // 1. Update order item
-    const updatedOrder: OrderItem = {
-      ...order,
-      receivedQuantity: newReceived,
-      remainingQuantity: remaining,
-      status: newStatus,
-      notes: notes || order.notes,
-      inboundReceipts: [newReceiptEntry, ...(order.inboundReceipts || [])],
-      timeline: [newTimelineEvent, ...(order.timeline || [])],
+    const updatedTargetOrder: OrderItem = {
+      ...targetOrder,
+      receivedQuantity: targetNewReceived,
+      remainingQuantity: targetNewRemaining,
+      status: targetNewStatus,
+      notes: notes || targetOrder.notes,
+      inboundReceipts: [targetReceiptEntry, ...(targetOrder.inboundReceipts || [])],
+      timeline: [targetTimelineEvent, ...(targetOrder.timeline || [])],
     };
+    updatedOrders.push(updatedTargetOrder);
 
-    setOrderItems((prev) => prev.map((o) => (o.id === orderId ? updatedOrder : o)));
-    syncOrderItemToCloud(updatedOrder);
+    // Target ReserveItem (if targetAllocated > 0)
+    if (targetAllocated > 0) {
+      const targetCustomer = customers.find((c) => c.id === targetOrder.customerId);
+      const targetContract = contracts.find((c) => c.id === targetOrder.contractId);
+      newReserves.push({
+        id: `res-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+        organizationId: myOrgId,
+        contractId: targetOrder.contractId,
+        contractNumber: targetOrder.contractNumber,
+        quoteNumber: targetOrder.quoteNumber,
+        customerId: targetOrder.customerId,
+        customerName: targetCustomer?.name || targetOrder.customerName,
+        salesRepId: targetCustomer?.assignedToId || targetOrder.salesRepId || currentUser.id,
+        salesRepName: targetCustomer?.assignedToName || targetOrder.salesRepName || currentUser.name,
+        createdBy: currentUser.id,
+        sku: targetOrder.sku,
+        productName: targetOrder.productName,
+        unit: targetOrder.unit,
+        reservedQuantity: targetAllocated,
+        warehouseLocation: loc,
+        reservedDate: now,
+        status: 'allocated',
+        expectedDeliveryDate: targetContract?.deliveryDate || now,
+        timeline: [
+          {
+            status: 'allocated',
+            statusLabel: 'Kho đã nhập & phân bổ giữ hàng',
+            timestamp: new Date().toISOString(),
+            actorId: currentUser.id,
+            actorName: currentUser.name,
+            note: `Hàng về theo phiếu ${generatedReceiptNo}, phân bổ giữ cho HĐ ${targetOrder.contractNumber}`,
+          },
+        ],
+      });
+    }
 
-    // 2. Increase inventory totalQuantity for this company
+    // If there is surplus remainingToAllocate > 0, auto-allocate to other pending orders of same SKU (FIFO)
+    if (remainingToAllocate > 0) {
+      const otherPendingOrders = orderItems
+        .filter((o) => {
+          if (o.id === targetOrder.id) return false;
+          if (o.sku.trim().toUpperCase() !== targetSku) return false;
+          if (o.organizationId && o.organizationId !== myOrgId && o.organizationId !== myCompanyId) return false;
+          const isPending = o.status !== 'ready_to_deliver' && o.status !== 'delivered' && o.status !== 'cancelled';
+          const needed = o.remainingQuantity !== undefined ? o.remainingQuantity : (o.orderQuantity - (o.receivedQuantity || 0));
+          return isPending && needed > 0;
+        })
+        .sort((a, b) => new Date(a.orderDate || 0).getTime() - new Date(b.orderDate || 0).getTime());
+
+      for (const otherOrder of otherPendingOrders) {
+        if (remainingToAllocate <= 0) break;
+        const otherNeeded = otherOrder.remainingQuantity !== undefined ? otherOrder.remainingQuantity : (otherOrder.orderQuantity - (otherOrder.receivedQuantity || 0));
+        const otherAllocated = Math.min(otherNeeded, remainingToAllocate);
+        remainingToAllocate -= otherAllocated;
+
+        const otherPrevReceived = otherOrder.receivedQuantity || 0;
+        const otherNewReceived = otherPrevReceived + otherAllocated;
+        const otherNewRemaining = Math.max(0, otherOrder.orderQuantity - otherNewReceived);
+        const otherNewStatus: OrderItemStatus = otherNewRemaining === 0 ? 'ready_to_deliver' : 'partial';
+
+        const otherReceiptEntry: InboundReceiptEntry = {
+          id: `rec-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+          receiptNumber: generatedReceiptNo,
+          date: now,
+          quantity: otherAllocated,
+          warehouseLocation: loc,
+          note: `Nhập đợt từ phiếu ${generatedReceiptNo} (phân bổ tự động: +${otherAllocated} ${otherOrder.unit})`,
+          actorId: currentUser.id,
+          actorName: currentUser.name,
+        };
+
+        const otherTimelineEvent: TimelineEvent = {
+          status: otherNewStatus,
+          statusLabel: otherNewStatus === 'ready_to_deliver' ? 'Đã về đủ kho' : `Đã về đợt (${otherNewReceived}/${otherOrder.orderQuantity})`,
+          timestamp: new Date().toISOString(),
+          actorId: currentUser.id,
+          actorName: currentUser.name,
+          note: `Kho nhập ${receiveQuantity}, tự động phân bổ +${otherAllocated} cho HĐ ${otherOrder.contractNumber}`,
+        };
+
+        updatedOrders.push({
+          ...otherOrder,
+          receivedQuantity: otherNewReceived,
+          remainingQuantity: otherNewRemaining,
+          status: otherNewStatus,
+          inboundReceipts: [otherReceiptEntry, ...(otherOrder.inboundReceipts || [])],
+          timeline: [otherTimelineEvent, ...(otherOrder.timeline || [])],
+        });
+
+        // ReserveItem for other order
+        const otherCustomer = customers.find((c) => c.id === otherOrder.customerId);
+        const otherContract = contracts.find((c) => c.id === otherOrder.contractId);
+        newReserves.push({
+          id: `res-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+          organizationId: myOrgId,
+          contractId: otherOrder.contractId,
+          contractNumber: otherOrder.contractNumber,
+          quoteNumber: otherOrder.quoteNumber,
+          customerId: otherOrder.customerId,
+          customerName: otherCustomer?.name || otherOrder.customerName,
+          salesRepId: otherCustomer?.assignedToId || otherOrder.salesRepId || currentUser.id,
+          salesRepName: otherCustomer?.assignedToName || otherOrder.salesRepName || currentUser.name,
+          createdBy: currentUser.id,
+          sku: otherOrder.sku,
+          productName: otherOrder.productName,
+          unit: otherOrder.unit,
+          reservedQuantity: otherAllocated,
+          warehouseLocation: loc,
+          reservedDate: now,
+          status: 'allocated',
+          expectedDeliveryDate: otherContract?.deliveryDate || now,
+          timeline: [
+            {
+              status: 'allocated',
+              statusLabel: 'Kho đã nhập & tự động phân bổ',
+              timestamp: new Date().toISOString(),
+              actorId: currentUser.id,
+              actorName: currentUser.name,
+              note: `Hàng về theo phiếu ${generatedReceiptNo}, phân bổ giữ cho HĐ ${otherOrder.contractNumber}`,
+            },
+          ],
+        });
+      }
+    }
+
+    const totalAllocated = receiveQuantity - remainingToAllocate;
+    const surplusAvailable = remainingToAllocate;
+
+    // 2. Update Order Items State & Cloud
+    const updatedOrderIds = new Set(updatedOrders.map((o) => o.id));
+    setOrderItems((prev) => {
+      const nextList = prev.map((o) => {
+        if (updatedOrderIds.has(o.id)) {
+          return updatedOrders.find((u) => u.id === o.id)!;
+        }
+        return o;
+      });
+      return nextList;
+    });
+    updatedOrders.forEach((o) => syncOrderItemToCloud(o));
+
+    // 3. Update Reserve Items State & Cloud
+    if (newReserves.length > 0) {
+      setReserveItems((prev) => [...newReserves, ...prev]);
+      batchSyncReservesToCloud(newReserves);
+    }
+
+    // 4. Update Inventory On Hand in Inventory table
     let beforeOnHand = 0;
     let afterOnHand = 0;
 
     setInventory((prev) => {
       const existing = prev.find(
-        (i) => i.sku.trim().toUpperCase() === order.sku.trim().toUpperCase() && (i.companyId === myCompanyId || !i.companyId)
+        (i) => i.sku.trim().toUpperCase() === targetSku && (i.companyId === myCompanyId || !i.companyId)
       );
       let updatedInv: InventoryItem;
       if (existing) {
@@ -2720,7 +3005,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         };
         syncInventoryItemToCloud(updatedInv);
         const nextList = prev.map((i) =>
-          i.sku.trim().toUpperCase() === order.sku.trim().toUpperCase() && (i.companyId === myCompanyId || !i.companyId)
+          i.sku.trim().toUpperCase() === targetSku && (i.companyId === myCompanyId || !i.companyId)
             ? updatedInv
             : i
         );
@@ -2730,12 +3015,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         beforeOnHand = 0;
         afterOnHand = receiveQuantity;
         updatedInv = {
-          sku: order.sku,
-          name: order.productName,
-          unit: order.unit || 'Bộ',
+          sku: targetOrder.sku,
+          name: targetOrder.productName,
+          unit: targetOrder.unit || 'Bộ',
           totalQuantity: receiveQuantity,
-          reservedQuantity: receiveQuantity,
-          availableQuantity: 0,
+          reservedQuantity: totalAllocated,
+          availableQuantity: surplusAvailable,
           warehouseLocation: loc,
           updatedAt: now,
           companyId: myCompanyId,
@@ -2749,58 +3034,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
     });
 
-    // 3. Log StockTransaction
+    // 5. Log StockTransaction Ledger
     addStockTransaction({
-      sku: order.sku,
-      productName: order.productName,
-      unit: order.unit || 'Bộ',
+      sku: targetOrder.sku,
+      productName: targetOrder.productName,
+      unit: targetOrder.unit || 'Bộ',
       type: 'STOCK_IN',
       deltaQuantity: receiveQuantity,
       beforeOnHand,
       afterOnHand,
       referenceCode: generatedReceiptNo,
-      partnerName: order.brand || 'Nhà cung cấp',
+      partnerName: targetOrder.brand || 'Nhà cung cấp',
       performedById: currentUser.id,
       performedByName: currentUser.name,
       organizationId: myOrgId,
-      notes: `Nhập hàng PO cho HĐ ${order.contractNumber} (${order.customerName})`,
+      notes: `Nhập kho +${receiveQuantity} ${targetOrder.unit} (Phân bổ ${totalAllocated} cho Sales, tồn dư khả dụng +${surplusAvailable})`,
     });
-
-    // 4. Automatically create / link a ReserveItem for this contract/customer
-    const targetCustomer = customers.find((c) => c.id === order.customerId);
-    const newReserve: ReserveItem = {
-      id: `res-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-      organizationId: myOrgId,
-      contractId: order.contractId,
-      contractNumber: order.contractNumber,
-      quoteNumber: order.quoteNumber,
-      customerId: order.customerId,
-      customerName: targetCustomer?.name || order.customerName,
-      salesRepId: targetCustomer?.assignedToId || order.salesRepId || currentUser.id,
-      salesRepName: targetCustomer?.assignedToName || order.salesRepName || currentUser.name,
-      createdBy: currentUser.id,
-      sku: order.sku,
-      productName: order.productName,
-      unit: order.unit,
-      reservedQuantity: receiveQuantity,
-      warehouseLocation: loc,
-      reservedDate: now,
-      status: 'allocated', // Allocated by warehouse immediately upon receipt
-      expectedDeliveryDate: contract?.deliveryDate || now,
-      timeline: [
-        {
-          status: 'allocated',
-          statusLabel: 'Kho đã nhập & tự động phân bổ',
-          timestamp: new Date().toISOString(),
-          actorId: currentUser.id,
-          actorName: currentUser.name,
-          note: `Hàng về theo phiếu ${generatedReceiptNo}, phân bổ giữ cho HĐ ${order.contractNumber}`,
-        },
-      ],
-    };
-
-    setReserveItems((prev) => [newReserve, ...prev]);
-    syncReserveItemToCloud(newReserve);
   };
 
   const receiveOrderToWarehouseAndReserve = (orderId: string, warehouseLocation?: string) => {

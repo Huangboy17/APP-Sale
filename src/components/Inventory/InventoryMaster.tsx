@@ -54,7 +54,7 @@ type WarehouseTabType =
   | 'stock_ledger'
   | 'critical_alerts';
 
-type SortField = 'sku' | 'name' | 'totalQuantity' | 'reservedQuantity' | 'availableQuantity' | 'onOrderQuantity';
+type SortField = 'sku' | 'name' | 'totalQuantity' | 'reservedQuantity' | 'availableQuantity' | 'onOrderQuantity' | 'reorderNeeded';
 
 const InventoryMasterContent: React.FC = () => {
   const {
@@ -634,8 +634,17 @@ const InventoryMasterContent: React.FC = () => {
                       className="px-3.5 py-3 text-right bg-indigo-50/60 text-indigo-950 cursor-pointer hover:bg-indigo-100 transition"
                     >
                       <div className="flex items-center justify-end space-x-1">
-                        <span>Đang Đặt NCC</span>
+                        <span>Đang Về (NCC)</span>
                         <ShoppingCart className="w-3 h-3 text-indigo-600" />
+                      </div>
+                    </th>
+                    <th
+                      onClick={() => handleSort('reorderNeeded')}
+                      className="px-3.5 py-3 text-right bg-rose-50/60 text-rose-950 cursor-pointer hover:bg-rose-100 transition"
+                    >
+                      <div className="flex items-center justify-end space-x-1">
+                        <span>Nhu Cầu Chưa Đáp Ứng</span>
+                        <AlertTriangle className="w-3 h-3 text-rose-600" />
                       </div>
                     </th>
                     <th className="px-3.5 py-3">Vị Trí Kho</th>
@@ -646,7 +655,7 @@ const InventoryMasterContent: React.FC = () => {
                 <tbody className="divide-y divide-slate-100 text-slate-700">
                   {processedInventory.length === 0 ? (
                     <tr>
-                      <td colSpan={10} className="px-4 py-12 text-center text-slate-400">
+                      <td colSpan={11} className="px-4 py-12 text-center text-slate-400">
                         <div className="flex flex-col items-center justify-center space-y-2">
                           <Boxes className="w-8 h-8 text-slate-300" />
                           <p className="font-semibold text-sm">
@@ -664,6 +673,7 @@ const InventoryMasterContent: React.FC = () => {
                       const reserved = item.reservedQuantity || 0;
                       const available = item.availableQuantity || 0;
                       const onOrder = item.onOrderQuantity || 0;
+                      const unfulfilled = item.reorderNeeded || item.unfulfilledDemand || 0;
 
                       return (
                         <tr
@@ -710,7 +720,7 @@ const InventoryMasterContent: React.FC = () => {
                             </span>
                           </td>
 
-                          {/* ON ORDER */}
+                          {/* ON ORDER (INCOMING) */}
                           <td className="px-3.5 py-2.5 text-right bg-indigo-50/20">
                             <span
                               className={`font-mono font-bold ${
@@ -718,6 +728,17 @@ const InventoryMasterContent: React.FC = () => {
                               }`}
                             >
                               {onOrder.toLocaleString()}
+                            </span>
+                          </td>
+
+                          {/* UNFULFILLED DEMAND */}
+                          <td className="px-3.5 py-2.5 text-right bg-rose-50/20 border-r border-rose-100">
+                            <span
+                              className={`font-mono font-bold ${
+                                unfulfilled > 0 ? 'text-rose-700' : 'text-slate-300'
+                              }`}
+                            >
+                              {unfulfilled.toLocaleString()}
                             </span>
                           </td>
 

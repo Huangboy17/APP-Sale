@@ -334,7 +334,9 @@ export const ReserveAndOrderTables: React.FC = () => {
                   <th className="px-3 py-2.5">Mã Hàng (SKU)</th>
                   <th className="px-3 py-2.5">Tên & Thông Số Hàng Hóa</th>
                   <th className="px-3 py-2.5">Hãng / NCC</th>
-                  <th className="px-3 py-2.5 text-center">SL Cần Đặt</th>
+                  <th className="px-3 py-2.5 text-center bg-indigo-50/40">Nhu Cầu Sales</th>
+                  <th className="px-3 py-2.5 text-center bg-emerald-50/40 text-emerald-900">Đã Đáp Ứng</th>
+                  <th className="px-3 py-2.5 text-center bg-amber-50/40 text-amber-900">Còn Thiếu</th>
                   <th className="px-3 py-2.5">Hợp Đồng & Khách Hàng</th>
                   <th className="px-3 py-2.5">Dự Kiến Hàng Về (ETA)</th>
                   <th className="px-3 py-2.5">Ghi Chú PO</th>
@@ -344,61 +346,70 @@ export const ReserveAndOrderTables: React.FC = () => {
               <tbody className="divide-y divide-slate-100 text-slate-700">
                 {filteredOrders.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="px-4 py-8 text-center text-slate-400">
+                    <td colSpan={10} className="px-4 py-8 text-center text-slate-400">
                       Không có mã hàng nào cần đặt thêm. Toàn bộ đơn hàng đã có đủ tồn kho!
                     </td>
                   </tr>
                 ) : (
-                  filteredOrders.map((o) => (
-                    <tr key={o.id} className="hover:bg-slate-50 transition-colors">
-                      <td className="px-3 py-2 font-mono font-bold text-amber-700">{o.sku}</td>
-                      <td className="px-3 py-2">
-                        <div className="font-bold text-slate-900">{o.productName}</div>
-                        <div className="text-[10px] text-slate-500">
-                          {o.color} • {o.size}
-                        </div>
-                      </td>
-                      <td className="px-3 py-2 font-semibold text-slate-700">{o.brand}</td>
-                      <td className="px-3 py-2 text-center">
-                        <span className="font-bold text-xs text-amber-800 bg-amber-100 px-2 py-0.5 rounded border border-amber-300 font-mono">
+                  filteredOrders.map((o) => {
+                    const shortage = o.remainingQuantity !== undefined ? o.remainingQuantity : Math.max(0, o.orderQuantity - (o.receivedQuantity || 0));
+                    return (
+                      <tr key={o.id} className="hover:bg-slate-50 transition-colors">
+                        <td className="px-3 py-2 font-mono font-bold text-amber-700">{o.sku}</td>
+                        <td className="px-3 py-2">
+                          <div className="font-bold text-slate-900">{o.productName}</div>
+                          <div className="text-[10px] text-slate-500">
+                            {o.color} • {o.size}
+                          </div>
+                        </td>
+                        <td className="px-3 py-2 font-semibold text-slate-700">{o.brand}</td>
+                        <td className="px-3 py-2 text-center font-bold text-indigo-950 bg-indigo-50/20">
                           {o.orderQuantity} {o.unit}
-                        </span>
-                      </td>
-                      <td className="px-3 py-2">
-                        <div className="font-semibold text-blue-700">{o.contractNumber}</div>
-                        <div className="text-[10px] text-slate-500">{getCustomerDisplayName(o.customerId, o.customerName)}</div>
-                      </td>
-                      <td className="px-3 py-2">
-                        <input
-                          type="date"
-                          value={o.supplierETA || ''}
-                          onChange={(e) => updateOrderStatus(o.id, o.status, e.target.value)}
-                          className="px-1.5 py-0.5 border border-slate-300 rounded text-[11px]"
-                        />
-                      </td>
-                      <td className="px-3 py-2">
-                        <input
-                          type="text"
-                          placeholder="Ghi chú đơn hàng..."
-                          value={o.notes || ''}
-                          onChange={(e) => updateOrderStatus(o.id, o.status, e.target.value)}
-                          className="w-full px-1.5 py-0.5 border border-slate-300 rounded text-[11px]"
-                        />
-                      </td>
-                      <td className="px-3 py-2 text-center">
-                        <select
-                          value={o.status}
-                          onChange={(e) => updateOrderStatus(o.id, e.target.value as any)}
-                          className="px-2 py-0.5 text-[10px] font-bold border border-slate-300 rounded bg-white"
-                        >
-                          <option value="pending_order">Chờ Đặt Hàng</option>
-                          <option value="ordered">Đã Gửi PO</option>
-                          <option value="arrived_in_stock">Đã Về Kho</option>
-                          <option value="cancelled">Đã Hủy</option>
-                        </select>
-                      </td>
-                    </tr>
-                  ))
+                        </td>
+                        <td className="px-3 py-2 text-center font-bold text-emerald-700 bg-emerald-50/20">
+                          {o.receivedQuantity || 0}
+                        </td>
+                        <td className="px-3 py-2 text-center font-bold text-amber-700 bg-amber-50/20">
+                          {shortage}
+                        </td>
+                        <td className="px-3 py-2">
+                          <div className="font-semibold text-blue-700">{o.contractNumber}</div>
+                          <div className="text-[10px] text-slate-500">{getCustomerDisplayName(o.customerId, o.customerName)}</div>
+                        </td>
+                        <td className="px-3 py-2">
+                          <input
+                            type="date"
+                            value={o.supplierETA || ''}
+                            onChange={(e) => updateOrderStatus(o.id, o.status, e.target.value)}
+                            className="px-1.5 py-0.5 border border-slate-300 rounded text-[11px]"
+                          />
+                        </td>
+                        <td className="px-3 py-2">
+                          <input
+                            type="text"
+                            placeholder="Ghi chú đơn hàng..."
+                            value={o.notes || ''}
+                            onChange={(e) => updateOrderStatus(o.id, o.status, e.target.value)}
+                            className="w-full px-1.5 py-0.5 border border-slate-300 rounded text-[11px]"
+                          />
+                        </td>
+                        <td className="px-3 py-2 text-center">
+                          <select
+                            value={o.status}
+                            onChange={(e) => updateOrderStatus(o.id, e.target.value as any)}
+                            className="px-2 py-0.5 text-[10px] font-bold border border-slate-300 rounded bg-white"
+                          >
+                            <option value="pending">Chờ Kho Đáp Ứng</option>
+                            <option value="ordered">Đã Đặt NCC</option>
+                            <option value="in_transit">Đang Vận Chuyển</option>
+                            <option value="partial">Về 1 Phần</option>
+                            <option value="ready_to_deliver">Đã Đủ Hàng</option>
+                            <option value="cancelled">Đã Hủy</option>
+                          </select>
+                        </td>
+                      </tr>
+                    );
+                  })
                 )}
               </tbody>
             </table>
