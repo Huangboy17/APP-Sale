@@ -1,19 +1,26 @@
 /**
- * IndexedDB & Safe LocalStorage Persistence Layer
- * Handles large datasets (9,380+ records) without exceeding localStorage 5MB quota or throwing QuotaExceededError.
+ * Dedicated IndexedDB Persistence Layer for Large Datasets (Products & Inventory)
+ * Guarantees ZERO localStorage usage for Products & Inventory to completely prevent QuotaExceededError.
  */
+
+import { ProductPriceItem, InventoryItem } from '../types';
 
 const DB_NAME = 'SalesFlow_LocalDB';
 const DB_VERSION = 1;
-const STORES = {
+export const IDB_STORES = {
   PRODUCTS: 'products_store',
   INVENTORY: 'inventory_store',
+} as const;
+
+const IDB_KEYS = {
+  PRODUCTS: 'master_products_data',
+  INVENTORY: 'master_inventory_data',
 };
 
 // Open or initialize IndexedDB connection
 function openDB(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
-    if (!window.indexedDB) {
+    if (typeof window === 'undefined' || !window.indexedDB) {
       reject(new Error('IndexedDB not supported in this browser environment'));
       return;
     }
@@ -21,11 +28,11 @@ function openDB(): Promise<IDBDatabase> {
 
     request.onupgradeneeded = (event) => {
       const db = (event.target as IDBOpenDBRequest).result;
-      if (!db.objectStoreNames.contains(STORES.PRODUCTS)) {
-        db.createObjectStore(STORES.PRODUCTS);
+      if (!db.objectStoreNames.contains(IDB_STORES.PRODUCTS)) {
+        db.createObjectStore(IDB_STORES.PRODUCTS);
       }
-      if (!db.objectStoreNames.contains(STORES.INVENTORY)) {
-        db.createObjectStore(STORES.INVENTORY);
+      if (!db.objectStoreNames.contains(IDB_STORES.INVENTORY)) {
+        db.createObjectStore(IDB_STORES.INVENTORY);
       }
     };
 
@@ -35,7 +42,7 @@ function openDB(): Promise<IDBDatabase> {
 }
 
 /**
- * Save data to IndexedDB
+ * Save data directly to IndexedDB (No localStorage quota limits)
  */
 export async function saveToIDB<T>(storeName: string, key: string, data: T): Promise<void> {
   try {
@@ -53,7 +60,7 @@ export async function saveToIDB<T>(storeName: string, key: string, data: T): Pro
 }
 
 /**
- * Load data from IndexedDB
+ * Load data directly from IndexedDB
  */
 export async function loadFromIDB<T>(storeName: string, key: string): Promise<T | null> {
   try {
@@ -72,30 +79,97 @@ export async function loadFromIDB<T>(storeName: string, key: string): Promise<T 
 }
 
 /**
- * Safe LocalStorage setter that gracefully handles QuotaExceededError
- * and seamlessly mirrors to IndexedDB for large dataset persistence.
+ * Dedicated Product Persistence (IndexedDB ONLY - Zero localStorage)
  */
-export function safeSetLocalStorage<T>(storageKey: string, data: T, idbStoreName?: string): void {
-  const jsonStr = JSON.stringify(data);
-  try {
-    localStorage.setItem(storageKey, jsonStr);
-    console.log(`[PRICE_IMPORT] LOCAL_SAVED ${storageKey} (${(jsonStr.length / 1024).toFixed(1)} KB)`);
-  } catch (err: any) {
-    if (err.name === 'QuotaExceededError' || err.code === 22 || err.number === -2147024882) {
-      console.warn(`[LocalDB] LocalStorage quota exceeded (${(jsonStr.length / 1024 / 1024).toFixed(2)} MB). Preserving via IndexedDB fallback.`);
-    } else {
-      console.error(`[LocalDB] LocalStorage save error for ${storageKey}:`, err);
-    }
-  }
+export async function saveProductsToIndexedDB(products: ProductPriceItem[]): Promise<void> {
+  console.log(`[PRICE_IMPORT] LOCAL_SAVED (IndexedDB: ${products.length} products)`);
+  await saveToIDB(IDB_STORES.PRODUCTS, IDB_KEYS.PRODUCTS, products);
+}
 
-  // Always mirror to IndexedDB for robust large dataset persistence across browser restarts/reloads
-  if (idbStoreName) {
-    saveToIDB(idbStoreName, storageKey, data).catch(() => {});
+export async function loadProductsFromIndexedDB(): Promise<ProductPriceItem[] | null> {
+  return loadFromIDB<ProductPriceItem[]>(IDB_STORES.PRODUCTS, IDB_KEYS.PRODUCTS);
+}
+
+/**
+ * Dedicated Inventory Persistence (IndexedDB ONLY - Zero localStorage)
+ */
+export async function saveInventoryToIndexedDB(inventory: InventoryItem[]): Promise<void> {
+  console.log(`[INVENTORY_IMPORT] LOCAL_SAVED (IndexedDB: ${inventory.length} items)`);
+  await saveToIDB(IDB_STORES.INVENTORY, IDB_KEYS.INVENTORY, inventory);
+}
+
+export async function loadInventoryFromIndexedDB(): Promise<InventoryItem[] | null> {
+  return loadFromIDB<InventoryItem[]>(IDB_STORES.INVENTORY, IDB_KEYS.INVENTORY);
+}
+
+/**
+ * Migrate and clean up any legacy product/inventory data from localStorage
+ * to free up browser storage quota immediately.
+ */
+export async function migrateAndCleanupLegacyStorage(): Promise<void> {
+  try {
+    // 1. Migrate Products
+    const legacyProds = localStorage.getItem('salesflow_products_v1');
+    if (legacyProds) {
+      try {
+        const parsed = JSON.parse(legacyProds);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          const existingIDB = await loadProductsFromIndexedDB();
+          if (!existingIDB || existingIDB.length < parsed.length) {
+            await saveProductsToIndexedDB(parsed);
+          }
+        }
+      } catch {}
+      localStorage.removeItem('salesflow_products_v1');
+      console.log('[LocalDB Migration] Cleared legacy salesflow_products_v1 from localStorage');
+    }
+
+    // 2. Migrate Inventory
+    const legacyInv = localStorage.getItem('salesflow_inventory_v1');
+    if (legacyInv) {
+      try {
+        const parsed = JSON.parse(legacyInv);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          const existingIDB = await loadInventoryFromIndexedDB();
+          if (!existingIDB || existingIDB.length < parsed.length) {
+            await saveInventoryToIndexedDB(parsed);
+          }
+        }
+      } catch {}
+      localStorage.removeItem('salesflow_inventory_v1');
+      console.log('[LocalDB Migration] Cleared legacy salesflow_inventory_v1 from localStorage');
+    }
+  } catch (err) {
+    console.warn('[LocalDB Migration] Warning during legacy cleanup:', err);
   }
 }
 
 /**
- * Safe LocalStorage getter with IndexedDB fallback for large datasets
+ * Safe LocalStorage setter strictly for SMALL datasets (Users, Auth, Quotes, Contracts, Company).
+ * Explicitly rejects storing full Products or Inventory to avoid quota exhaustion.
+ */
+export function safeSetLocalStorage<T>(storageKey: string, data: T): void {
+  // Guard against accidental product or inventory serialization
+  if (storageKey === 'salesflow_products_v1' || storageKey === 'salesflow_inventory_v1') {
+    console.warn(`[LocalDB] Blocked localStorage.setItem for large dataset key: ${storageKey}. Routing to IndexedDB.`);
+    if (storageKey === 'salesflow_products_v1') {
+      saveProductsToIndexedDB(data as any);
+    } else {
+      saveInventoryToIndexedDB(data as any);
+    }
+    return;
+  }
+
+  try {
+    const jsonStr = JSON.stringify(data);
+    localStorage.setItem(storageKey, jsonStr);
+  } catch (err: any) {
+    console.warn(`[LocalDB] Safe localStorage write warning for ${storageKey}:`, err?.message || err);
+  }
+}
+
+/**
+ * Safe LocalStorage getter for small datasets
  */
 export function safeGetLocalStorage<T>(storageKey: string, defaultValue: T): T {
   try {
@@ -108,5 +182,3 @@ export function safeGetLocalStorage<T>(storageKey: string, defaultValue: T): T {
   }
   return defaultValue;
 }
-
-export { STORES as IDB_STORES };

@@ -26,7 +26,15 @@ import {
   isUserPending,
   isUserBlocked,
 } from '../types';
-import { safeSetLocalStorage, safeGetLocalStorage, loadFromIDB, IDB_STORES } from '../utils/localDB';
+import {
+  saveProductsToIndexedDB,
+  loadProductsFromIndexedDB,
+  saveInventoryToIndexedDB,
+  loadInventoryFromIndexedDB,
+  migrateAndCleanupLegacyStorage,
+  safeSetLocalStorage,
+  safeGetLocalStorage,
+} from '../utils/localDB';
 import { normalizeProductPriceItem } from '../utils/priceImportEngine';
 import {
   INITIAL_USERS,
@@ -334,41 +342,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return saved ? JSON.parse(saved) : INITIAL_CUSTOMERS;
   });
 
-  const [products, setProducts] = useState<ProductPriceItem[]>(() => {
-    try {
-      const saved = safeGetLocalStorage<ProductPriceItem[]>(STORAGE_KEYS.PRODUCTS, INITIAL_PRODUCTS);
-      if (Array.isArray(saved) && saved.length > 0) {
-        return saved.map((p) => normalizeProductPriceItem(p));
-      }
-      return INITIAL_PRODUCTS;
-    } catch (err) {
-      console.warn('[AppContext] Failed to initialize products from storage:', err);
-      return INITIAL_PRODUCTS;
-    }
-  });
+  const [products, setProducts] = useState<ProductPriceItem[]>(INITIAL_PRODUCTS);
 
-  const [inventory, setInventory] = useState<InventoryItem[]>(() => {
-    try {
-      const saved = safeGetLocalStorage<InventoryItem[]>(STORAGE_KEYS.INVENTORY, INITIAL_INVENTORY);
-      if (Array.isArray(saved) && saved.length > 0) {
-        return saved.map((i) => ({
-          ...i,
-          sku: (i.sku || '').trim().toUpperCase(),
-          name: (i.name || '').trim() || `Sản phẩm ${i.sku || 'N/A'}`,
-          unit: (i.unit || 'Bộ').trim(),
-          totalQuantity: typeof i.totalQuantity === 'number' && !isNaN(i.totalQuantity) ? i.totalQuantity : 0,
-          reservedQuantity: typeof i.reservedQuantity === 'number' && !isNaN(i.reservedQuantity) ? i.reservedQuantity : 0,
-          availableQuantity: typeof i.availableQuantity === 'number' && !isNaN(i.availableQuantity) ? i.availableQuantity : 0,
-          warehouseLocation: (i.warehouseLocation || 'Kho Tổng').trim(),
-          updatedAt: i.updatedAt || new Date().toISOString().split('T')[0],
-        }));
-      }
-      return INITIAL_INVENTORY;
-    } catch (err) {
-      console.warn('[AppContext] Failed to initialize inventory from storage:', err);
-      return INITIAL_INVENTORY;
-    }
-  });
+  const [inventory, setInventory] = useState<InventoryItem[]>(INITIAL_INVENTORY);
 
   const [quotations, setQuotations] = useState<Quotation[]>(() => {
     const saved = localStorage.getItem(STORAGE_KEYS.QUOTATIONS);
@@ -390,36 +366,40 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return saved ? JSON.parse(saved) : INITIAL_ORDER_ITEMS;
   });
 
-  // Async hydration fallback from IndexedDB for large datasets (9,380+ records)
+  // Hydrate large datasets (Products & Inventory) from IndexedDB and cleanup any legacy localStorage bloat
   useEffect(() => {
-    loadFromIDB<ProductPriceItem[]>(IDB_STORES.PRODUCTS, STORAGE_KEYS.PRODUCTS)
-      .then((idbProds) => {
-        if (idbProds && Array.isArray(idbProds) && idbProds.length > 0) {
-          const normalizedProds = idbProds.map((p) => normalizeProductPriceItem(p));
-          setProducts((prev) => {
-            if (prev.length < normalizedProds.length) {
-              console.log(`[LocalDB] Hydrated ${normalizedProds.length} products from IndexedDB fallback`);
-              return normalizedProds;
-            }
-            return prev;
-          });
-        }
-      })
-      .catch((err) => console.warn('[LocalDB] Products hydration error:', err));
+    migrateAndCleanupLegacyStorage().finally(() => {
+      // 1. Load Products from IndexedDB
+      loadProductsFromIndexedDB()
+        .then((cachedProds) => {
+          if (cachedProds && Array.isArray(cachedProds) && cachedProds.length > 0) {
+            const normalizedProds = cachedProds.map((p) => normalizeProductPriceItem(p));
+            setProducts((prev) => {
+              if (prev.length <= INITIAL_PRODUCTS.length || prev.length < normalizedProds.length) {
+                console.log(`[LocalDB] Hydrated ${normalizedProds.length} products from IndexedDB`);
+                return normalizedProds;
+              }
+              return prev;
+            });
+          }
+        })
+        .catch((err) => console.warn('[LocalDB] Products hydration error:', err));
 
-    loadFromIDB<InventoryItem[]>(IDB_STORES.INVENTORY, STORAGE_KEYS.INVENTORY)
-      .then((idbInv) => {
-        if (idbInv && Array.isArray(idbInv) && idbInv.length > 0) {
-          setInventory((prev) => {
-            if (prev.length < idbInv.length) {
-              console.log(`[LocalDB] Hydrated ${idbInv.length} inventory items from IndexedDB fallback`);
-              return idbInv;
-            }
-            return prev;
-          });
-        }
-      })
-      .catch((err) => console.warn('[LocalDB] Inventory hydration error:', err));
+      // 2. Load Inventory from IndexedDB
+      loadInventoryFromIndexedDB()
+        .then((cachedInv) => {
+          if (cachedInv && Array.isArray(cachedInv) && cachedInv.length > 0) {
+            setInventory((prev) => {
+              if (prev.length <= INITIAL_INVENTORY.length || prev.length < cachedInv.length) {
+                console.log(`[LocalDB] Hydrated ${cachedInv.length} inventory items from IndexedDB`);
+                return cachedInv;
+              }
+              return prev;
+            });
+          }
+        })
+        .catch((err) => console.warn('[LocalDB] Inventory hydration error:', err));
+    });
   }, []);
 
   // Master Company Information (Synced to all C1 & C2 users)
@@ -596,8 +576,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               });
 
               const mergedResult = Array.from(map.values());
-              // Update local persistence safely (localStorage + IndexedDB fallback)
-              safeSetLocalStorage(STORAGE_KEYS.PRODUCTS, mergedResult, IDB_STORES.PRODUCTS);
+              // Update local persistence via IndexedDB (Zero localStorage usage)
+              saveProductsToIndexedDB(mergedResult);
               return mergedResult;
             });
             setCloudSyncStatus((prev) => (prev === 'quota-exceeded' ? 'quota-exceeded' : 'connected'));
@@ -644,7 +624,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                 const key = `${i.organizationId || i.companyId || 'global'}_${(i.sku || '').trim().toUpperCase()}`;
                 map.set(key, i);
               });
-              return Array.from(map.values());
+              const mergedResult = Array.from(map.values());
+              saveInventoryToIndexedDB(mergedResult);
+              return mergedResult;
             });
             setCloudSyncStatus((prev) => (prev === 'quota-exceeded' ? 'quota-exceeded' : 'connected'));
             setLastCloudSyncTime(new Date());
@@ -793,11 +775,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, [customers]);
 
   useEffect(() => {
-    safeSetLocalStorage(STORAGE_KEYS.PRODUCTS, products, IDB_STORES.PRODUCTS);
+    saveProductsToIndexedDB(products);
   }, [products]);
 
   useEffect(() => {
-    safeSetLocalStorage(STORAGE_KEYS.INVENTORY, inventory, IDB_STORES.INVENTORY);
+    saveInventoryToIndexedDB(inventory);
   }, [inventory]);
 
   useEffect(() => {
@@ -1572,8 +1554,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       
       console.log('[PRICE_IMPORT] STORE_UPDATED full products count:', fullList.length);
 
-      // Safe local persistence (LocalStorage + IndexedDB fallback)
-      safeSetLocalStorage(STORAGE_KEYS.PRODUCTS, fullList, IDB_STORES.PRODUCTS);
+      // Save to IndexedDB (Zero localStorage usage)
+      saveProductsToIndexedDB(fullList);
 
       return fullList;
     });
@@ -1628,7 +1610,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
 
       const fullInvList = [...otherOrgInventory, ...Array.from(myInvMap.values())];
-      safeSetLocalStorage(STORAGE_KEYS.INVENTORY, fullInvList, IDB_STORES.INVENTORY);
+      saveInventoryToIndexedDB(fullInvList);
       return fullInvList;
     });
 
@@ -1925,7 +1907,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       const updatedCompanyInv = Array.from(myMap.values());
       const fullList = [...otherOrgInventory, ...updatedCompanyInv];
-      localStorage.setItem(STORAGE_KEYS.INVENTORY, JSON.stringify(fullList));
+      saveInventoryToIndexedDB(fullList);
       return fullList;
     });
 
@@ -2634,7 +2616,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setUsers([superAdmin]);
     setCurrentUser(superAdmin);
 
-    // 2. Clear localStorage
+    // 2. Clear IndexedDB & localStorage
+    saveProductsToIndexedDB([]);
+    saveInventoryToIndexedDB([]);
     localStorage.removeItem(STORAGE_KEYS.CUSTOMERS);
     localStorage.removeItem(STORAGE_KEYS.PRODUCTS);
     localStorage.removeItem(STORAGE_KEYS.INVENTORY);
@@ -2667,11 +2651,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (options.clearProducts) {
       if (currentUser.role === 'super_admin') {
         setProducts([]);
+        saveProductsToIndexedDB([]);
         localStorage.removeItem(STORAGE_KEYS.PRODUCTS);
         await clearCollectionFromCloud(COLLECTIONS.PRODUCTS);
       } else {
         const myCompanyId = companyScope.companyId;
-        setProducts((prev) => prev.filter((p) => p.companyId !== myCompanyId && p.createdBy !== currentUser.id));
+        setProducts((prev) => {
+          const remaining = prev.filter((p) => p.companyId !== myCompanyId && p.createdBy !== currentUser.id);
+          saveProductsToIndexedDB(remaining);
+          return remaining;
+        });
         await clearCompanyProductsFromCloud(myCompanyId);
       }
     }
@@ -2679,11 +2668,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (options.clearInventory) {
       if (currentUser.role === 'super_admin') {
         setInventory([]);
+        saveInventoryToIndexedDB([]);
         localStorage.removeItem(STORAGE_KEYS.INVENTORY);
         await clearCollectionFromCloud(COLLECTIONS.INVENTORY);
       } else {
         const myCompanyId = companyScope.companyId;
-        setInventory((prev) => prev.filter((i) => i.companyId !== myCompanyId && i.createdBy !== currentUser.id));
+        setInventory((prev) => {
+          const remaining = prev.filter((i) => i.companyId !== myCompanyId && i.createdBy !== currentUser.id);
+          saveInventoryToIndexedDB(remaining);
+          return remaining;
+        });
         await clearCompanyInventoryFromCloud(myCompanyId);
       }
     }
@@ -2720,6 +2714,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const resetDataToDefault = async () => {
     localStorage.clear();
+    await saveProductsToIndexedDB(INITIAL_PRODUCTS);
+    await saveInventoryToIndexedDB(INITIAL_INVENTORY);
     setUsers(INITIAL_USERS);
     setCurrentUser(INITIAL_USERS[0]);
     setCustomers(INITIAL_CUSTOMERS);
