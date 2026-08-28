@@ -53,6 +53,7 @@ export const ContractOrdersWarehouseTable: React.FC<ContractOrdersWarehouseTable
     updateOrderItem,
     updateOrderWarehouseStatus,
     cancelOrderItem,
+    currentUser,
   } = useApp();
 
   const [searchTerm, setSearchTerm] = useState('');

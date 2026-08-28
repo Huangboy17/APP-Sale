@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { OrderItem, Contract, Customer } from '../../types';
+import { OrderItem, Contract, Customer, OrderItemStatus } from '../../types';
 import { formatDate } from '../../utils/formatters';
 import {
   X,
@@ -34,9 +34,7 @@ export const EditOrderItemModal: React.FC<EditOrderItemModalProps> = ({
   onClose,
   onSave,
 }) => {
-  const [status, setStatus] = useState<'pending_order' | 'ordered' | 'arrived_in_stock' | 'cancelled'>(
-    'pending_order'
-  );
+  const [status, setStatus] = useState<OrderItemStatus>('pending');
   const [orderQuantity, setOrderQuantity] = useState<number>(0);
   const [supplierETA, setSupplierETA] = useState<string>('');
   const [brand, setBrand] = useState<string>('');
@@ -149,13 +147,13 @@ export const EditOrderItemModal: React.FC<EditOrderItemModalProps> = ({
               Trạng Thái Tiến Độ Đặt Hàng <span className="text-rose-500">*</span>
             </label>
 
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-              {/* Option 1: pending_order */}
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+              {/* Option 1: pending / pending_order */}
               <button
                 type="button"
-                onClick={() => setStatus('pending_order')}
-                className={`p-2.5 rounded-xl border text-left transition flex flex-col justify-between cursor-pointer ${
-                  status === 'pending_order'
+                onClick={() => setStatus('pending')}
+                className={`p-2 rounded-xl border text-left transition flex flex-col justify-between cursor-pointer ${
+                  status === 'pending' || status === 'pending_order'
                     ? 'border-amber-500 bg-amber-50/80 ring-2 ring-amber-400'
                     : 'border-slate-200 bg-white hover:bg-slate-50'
                 }`}
@@ -171,7 +169,7 @@ export const EditOrderItemModal: React.FC<EditOrderItemModalProps> = ({
               <button
                 type="button"
                 onClick={() => setStatus('ordered')}
-                className={`p-2.5 rounded-xl border text-left transition flex flex-col justify-between cursor-pointer ${
+                className={`p-2 rounded-xl border text-left transition flex flex-col justify-between cursor-pointer ${
                   status === 'ordered'
                     ? 'border-blue-500 bg-blue-50/80 ring-2 ring-blue-400'
                     : 'border-slate-200 bg-white hover:bg-slate-50'
@@ -184,12 +182,29 @@ export const EditOrderItemModal: React.FC<EditOrderItemModalProps> = ({
                 <p className="text-[9px] text-slate-500 mt-1">Đang chờ NCC giao</p>
               </button>
 
-              {/* Option 3: arrived_in_stock */}
+              {/* Option 3: in_transit */}
               <button
                 type="button"
-                onClick={() => setStatus('arrived_in_stock')}
-                className={`p-2.5 rounded-xl border text-left transition flex flex-col justify-between cursor-pointer ${
-                  status === 'arrived_in_stock'
+                onClick={() => setStatus('in_transit')}
+                className={`p-2 rounded-xl border text-left transition flex flex-col justify-between cursor-pointer ${
+                  status === 'in_transit'
+                    ? 'border-purple-500 bg-purple-50/80 ring-2 ring-purple-400'
+                    : 'border-slate-200 bg-white hover:bg-slate-50'
+                }`}
+              >
+                <div className="flex items-center space-x-1 text-purple-800 font-bold text-[11px]">
+                  <Truck className="w-3 h-3" />
+                  <span>Đang Vận Chuyển</span>
+                </div>
+                <p className="text-[9px] text-slate-500 mt-1">Hàng đang trên đường</p>
+              </button>
+
+              {/* Option 4: ready_to_deliver / arrived_in_stock */}
+              <button
+                type="button"
+                onClick={() => setStatus('ready_to_deliver')}
+                className={`p-2 rounded-xl border text-left transition flex flex-col justify-between cursor-pointer ${
+                  status === 'ready_to_deliver' || status === 'arrived_in_stock' || status === 'received'
                     ? 'border-emerald-500 bg-emerald-50/80 ring-2 ring-emerald-400'
                     : 'border-slate-200 bg-white hover:bg-slate-50'
                 }`}
@@ -201,11 +216,11 @@ export const EditOrderItemModal: React.FC<EditOrderItemModalProps> = ({
                 <p className="text-[9px] text-slate-500 mt-1">Đã nhập & khóa giữ</p>
               </button>
 
-              {/* Option 4: cancelled */}
+              {/* Option 5: cancelled */}
               <button
                 type="button"
                 onClick={() => setStatus('cancelled')}
-                className={`p-2.5 rounded-xl border text-left transition flex flex-col justify-between cursor-pointer ${
+                className={`p-2 rounded-xl border text-left transition flex flex-col justify-between cursor-pointer ${
                   status === 'cancelled'
                     ? 'border-rose-500 bg-rose-50/80 ring-2 ring-rose-400'
                     : 'border-slate-200 bg-white hover:bg-slate-50'

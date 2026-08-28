@@ -1,4 +1,4 @@
-﻿import React from 'react';
+import React from 'react';
 import { useApp } from '../../context/AppContext';
 import { OrderItem } from '../../types';
 import { formatDate } from '../../utils/formatters';
@@ -30,12 +30,13 @@ export const ItemOrderRequirementsModal: React.FC<ItemOrderRequirementsModalProp
   brand,
   onClose,
 }) => {
-  const { filteredOrderItems, contracts, customers } = useApp();
+  const { filteredOrderItems, orderItems, contracts, customers } = useApp();
 
   if (!sku) return null;
 
   const targetSku = sku.trim().toUpperCase();
-  const matchedOrders = filteredOrderItems.filter(
+  const sourceOrders = filteredOrderItems && filteredOrderItems.length > 0 ? filteredOrderItems : orderItems;
+  const matchedOrders = (sourceOrders || []).filter(
     (o) => (o.sku || '').trim().toUpperCase() === targetSku
   );
 

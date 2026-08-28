@@ -1,4 +1,4 @@
-﻿import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { PurchaseOrder } from '../../types';
 import { useApp } from '../../context/AppContext';
 import { formatDate } from '../../utils/formatters';
@@ -35,19 +35,33 @@ export const ReceivePOInboundModal: React.FC<ReceivePOInboundModalProps> = ({
 
   const [voucherNumber, setVoucherNumber] = useState(defaultVoucherNo);
   const [inboundDate, setInboundDate] = useState(today);
-  const [warehouseLocation, setWarehouseLocation] = useState(po.warehouseLocation || 'Kho Tổng TP.HCM');
-  const [notes, setNotes] = useState(`Nhập kho từ đơn đặt NCC ${po.poNumber}`);
+  const [warehouseLocation, setWarehouseLocation] = useState(po?.warehouseLocation || 'Kho Tổng TP.HCM');
+  const [notes, setNotes] = useState(`Nhập kho từ đơn đặt NCC ${po?.poNumber || ''}`);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   // Inbound quantities for each PO item: { [itemId]: number }
   const [actualQuantities, setActualQuantities] = useState<Record<string, number>>(() => {
     const init: Record<string, number> = {};
-    (po.items || []).forEach((item) => {
+    (po?.items || []).forEach((item) => {
       init[item.id] = Math.max(0, item.remainingQuantity);
     });
     return init;
   });
+
+  useEffect(() => {
+    if (isOpen && po) {
+      const init: Record<string, number> = {};
+      (po.items || []).forEach((item) => {
+        init[item.id] = Math.max(0, item.remainingQuantity);
+      });
+      setActualQuantities(init);
+      setWarehouseLocation(po.warehouseLocation || 'Kho Tổng TP.HCM');
+      setNotes(`Nhập kho từ đơn đặt NCC ${po.poNumber}`);
+      setErrorMessage(null);
+      setVoucherNumber(`PNK-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${String(Date.now()).slice(-4)}`);
+    }
+  }, [isOpen, po]);
 
   const handleQtyChange = (itemId: string, maxRemaining: number, val: string) => {
     const parsed = parseInt(val, 10);
