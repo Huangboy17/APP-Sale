@@ -168,7 +168,7 @@ export const ProductImportModal: React.FC<ProductImportModalProps> = ({ isOpen, 
             <div>
               <h3 className="font-bold text-sm">Import Dữ Liệu Giá (Excel / JSON Engine)</h3>
               <p className="text-[11px] text-slate-400">
-                Quy trình chuẩn hóa: File $\rightarrow$ Parse Record $\rightarrow$ Validate $\rightarrow$ Database (Auto-stamp Organization)
+                Quy trình chuẩn hóa: File → Parse Record → Validate → Database (Auto-stamp Organization)
               </p>
             </div>
           </div>

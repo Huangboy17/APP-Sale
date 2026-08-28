@@ -1,4 +1,4 @@
-﻿import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   Contract,
   Customer,
@@ -281,7 +281,7 @@ export const CreateStockOutVoucherModal: React.FC<CreateStockOutVoucherModalProp
                 <span>1. Thông Tin Nguồn Xuất Kho</span>
               </span>
               <span className="text-[11px] text-slate-500 italic">
-                Chọn Khách hàng $\rightarrow$ Hợp đồng để hệ thống tự nạp danh mục hàng
+                Chọn Khách hàng → Hợp đồng để hệ thống tự nạp danh mục hàng
               </span>
             </div>
 

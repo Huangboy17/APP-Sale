@@ -977,30 +977,30 @@ export const CustomerDetailModal: React.FC<CustomerDetailModalProps> = ({
                     <span>Chi Tiết Hàng Hóa & Tiến Độ Logistics Toàn Diện (Customer 360)</span>
                   </h3>
                   <p className="text-xs text-slate-500 mt-0.5">
-                    Trích xuất trực tiếp từ Hợp đồng ký kết & chuỗi cung ứng Kho thực tế (Giữ hàng $\rightarrow$ PO $\rightarrow$ Nhập kho $\rightarrow$ Xuất giao).
+                    Trích xuất trực tiếp từ Hợp đồng ký kết & chuỗi cung ứng Kho thực tế (Giữ hàng → PO → Nhập kho → Xuất giao).
                   </p>
                 </div>
               </div>
 
               <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-2xs">
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left text-xs">
+                <div className="overflow-x-auto w-full">
+                  <table className="w-full min-w-[1250px] text-left text-xs">
                     <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-bold uppercase tracking-wider text-[10px]">
                       <tr>
-                        <th className="p-3 w-10 text-center">STT</th>
-                        <th className="p-3">Mã Hàng (SKU)</th>
-                        <th className="p-3">Tên Sản Phẩm</th>
-                        <th className="p-3">Hãng</th>
-                        <th className="p-3 text-center">ĐVT</th>
-                        <th className="p-3 text-center bg-blue-50/40 border-x border-blue-100">SL HĐ</th>
-                        <th className="p-3 text-right">Đơn Giá</th>
-                        <th className="p-3 text-right">Thành Tiền</th>
-                        <th className="p-3 text-center bg-slate-100">Tình Trạng Hàng</th>
-                        <th className="p-3 text-center bg-orange-50/40">Đã Về Kho</th>
-                        <th className="p-3 text-center bg-emerald-50/40">Đã Giao</th>
-                        <th className="p-3 text-center">ETA Dự Kiến</th>
-                        <th className="p-3 text-center">Ngày Về Thực Tế</th>
-                        <th className="p-3 text-center">Ngày Giao</th>
+                        <th className="p-3 w-10 text-center whitespace-nowrap">STT</th>
+                        <th className="p-3 min-w-[130px] whitespace-nowrap">Mã Hàng (SKU)</th>
+                        <th className="p-3 min-w-[250px] whitespace-nowrap">Tên Sản Phẩm</th>
+                        <th className="p-3 min-w-[90px] whitespace-nowrap">Hãng</th>
+                        <th className="p-3 text-center w-14 whitespace-nowrap">ĐVT</th>
+                        <th className="p-3 text-center bg-blue-50/40 border-x border-blue-100 min-w-[70px] whitespace-nowrap">SL HĐ</th>
+                        <th className="p-3 text-right min-w-[100px] whitespace-nowrap">Đơn Giá</th>
+                        <th className="p-3 text-right min-w-[110px] whitespace-nowrap">Thành Tiền</th>
+                        <th className="p-3 text-center bg-slate-100 min-w-[160px] whitespace-nowrap">Tình Trạng Hàng</th>
+                        <th className="p-3 text-center bg-orange-50/40 min-w-[90px] whitespace-nowrap">Đã Về Kho</th>
+                        <th className="p-3 text-center bg-emerald-50/40 min-w-[90px] whitespace-nowrap">Đã Giao</th>
+                        <th className="p-3 text-center min-w-[100px] whitespace-nowrap">ETA Dự Kiến</th>
+                        <th className="p-3 text-center min-w-[115px] whitespace-nowrap">Ngày Về Thực Tế</th>
+                        <th className="p-3 text-center min-w-[115px] whitespace-nowrap">Ngày Giao</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 text-slate-700">
@@ -1016,21 +1016,24 @@ export const CustomerDetailModal: React.FC<CustomerDetailModalProps> = ({
                           const log = item.logistics;
                           return (
                             <tr key={item.id} className="hover:bg-slate-50/80 transition">
-                              <td className="p-3 text-center text-slate-400 font-mono">{idx + 1}</td>
-                              <td className="p-3 font-mono font-bold text-blue-700">{item.sku}</td>
-                              <td className="p-3 font-bold text-slate-900 max-w-[200px] truncate" title={item.productName}>
+                              <td className="p-3 text-center text-slate-400 font-mono whitespace-nowrap">{idx + 1}</td>
+                              <td className="p-3 font-mono font-bold text-blue-700 whitespace-nowrap">{item.sku}</td>
+                              <td
+                                className="p-3 font-bold text-slate-900 min-w-[250px] whitespace-normal break-words leading-relaxed"
+                                title={item.productName}
+                              >
                                 {item.productName}
                               </td>
-                              <td className="p-3 text-slate-600 font-semibold">{item.brand}</td>
-                              <td className="p-3 text-center text-slate-600">{item.unit}</td>
-                              <td className="p-3 text-center font-mono font-black text-blue-900 bg-blue-50/20 border-x border-blue-100 text-sm">
+                              <td className="p-3 text-slate-600 font-semibold whitespace-nowrap">{item.brand}</td>
+                              <td className="p-3 text-center text-slate-600 whitespace-nowrap">{item.unit}</td>
+                              <td className="p-3 text-center font-mono font-black text-blue-900 bg-blue-50/20 border-x border-blue-100 text-sm whitespace-nowrap">
                                 {item.contractQuantity.toLocaleString()}
                               </td>
-                              <td className="p-3 text-right font-mono text-slate-800">{formatVND(item.unitPrice)}</td>
-                              <td className="p-3 text-right font-mono font-bold text-slate-900">{formatVND(item.totalPrice)}</td>
+                              <td className="p-3 text-right font-mono text-slate-800 whitespace-nowrap">{formatVND(item.unitPrice)}</td>
+                              <td className="p-3 text-right font-mono font-bold text-slate-900 whitespace-nowrap">{formatVND(item.totalPrice)}</td>
                               
                               {/* Interactive Logistics Badge */}
-                              <td className="p-3 text-center bg-slate-50/40">
+                              <td className="p-3 text-center bg-slate-50/40 whitespace-nowrap">
                                 <button
                                   type="button"
                                   onClick={() => setSelectedItemForTimeline(item)}
@@ -1043,22 +1046,22 @@ export const CustomerDetailModal: React.FC<CustomerDetailModalProps> = ({
                               </td>
 
                               {/* Inbound Qty */}
-                              <td className="p-3 text-center font-mono font-bold text-orange-900 bg-orange-50/20">
-                                {log.receivedQuantity} / {item.contractQuantity}
+                              <td className="p-3 text-center font-mono font-bold text-orange-900 bg-orange-50/20 whitespace-nowrap min-w-[90px]">
+                                {log.receivedQuantity}/{item.contractQuantity}
                               </td>
 
                               {/* Delivered Qty */}
-                              <td className="p-3 text-center font-mono font-black text-emerald-900 bg-emerald-50/20">
-                                {log.deliveredQuantity} / {item.contractQuantity}
+                              <td className="p-3 text-center font-mono font-black text-emerald-900 bg-emerald-50/20 whitespace-nowrap min-w-[90px]">
+                                {log.deliveredQuantity}/{item.contractQuantity}
                               </td>
 
                               {/* ETA */}
-                              <td className="p-3 text-center font-mono text-slate-600">
+                              <td className="p-3 text-center font-mono text-slate-600 whitespace-nowrap min-w-[100px]">
                                 {log.expectedDeliveryDate ? formatDate(log.expectedDeliveryDate) : '—'}
                               </td>
 
                               {/* Actual Received Date */}
-                              <td className="p-3 text-center font-mono text-orange-800">
+                              <td className="p-3 text-center font-mono text-orange-800 whitespace-nowrap min-w-[115px]">
                                 {log.fullyReceivedDate
                                   ? formatDate(log.fullyReceivedDate)
                                   : log.firstReceivedDate
@@ -1067,7 +1070,7 @@ export const CustomerDetailModal: React.FC<CustomerDetailModalProps> = ({
                               </td>
 
                               {/* Actual Delivered Date */}
-                              <td className="p-3 text-center font-mono text-emerald-800 font-bold">
+                              <td className="p-3 text-center font-mono text-emerald-800 font-bold whitespace-nowrap min-w-[115px]">
                                 {log.fullyDeliveredDate
                                   ? formatDate(log.fullyDeliveredDate)
                                   : log.firstDeliveredDate
