@@ -2662,9 +2662,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     // 2. Decrement On Hand for each item in the voucher
     const itemMap = new Map<string, number>();
+    const reserveItemDeductMap = new Map<string, number>();
+    const orderItemDeductMap = new Map<string, number>();
+
     voucher.items.forEach((item) => {
       const cleanSku = item.sku.trim().toUpperCase();
-      itemMap.set(cleanSku, (itemMap.get(cleanSku) || 0) + (item.quantity || 0));
+      const exportQty = Number(item.quantity) || 0;
+      itemMap.set(cleanSku, (itemMap.get(cleanSku) || 0) + exportQty);
+
+      if (item.reserveItemId) {
+        reserveItemDeductMap.set(item.reserveItemId, exportQty);
+      }
+      if (item.orderItemId) {
+        orderItemDeductMap.set(item.orderItemId, exportQty);
+      }
     });
 
     setInventory((prev) => {
@@ -2709,7 +2720,95 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return updated;
     });
 
-    // 3. If linked to a reserveId, update reserve status to dispatched
+    // 3. Update linked ReserveItems (if any)
+    setReserveItems((prev) => {
+      let hasChanges = false;
+      const updated = prev.map((r) => {
+        const directQty = reserveItemDeductMap.get(r.id);
+        const matchVoucherContract = voucher.contractId && r.contractId === voucher.contractId;
+        const voucherLine = voucher.items.find(
+          (it) => it.reserveItemId === r.id || (matchVoucherContract && it.sku.trim().toUpperCase() === r.sku.trim().toUpperCase() && (it.sourceType === 'RESERVE' || it.sourceType === 'HYBRID'))
+        );
+
+        const deductQty = directQty !== undefined ? directQty : voucherLine ? Math.min(r.reservedQuantity, Number(voucherLine.quantity) || 0) : 0;
+
+        if (deductQty > 0) {
+          hasChanges = true;
+          const prevDispatched = r.dispatchedQuantity || 0;
+          const newDispatched = prevDispatched + deductQty;
+          const isFullyDelivered = newDispatched >= r.reservedQuantity;
+          const newStatus: ReserveItemStatus = isFullyDelivered ? 'delivered' : 'shipped';
+
+          const updatedReserve: ReserveItem = {
+            ...r,
+            dispatchedQuantity: newDispatched,
+            status: newStatus,
+            expectedDeliveryDate: isFullyDelivered ? voucher.date : r.expectedDeliveryDate,
+            timeline: [
+              {
+                status: newStatus,
+                statusLabel: isFullyDelivered ? 'Đã giao đủ cho khách' : `Đã xuất giao đợt (${newDispatched}/${r.reservedQuantity})`,
+                timestamp: now.toISOString(),
+                actorId: currentUser.id,
+                actorName: currentUser.name,
+                note: `Xuất kho theo phiếu ${updatedVoucher.voucherNumber}`,
+              },
+              ...(r.timeline || []),
+            ],
+          };
+          syncReserveItemToCloud(updatedReserve);
+          return updatedReserve;
+        }
+        return r;
+      });
+      return hasChanges ? updated : prev;
+    });
+
+    // 4. Update linked OrderItems (if any)
+    setOrderItems((prev) => {
+      let hasChanges = false;
+      const updated = prev.map((o) => {
+        const directQty = orderItemDeductMap.get(o.id);
+        const matchVoucherContract = voucher.contractId && o.contractId === voucher.contractId;
+        const voucherLine = voucher.items.find(
+          (it) => it.orderItemId === o.id || (matchVoucherContract && it.sku.trim().toUpperCase() === o.sku.trim().toUpperCase() && (it.sourceType === 'ORDER' || it.sourceType === 'HYBRID'))
+        );
+
+        const deductQty = directQty !== undefined ? directQty : voucherLine ? Math.min(o.orderQuantity, Number(voucherLine.quantity) || 0) : 0;
+
+        if (deductQty > 0) {
+          hasChanges = true;
+          const prevDispatched = o.dispatchedQuantity || 0;
+          const newDispatched = prevDispatched + deductQty;
+          const targetNeeded = o.receivedQuantity || o.orderQuantity;
+          const isFullyDelivered = newDispatched >= targetNeeded;
+          const newStatus: OrderItemStatus = isFullyDelivered ? 'delivered' : 'partial';
+
+          const updatedOrder: OrderItem = {
+            ...o,
+            dispatchedQuantity: newDispatched,
+            status: newStatus,
+            timeline: [
+              {
+                status: newStatus,
+                statusLabel: isFullyDelivered ? 'Đã giao hàng thành công' : `Đã xuất kho giao đợt (${newDispatched}/${o.orderQuantity})`,
+                timestamp: now.toISOString(),
+                actorId: currentUser.id,
+                actorName: currentUser.name,
+                note: `Xuất kho theo phiếu ${updatedVoucher.voucherNumber}`,
+              },
+              ...(o.timeline || []),
+            ],
+          };
+          syncOrderItemToCloud(updatedOrder);
+          return updatedOrder;
+        }
+        return o;
+      });
+      return hasChanges ? updated : prev;
+    });
+
+    // 5. If linked to an old reserveId, update legacy status
     if (voucher.reserveId) {
       updateReserveStatus(voucher.reserveId, 'dispatched');
     }

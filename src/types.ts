@@ -292,11 +292,23 @@ export interface StockInVoucher {
 // STOCK OUT VOUCHER (PHIẾU XUẤT KHO)
 // =============================================================================
 
+export type StockOutItemSourceType = 'RESERVE' | 'ORDER' | 'HYBRID';
+
 export interface StockOutVoucherItem {
+  id?: string;
   sku: string;
   productName: string;
+  brand?: string;
   unit: string;
-  quantity: number;
+  quantity: number; // Số lượng xuất đợt này
+  reservedQuantity?: number; // Số lượng giữ từ HĐ
+  orderedQuantity?: number; // Số lượng đặt từ HĐ
+  orderReceivedQuantity?: number; // Số lượng đặt đã về kho
+  previouslyDispatchedQuantity?: number; // Số lượng đã xuất trước đó
+  availableToDeliverQuantity?: number; // Số lượng còn có thể xuất
+  sourceType?: StockOutItemSourceType;
+  reserveItemId?: string;
+  orderItemId?: string;
   notes?: string;
 }
 
@@ -304,6 +316,7 @@ export interface StockOutVoucher {
   id: string;
   voucherNumber: string; // PXK-YYYYMMDD-XXXX
   date: string;
+  contractId?: string;
   contractNumber?: string;
   customerName?: string;
   customerId?: string;
@@ -670,6 +683,8 @@ export interface OrderItem {
   orderQuantity: number; // Tổng số lượng cần đặt mua
   receivedQuantity?: number; // Số lượng đã về kho thực tế (hỗ trợ nhập nhiều đợt)
   remainingQuantity?: number; // Số lượng còn thiếu (orderQuantity - receivedQuantity)
+  dispatchedQuantity?: number; // Số lượng đã xuất kho giao khách
+  deliveredQuantity?: number; // Số lượng khách đã nhận
   brand: string;
   size: string;
   color: string;

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+﻿import React, { useState, useMemo } from 'react';
 import {
   Search,
   CheckCircle2,
@@ -6,13 +6,21 @@ import {
   Clock,
   Eye,
   Plus,
-  Trash2,
   PackageCheck,
   Check,
   X,
+  FileText,
+  Calendar,
+  Building,
+  Boxes,
+  Download,
+  Share2,
 } from 'lucide-react';
-import { StockOutVoucher, StockOutVoucherItem } from '../../types';
+import { StockOutVoucher } from '../../types';
 import { useApp } from '../../context/AppContext';
+import { formatDate } from '../../utils/formatters';
+import { CreateStockOutVoucherModal } from './CreateStockOutVoucherModal';
+import * as XLSX from 'xlsx';
 
 interface StockOutWarehouseViewProps {
   initialSku?: string;
@@ -21,11 +29,8 @@ interface StockOutWarehouseViewProps {
 export const StockOutWarehouseView: React.FC<StockOutWarehouseViewProps> = ({ initialSku }) => {
   const {
     stockOutVouchers,
-    createStockOutVoucher,
     confirmStockOutVoucher,
     cancelStockOutVoucher,
-    filteredReserveItems,
-    inventory,
     currentUser,
   } = useApp();
 
@@ -34,160 +39,77 @@ export const StockOutWarehouseView: React.FC<StockOutWarehouseViewProps> = ({ in
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [selectedVoucherForDetail, setSelectedVoucherForDetail] = useState<StockOutVoucher | null>(null);
 
-  // Form State
-  const [selectedReserveId, setSelectedReserveId] = useState<string>('');
-  const [customerName, setCustomerName] = useState('');
-  const [contractNumber, setContractNumber] = useState('');
-  const [warehouseLocation, setWarehouseLocation] = useState('Kho Tổng TP.HCM');
-  const [voucherDate, setVoucherDate] = useState(new Date().toISOString().split('T')[0]);
-  const [notes, setNotes] = useState('');
-  const [voucherItems, setVoucherItems] = useState<StockOutVoucherItem[]>([
-    {
-      sku: initialSku || '',
-      productName: initialSku
-        ? inventory.find((i) => i.sku.toLowerCase() === initialSku.toLowerCase())?.name || ''
-        : '',
-      unit: initialSku
-        ? inventory.find((i) => i.sku.toLowerCase() === initialSku.toLowerCase())?.unit || 'Bộ'
-        : 'Bộ',
-      quantity: 1,
-      notes: '',
-    },
-  ]);
-
-  // Active holding reserves available for quick selection
-  const activeHolds = filteredReserveItems.filter((r) => r.status === 'holding');
-
-  const handleSelectReserve = (resId: string) => {
-    setSelectedReserveId(resId);
-    if (!resId) return;
-
-    const targetRes = activeHolds.find((r) => r.id === resId);
-    if (targetRes) {
-      setCustomerName(targetRes.customerName || '');
-      setContractNumber(targetRes.contractNumber || '');
-      setWarehouseLocation(targetRes.warehouseLocation || 'Kho Tổng TP.HCM');
-      setVoucherItems([
-        {
-          sku: targetRes.sku,
-          productName: targetRes.productName,
-          unit: targetRes.unit || 'Bộ',
-          quantity: targetRes.reservedQuantity,
-          notes: `Xuất kho theo phiếu giữ ${targetRes.id}`,
-        },
-      ]);
-    }
-  };
-
-  const handleAddItemRow = () => {
-    setVoucherItems((prev) => [
-      ...prev,
-      {
-        sku: '',
-        productName: '',
-        unit: 'Bộ',
-        quantity: 1,
-        notes: '',
-      },
-    ]);
-  };
-
-  const handleRemoveItemRow = (index: number) => {
-    setVoucherItems((prev) => prev.filter((_, i) => i !== index));
-  };
-
-  const handleSkuChange = (index: number, newSku: string) => {
-    const found = inventory.find(
-      (inv) => inv.sku.trim().toLowerCase() === newSku.trim().toLowerCase()
-    );
-    setVoucherItems((prev) =>
-      prev.map((item, i) => {
-        if (i === index) {
-          return {
-            ...item,
-            sku: newSku,
-            productName: found ? found.name : item.productName || `Sản phẩm ${newSku}`,
-            unit: found ? found.unit : item.unit || 'Bộ',
-          };
-        }
-        return item;
-      })
-    );
-  };
-
-  const handleItemFieldChange = (
-    index: number,
-    field: keyof StockOutVoucherItem,
-    val: any
-  ) => {
-    setVoucherItems((prev) =>
-      prev.map((item, i) => {
-        if (i === index) {
-          return { ...item, [field]: val };
-        }
-        return item;
-      })
-    );
-  };
-
-  const handleSaveVoucher = async (shouldConfirm: boolean) => {
-    const validItems = voucherItems.filter((it) => it.sku.trim().length > 0 && it.quantity > 0);
-    if (validItems.length === 0) {
-      alert('Vui lòng nhập ít nhất 1 mặt hàng với số lượng xuất > 0!');
-      return;
-    }
-
-    const totalQty = validItems.reduce((s, it) => s + it.quantity, 0);
-
-    const created = createStockOutVoucher({
-      date: voucherDate,
-      customerName: customerName.trim(),
-      contractNumber: contractNumber.trim(),
-      reserveId: selectedReserveId || undefined,
-      warehouseLocation: warehouseLocation.trim(),
-      status: 'DRAFT',
-      items: validItems,
-      totalQuantity: totalQty,
-      createdById: currentUser.id,
-      createdByName: currentUser.name,
-      notes: notes.trim(),
-      organizationId: '',
-    });
-
-    if (shouldConfirm) {
-      await confirmStockOutVoucher(created.id);
-    }
-
-    setIsCreateModalOpen(false);
-    // Reset Form
-    setSelectedReserveId('');
-    setCustomerName('');
-    setContractNumber('');
-    setNotes('');
-    setVoucherItems([
-      {
-        sku: '',
-        productName: '',
-        unit: 'Bộ',
-        quantity: 1,
-        notes: '',
-      },
-    ]);
-  };
+  const canManage = currentUser.role === 'manager_c1' || currentUser.role === 'super_admin' || currentUser.role === 'sales_c2';
 
   // Filter Vouchers
-  const filteredVouchers = stockOutVouchers.filter((v) => {
-    const sTerm = searchTerm.toLowerCase();
-    const matchSearch =
-      v.voucherNumber.toLowerCase().includes(sTerm) ||
-      (v.customerName || '').toLowerCase().includes(sTerm) ||
-      (v.contractNumber || '').toLowerCase().includes(sTerm) ||
-      (v.warehouseLocation || '').toLowerCase().includes(sTerm) ||
-      v.items.some((it) => it.sku.toLowerCase().includes(sTerm) || it.productName.toLowerCase().includes(sTerm));
+  const filteredVouchers = useMemo(() => {
+    return stockOutVouchers.filter((v) => {
+      const sTerm = searchTerm.toLowerCase().trim();
+      const matchSearch =
+        !sTerm ||
+        v.voucherNumber.toLowerCase().includes(sTerm) ||
+        (v.customerName || '').toLowerCase().includes(sTerm) ||
+        (v.contractNumber || '').toLowerCase().includes(sTerm) ||
+        (v.warehouseLocation || '').toLowerCase().includes(sTerm) ||
+        (v.items || []).some(
+          (it) =>
+            it.sku.toLowerCase().includes(sTerm) ||
+            it.productName.toLowerCase().includes(sTerm)
+        );
 
-    const matchStatus = statusFilter === 'all' || v.status === statusFilter;
-    return matchSearch && matchStatus;
-  });
+      const matchStatus = statusFilter === 'all' || v.status === statusFilter;
+      return matchSearch && matchStatus;
+    });
+  }, [stockOutVouchers, searchTerm, statusFilter]);
+
+  // KPI calculations
+  const totalConfirmedCount = stockOutVouchers.filter((v) => v.status === 'CONFIRMED').length;
+  const totalDraftCount = stockOutVouchers.filter((v) => v.status === 'DRAFT').length;
+  const totalDispatchedQuantity = stockOutVouchers
+    .filter((v) => v.status === 'CONFIRMED')
+    .reduce((sum, v) => sum + (v.totalQuantity || 0), 0);
+
+  const handleExportExcel = () => {
+    const data = filteredVouchers.map((v, idx) => ({
+      'STT': idx + 1,
+      'Số Phiếu Xuất': v.voucherNumber,
+      'Ngày Xuất': formatDate(v.date),
+      'Khách Hàng': v.customerName || '---',
+      'Số Hợp Đồng': v.contractNumber || '---',
+      'Kho Xuất': v.warehouseLocation,
+      'Số Mặt Hàng': (v.items || []).length,
+      'Tổng SL Xuất': v.totalQuantity,
+      'Trạng Thái': v.status === 'CONFIRMED' ? 'Đã Xuất Kho' : v.status === 'DRAFT' ? 'Phiếu Nháp' : 'Đã Hủy',
+      'Người Tạo': v.createdByName,
+      'Ghi Chú': v.notes || '',
+    }));
+
+    const ws = XLSX.utils.json_to_sheet(data);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Phieu_Xuat_Kho');
+    XLSX.writeFile(wb, `Danh_Sach_Phieu_Xuat_Kho_${new Date().toISOString().split('T')[0]}.xlsx`);
+  };
+
+  const handleExportDetailExcel = (voucher: StockOutVoucher) => {
+    const data = (voucher.items || []).map((it, idx) => ({
+      'STT': idx + 1,
+      'Số Phiếu': voucher.voucherNumber,
+      'Khách Hàng': voucher.customerName || '---',
+      'Hợp Đồng': voucher.contractNumber || '---',
+      'Mã SKU': it.sku,
+      'Tên Sản Phẩm': it.productName,
+      'Hãng': it.brand || '---',
+      'ĐVT': it.unit,
+      'Số Lượng Xuất': it.quantity,
+      'Nguồn': it.sourceType === 'RESERVE' ? 'Giữ Hàng' : it.sourceType === 'ORDER' ? 'Đặt Hàng' : 'Kết Hợp',
+      'Ghi Chú': it.notes || '',
+    }));
+
+    const ws = XLSX.utils.json_to_sheet(data);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Chi_Tiet_Xuat');
+    XLSX.writeFile(wb, `Chi_Tiet_Xuat_${voucher.voucherNumber}_${voucher.date}.xlsx`);
+  };
 
   return (
     <div className="space-y-4">
@@ -199,18 +121,70 @@ export const StockOutWarehouseView: React.FC<StockOutWarehouseViewProps> = ({ in
             <span>Quản Lý Phiếu Xuất Kho (Stock Out Vouchers)</span>
           </h2>
           <p className="text-xs text-slate-500 mt-0.5">
-            Lập phiếu xuất giao hàng cho Khách theo Hợp đồng hoặc xuất kho thông thường, tự động trừ tồn On Hand.
+            Lập phiếu xuất giao hàng theo Hợp đồng và đơn giữ/đặt, tự động trừ tồn kho On Hand chính xác.
           </p>
         </div>
 
         <div className="flex items-center space-x-2">
           <button
-            onClick={() => setIsCreateModalOpen(true)}
-            className="px-3.5 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-bold flex items-center space-x-1.5 shadow-2xs transition cursor-pointer"
+            onClick={handleExportExcel}
+            className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-bold flex items-center space-x-1.5 transition cursor-pointer"
           >
-            <Plus className="w-4 h-4" />
-            <span>+ Tạo Phiếu Xuất Mới</span>
+            <Download className="w-4 h-4" />
+            <span>Xuất Excel</span>
           </button>
+
+          {canManage && (
+            <button
+              onClick={() => setIsCreateModalOpen(true)}
+              className="px-3.5 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-bold flex items-center space-x-1.5 shadow-2xs transition cursor-pointer"
+            >
+              <Plus className="w-4 h-4" />
+              <span>+ Tạo Phiếu Xuất Mới</span>
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* KPI Stats Summary Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs flex items-center justify-between">
+          <div>
+            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider block">Tổng Phiếu Xuất Kho</span>
+            <div className="flex items-baseline space-x-2 mt-1">
+              <span className="text-2xl font-black text-slate-900 font-mono">{stockOutVouchers.length}</span>
+              <span className="text-xs text-slate-500 font-semibold">phiếu</span>
+            </div>
+          </div>
+          <div className="w-9 h-9 rounded-xl bg-slate-100 flex items-center justify-center text-slate-600">
+            <FileText className="w-5 h-5" />
+          </div>
+        </div>
+
+        <div className="bg-white p-4 rounded-xl border border-emerald-200 bg-emerald-50/20 shadow-2xs flex items-center justify-between">
+          <div>
+            <span className="text-xs font-bold text-emerald-800 uppercase tracking-wider block">Đã Hoàn Tất Xuất Kho</span>
+            <div className="flex items-baseline space-x-2 mt-1">
+              <span className="text-2xl font-black text-emerald-800 font-mono">{totalConfirmedCount}</span>
+              <span className="text-xs text-emerald-600 font-semibold">phiếu thành công</span>
+            </div>
+          </div>
+          <div className="w-9 h-9 rounded-xl bg-emerald-100 flex items-center justify-center text-emerald-700">
+            <CheckCircle2 className="w-5 h-5" />
+          </div>
+        </div>
+
+        <div className="bg-white p-4 rounded-xl border border-rose-200 bg-rose-50/20 shadow-2xs flex items-center justify-between">
+          <div>
+            <span className="text-xs font-bold text-rose-800 uppercase tracking-wider block">Tổng Hàng Đã Giao</span>
+            <div className="flex items-baseline space-x-2 mt-1">
+              <span className="text-2xl font-black text-rose-800 font-mono">{totalDispatchedQuantity.toLocaleString()}</span>
+              <span className="text-xs text-rose-600 font-semibold">sản phẩm xuất</span>
+            </div>
+          </div>
+          <div className="w-9 h-9 rounded-xl bg-rose-100 flex items-center justify-center text-rose-700">
+            <Boxes className="w-5 h-5" />
+          </div>
         </div>
       </div>
 
@@ -223,7 +197,7 @@ export const StockOutWarehouseView: React.FC<StockOutWarehouseViewProps> = ({ in
             placeholder="Tìm theo số phiếu, khách hàng, số HĐ, SKU..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full pl-9 pr-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:bg-white focus:border-blue-500 transition"
+            className="w-full pl-9 pr-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:bg-white focus:border-rose-500 transition"
           />
         </div>
 
@@ -235,9 +209,9 @@ export const StockOutWarehouseView: React.FC<StockOutWarehouseViewProps> = ({ in
             className="px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:bg-white cursor-pointer font-medium text-slate-700"
           >
             <option value="all">Tất cả trạng thái ({stockOutVouchers.length})</option>
-            <option value="DRAFT">Phiếu nháp (DRAFT)</option>
-            <option value="CONFIRMED">Đã xuất kho (CONFIRMED)</option>
-            <option value="CANCELLED">Đã hủy (CANCELLED)</option>
+            <option value="DRAFT">Phiếu nháp ({totalDraftCount})</option>
+            <option value="CONFIRMED">Đã xuất kho ({totalConfirmedCount})</option>
+            <option value="CANCELLED">Đã hủy</option>
           </select>
         </div>
       </div>
@@ -247,14 +221,14 @@ export const StockOutWarehouseView: React.FC<StockOutWarehouseViewProps> = ({ in
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse text-xs">
             <thead>
-              <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 font-bold">
+              <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 font-bold uppercase tracking-wider text-[11px]">
                 <th className="p-3 w-12 text-center">STT</th>
-                <th className="p-3">Số Phiếu</th>
+                <th className="p-3">Số Phiếu Xuất</th>
                 <th className="p-3">Ngày Xuất</th>
-                <th className="p-3">Khách Hàng / Hợp Đồng</th>
+                <th className="p-3">Khách Hàng & Hợp Đồng</th>
                 <th className="p-3">Kho Xuất</th>
                 <th className="p-3 text-center">Số Mặt Hàng</th>
-                <th className="p-3 text-right">Tổng SL Xuất</th>
+                <th className="p-3 text-right font-bold text-rose-900">Tổng SL Xuất</th>
                 <th className="p-3 text-center">Trạng Thái</th>
                 <th className="p-3">Người Tạo</th>
                 <th className="p-3 text-right">Thao Tác</th>
@@ -263,7 +237,7 @@ export const StockOutWarehouseView: React.FC<StockOutWarehouseViewProps> = ({ in
             <tbody className="divide-y divide-slate-100">
               {filteredVouchers.length === 0 ? (
                 <tr>
-                  <td colSpan={10} className="p-8 text-center text-slate-400">
+                  <td colSpan={10} className="p-12 text-center text-slate-400">
                     <PackageCheck className="w-8 h-8 mx-auto text-slate-300 mb-2" />
                     <span>Không tìm thấy phiếu xuất kho nào phù hợp.</span>
                   </td>
@@ -272,32 +246,35 @@ export const StockOutWarehouseView: React.FC<StockOutWarehouseViewProps> = ({ in
                 filteredVouchers.map((voucher, idx) => {
                   const isConfirmed = voucher.status === 'CONFIRMED';
                   const isDraft = voucher.status === 'DRAFT';
+
                   return (
                     <tr key={voucher.id} className="hover:bg-slate-50/80 transition">
                       <td className="p-3 text-center text-slate-400 font-mono">{idx + 1}</td>
                       <td className="p-3 font-bold font-mono text-rose-700">
                         {voucher.voucherNumber}
                       </td>
-                      <td className="p-3 text-slate-700">{voucher.date}</td>
+                      <td className="p-3 text-slate-700 font-mono">{formatDate(voucher.date)}</td>
                       <td className="p-3">
-                        <div className="font-medium text-slate-900">{voucher.customerName || '---'}</div>
+                        <div className="font-bold text-slate-900">{voucher.customerName || '---'}</div>
                         {voucher.contractNumber && (
-                          <div className="text-[10px] text-slate-500 font-mono">HĐ: {voucher.contractNumber}</div>
+                          <div className="text-[11px] text-blue-600 font-mono font-semibold">
+                            HĐ: {voucher.contractNumber}
+                          </div>
                         )}
                       </td>
-                      <td className="p-3 text-slate-600">{voucher.warehouseLocation || 'Kho Tổng'}</td>
-                      <td className="p-3 text-center font-mono">{voucher.items.length}</td>
+                      <td className="p-3 text-slate-600 font-medium">{voucher.warehouseLocation || 'Kho Tổng'}</td>
+                      <td className="p-3 text-center font-mono font-bold">{(voucher.items || []).length}</td>
                       <td className="p-3 text-right font-black font-mono text-rose-700 text-sm">
                         {voucher.totalQuantity.toLocaleString()}
                       </td>
                       <td className="p-3 text-center">
                         <span
-                          className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold inline-flex items-center space-x-1 ${
+                          className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold inline-flex items-center space-x-1 ${
                             isConfirmed
                               ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
                               : isDraft
                               ? 'bg-amber-100 text-amber-800 border border-amber-300'
-                              : 'bg-slate-100 text-slate-600'
+                              : 'bg-slate-100 text-slate-600 border border-slate-300'
                           }`}
                         >
                           {isConfirmed ? (
@@ -328,7 +305,7 @@ export const StockOutWarehouseView: React.FC<StockOutWarehouseViewProps> = ({ in
                           <Eye className="w-3 h-3 inline mr-1" />
                           <span>Xem</span>
                         </button>
-                        {isDraft && (
+                        {isDraft && canManage && (
                           <>
                             <button
                               onClick={() => {
@@ -340,7 +317,7 @@ export const StockOutWarehouseView: React.FC<StockOutWarehouseViewProps> = ({ in
                                   confirmStockOutVoucher(voucher.id);
                                 }
                               }}
-                              className="px-2.5 py-1 bg-rose-600 hover:bg-rose-700 text-white rounded-md font-bold text-[11px] transition cursor-pointer"
+                              className="px-2.5 py-1 bg-rose-600 hover:bg-rose-700 text-white rounded-md font-bold text-[11px] transition cursor-pointer shadow-2xs"
                               title="Duyệt xuất kho & trừ tồn"
                             >
                               <Check className="w-3 h-3 inline mr-0.5" />
@@ -370,201 +347,117 @@ export const StockOutWarehouseView: React.FC<StockOutWarehouseViewProps> = ({ in
       </div>
 
       {/* CREATE STOCK OUT MODAL */}
-      {isCreateModalOpen && (
-        <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 animate-fadeIn">
-          <div className="bg-white rounded-2xl max-w-4xl w-full max-h-[92vh] overflow-hidden shadow-2xl border border-slate-200 flex flex-col">
+      <CreateStockOutVoucherModal
+        isOpen={isCreateModalOpen}
+        onClose={() => setIsCreateModalOpen(false)}
+      />
+
+      {/* DETAIL MODAL */}
+      {selectedVoucherForDetail && (
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-150">
+          <div className="bg-white rounded-2xl max-w-4xl w-full overflow-hidden shadow-2xl border border-slate-200 flex flex-col max-h-[90vh]">
             {/* Header */}
-            <div className="p-4 sm:p-5 bg-gradient-to-r from-rose-700 to-red-800 text-white flex items-center justify-between shrink-0">
-              <div className="flex items-center space-x-2.5">
-                <div className="p-2 bg-white/10 rounded-lg">
-                  <PackageCheck className="w-5 h-5 text-rose-200" />
+            <div className="p-4 bg-slate-900 text-white flex items-center justify-between shrink-0">
+              <div className="flex items-center space-x-3">
+                <div className="w-9 h-9 rounded-xl bg-rose-500/20 border border-rose-400/30 flex items-center justify-center text-rose-400">
+                  <PackageCheck className="w-5 h-5" />
                 </div>
                 <div>
-                  <h3 className="text-base font-bold">Tạo Phiếu Xuất Kho Mới (Stock Out Voucher)</h3>
-                  <p className="text-xs text-rose-100/80">
-                    Xuất kho giao hàng theo đơn giữ của hợp đồng hoặc xuất hàng thực tế
+                  <div className="flex items-center space-x-2">
+                    <h3 className="text-base font-bold text-white">CHI TIẾT PHIẾU XUẤT KHO</h3>
+                    <span className="font-mono font-bold text-xs bg-rose-500/20 text-rose-300 px-2 py-0.5 rounded border border-rose-400/30">
+                      {selectedVoucherForDetail.voucherNumber}
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    Hợp đồng: {selectedVoucherForDetail.contractNumber || '---'} • Khách hàng: {selectedVoucherForDetail.customerName || '---'}
                   </p>
                 </div>
               </div>
               <button
-                onClick={() => setIsCreateModalOpen(false)}
-                className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white transition cursor-pointer"
+                onClick={() => setSelectedVoucherForDetail(null)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
             {/* Body */}
-            <div className="p-4 sm:p-6 overflow-y-auto space-y-4 flex-1">
-              {/* Optional Quick Link to Active Holds */}
-              {activeHolds.length > 0 && (
-                <div className="bg-amber-50 p-3 rounded-xl border border-amber-200 text-xs space-y-1">
-                  <label className="block font-bold text-amber-900">
-                    ⚡ Chọn nhanh từ danh sách Hàng Đang Giữ (Optional):
-                  </label>
-                  <select
-                    value={selectedReserveId}
-                    onChange={(e) => handleSelectReserve(e.target.value)}
-                    className="w-full px-3 py-1.5 bg-white border border-amber-300 rounded-lg font-medium text-slate-800 focus:outline-none"
+            <div className="p-5 space-y-4 text-xs overflow-y-auto flex-1">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-slate-50 p-3.5 rounded-xl border border-slate-200">
+                <div>
+                  <span className="text-slate-500 block text-[11px]">Ngày Xuất Kho:</span>
+                  <strong className="text-slate-800 font-mono text-xs">{formatDate(selectedVoucherForDetail.date)}</strong>
+                </div>
+                <div>
+                  <span className="text-slate-500 block text-[11px]">Kho Xuất Hàng:</span>
+                  <strong className="text-slate-800 text-xs">{selectedVoucherForDetail.warehouseLocation || 'Kho Tổng'}</strong>
+                </div>
+                <div>
+                  <span className="text-slate-500 block text-[11px]">Người Lập Phiếu:</span>
+                  <strong className="text-slate-800 text-xs">{selectedVoucherForDetail.createdByName}</strong>
+                </div>
+                <div>
+                  <span className="text-slate-500 block text-[11px]">Trạng Thái:</span>
+                  <strong
+                    className={
+                      selectedVoucherForDetail.status === 'CONFIRMED'
+                        ? 'text-emerald-700 font-bold text-xs'
+                        : 'text-amber-700 font-bold text-xs'
+                    }
                   >
-                    <option value="">-- Tự nhập thông tin xuất kho thông thường --</option>
-                    {activeHolds.map((r) => (
-                      <option key={r.id} value={r.id}>
-                        {r.customerName} | HĐ: {r.contractNumber} | SKU: {r.sku} ({r.reservedQuantity} {r.unit}) | Hạn: {r.expectedDeliveryDate || r.reservedDate}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
-
-              {/* General Form Info */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-slate-50 p-3.5 rounded-xl border border-slate-200 text-xs">
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">Tên Khách Hàng / Đối Tác</label>
-                  <input
-                    type="text"
-                    placeholder="Tên khách nhận hàng..."
-                    value={customerName}
-                    onChange={(e) => setCustomerName(e.target.value)}
-                    className="w-full px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-xs focus:outline-none focus:border-rose-600 font-medium"
-                  />
-                </div>
-
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">Số Hợp Đồng Liên Quan</label>
-                  <input
-                    type="text"
-                    placeholder="VD: HD-2026-001..."
-                    value={contractNumber}
-                    onChange={(e) => setContractNumber(e.target.value)}
-                    className="w-full px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-xs focus:outline-none focus:border-rose-600 font-mono font-medium"
-                  />
-                </div>
-
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">Ngày Xuất Kho</label>
-                  <input
-                    type="date"
-                    value={voucherDate}
-                    onChange={(e) => setVoucherDate(e.target.value)}
-                    className="w-full px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-xs focus:outline-none focus:border-rose-600 font-medium font-mono"
-                  />
-                </div>
-
-                <div className="sm:col-span-3">
-                  <label className="block font-bold text-slate-700 mb-1">Ghi Chú Xuất Kho</label>
-                  <input
-                    type="text"
-                    placeholder="VD: Xuất hàng bàn giao tại công trình..."
-                    value={notes}
-                    onChange={(e) => setNotes(e.target.value)}
-                    className="w-full px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-xs focus:outline-none focus:border-rose-600"
-                  />
+                    {selectedVoucherForDetail.status === 'CONFIRMED' ? '🟢 Đã Xuất Kho' : '🟡 Bản Nháp'}
+                  </strong>
                 </div>
               </div>
+
+              {selectedVoucherForDetail.notes && (
+                <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 text-slate-700">
+                  <span className="font-bold text-slate-800 block text-[11px] mb-0.5">Ghi chú:</span>
+                  {selectedVoucherForDetail.notes}
+                </div>
+              )}
 
               {/* Items Table */}
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
-                    Danh Sách Sản Phẩm Xuất ({voucherItems.length})
+                    Danh Sách Hàng Hóa Xuất Kho ({selectedVoucherForDetail.items.length} mặt hàng)
                   </h4>
                   <button
-                    type="button"
-                    onClick={handleAddItemRow}
-                    className="px-2.5 py-1 bg-rose-100 hover:bg-rose-200 text-rose-800 rounded-lg text-xs font-bold flex items-center space-x-1 cursor-pointer transition"
+                    onClick={() => handleExportDetailExcel(selectedVoucherForDetail)}
+                    className="px-2.5 py-1 bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 rounded-lg text-xs font-bold flex items-center space-x-1 transition cursor-pointer"
                   >
-                    <Plus className="w-3.5 h-3.5" />
-                    <span>+ Thêm Sản Phẩm</span>
+                    <Download className="w-3.5 h-3.5" />
+                    <span>Xuất Excel Phiếu Này</span>
                   </button>
                 </div>
 
-                <div className="border border-slate-200 rounded-xl overflow-hidden">
-                  <table className="w-full text-left border-collapse text-xs">
+                <div className="border border-slate-200 rounded-xl overflow-hidden shadow-2xs">
+                  <table className="w-full text-left border-collapse">
                     <thead>
-                      <tr className="bg-slate-100 text-slate-600 font-bold border-b border-slate-200">
+                      <tr className="bg-slate-50 text-slate-600 font-bold border-b border-slate-200 uppercase text-[11px]">
                         <th className="p-2.5 w-10 text-center">#</th>
-                        <th className="p-2.5 w-44">Mã SKU</th>
+                        <th className="p-2.5">Mã SKU</th>
                         <th className="p-2.5">Tên Sản Phẩm</th>
-                        <th className="p-2.5 w-20 text-center">ĐVT</th>
-                        <th className="p-2.5 w-28 text-right">
-                          SL Xuất <span className="text-rose-500">*</span>
-                        </th>
-                        <th className="p-2.5 w-48">Ghi Chú Dòng</th>
-                        <th className="p-2.5 w-10 text-center"></th>
+                        <th className="p-2.5">Hãng</th>
+                        <th className="p-2.5 text-center">ĐVT</th>
+                        <th className="p-2.5 text-right font-bold text-rose-800">Số Lượng Xuất</th>
+                        <th className="p-2.5">Ghi Chú</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                      {voucherItems.map((item, index) => (
-                        <tr key={index} className="hover:bg-slate-50">
-                          <td className="p-2 text-center text-slate-400 font-mono">{index + 1}</td>
-                          <td className="p-2">
-                            <input
-                              type="text"
-                              placeholder="Nhập SKU..."
-                              value={item.sku}
-                              onChange={(e) => handleSkuChange(index, e.target.value)}
-                              className="w-full px-2 py-1 bg-white border border-slate-300 rounded font-mono font-bold text-slate-900 uppercase focus:outline-none focus:border-rose-500"
-                              required
-                            />
+                      {selectedVoucherForDetail.items.map((it, i) => (
+                        <tr key={i} className="hover:bg-slate-50">
+                          <td className="p-2.5 text-center text-slate-400 font-mono">{i + 1}</td>
+                          <td className="p-2.5 font-mono font-bold text-blue-700">{it.sku}</td>
+                          <td className="p-2.5 font-bold text-slate-900">{it.productName}</td>
+                          <td className="p-2.5 text-slate-600 font-semibold">{it.brand || '---'}</td>
+                          <td className="p-2.5 text-center text-slate-500 font-medium">{it.unit}</td>
+                          <td className="p-2.5 text-right font-mono font-black text-rose-700 text-sm">
+                            {it.quantity.toLocaleString()}
                           </td>
-                          <td className="p-2">
-                            <input
-                              type="text"
-                              placeholder="Tên mặt hàng..."
-                              value={item.productName}
-                              onChange={(e) =>
-                                handleItemFieldChange(index, 'productName', e.target.value)
-                              }
-                              className="w-full px-2 py-1 bg-white border border-slate-300 rounded text-slate-800 focus:outline-none focus:border-rose-500"
-                            />
-                          </td>
-                          <td className="p-2 text-center">
-                            <input
-                              type="text"
-                              value={item.unit}
-                              onChange={(e) => handleItemFieldChange(index, 'unit', e.target.value)}
-                              className="w-full px-1 py-1 text-center bg-white border border-slate-300 rounded text-slate-700 focus:outline-none focus:border-rose-500"
-                            />
-                          </td>
-                          <td className="p-2 text-right">
-                            <input
-                              type="number"
-                              min="1"
-                              value={item.quantity}
-                              onChange={(e) =>
-                                handleItemFieldChange(
-                                  index,
-                                  'quantity',
-                                  parseInt(e.target.value) || 0
-                                )
-                              }
-                              className="w-full px-2 py-1 text-right bg-rose-50 border border-rose-400 rounded font-mono font-bold text-rose-900 focus:outline-none focus:border-rose-600"
-                              required
-                            />
-                          </td>
-                          <td className="p-2">
-                            <input
-                              type="text"
-                              placeholder="Ghi chú..."
-                              value={item.notes || ''}
-                              onChange={(e) =>
-                                handleItemFieldChange(index, 'notes', e.target.value)
-                              }
-                              className="w-full px-2 py-1 bg-white border border-slate-300 rounded text-slate-700 focus:outline-none focus:border-rose-500"
-                            />
-                          </td>
-                          <td className="p-2 text-center">
-                            {voucherItems.length > 1 && (
-                              <button
-                                type="button"
-                                onClick={() => handleRemoveItemRow(index)}
-                                className="p-1 text-slate-400 hover:text-rose-600 rounded transition cursor-pointer"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            )}
-                          </td>
+                          <td className="p-2.5 text-slate-500 text-[11px]">{it.notes || '—'}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -574,121 +467,17 @@ export const StockOutWarehouseView: React.FC<StockOutWarehouseViewProps> = ({ in
             </div>
 
             {/* Footer */}
-            <div className="p-4 bg-slate-50 border-t border-slate-200 flex flex-wrap items-center justify-between gap-2 shrink-0">
-              <div className="text-xs text-slate-600">
+            <div className="p-4 bg-slate-100 border-t border-slate-200 flex items-center justify-between shrink-0">
+              <div className="text-xs text-slate-700">
                 Tổng số lượng xuất:{' '}
-                <strong className="text-rose-700 font-mono text-sm">
-                  {voucherItems.reduce((s, it) => s + (it.quantity || 0), 0).toLocaleString()}
+                <strong className="text-rose-700 font-mono font-black text-sm">
+                  {selectedVoucherForDetail.totalQuantity.toLocaleString()}
                 </strong>{' '}
                 sản phẩm
               </div>
-
-              <div className="flex items-center space-x-2">
-                <button
-                  type="button"
-                  onClick={() => setIsCreateModalOpen(false)}
-                  className="px-4 py-2 bg-white border border-slate-300 hover:bg-slate-100 text-slate-700 rounded-xl text-xs font-bold transition cursor-pointer"
-                >
-                  Hủy
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleSaveVoucher(false)}
-                  className="px-4 py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-xs font-bold transition cursor-pointer"
-                >
-                  Lưu Bản Nháp (Draft)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleSaveVoucher(true)}
-                  className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold shadow-2xs transition cursor-pointer flex items-center space-x-1"
-                >
-                  <CheckCircle2 className="w-4 h-4" />
-                  <span>Duyệt Xuất Kho Ngay</span>
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* DETAIL MODAL */}
-      {selectedVoucherForDetail && (
-        <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 animate-fadeIn">
-          <div className="bg-white rounded-2xl max-w-3xl w-full overflow-hidden shadow-2xl border border-slate-200 flex flex-col">
-            <div className="p-4 bg-slate-900 text-white flex items-center justify-between">
-              <div>
-                <span className="text-xs font-mono text-rose-400">PHIẾU XUẤT KHO</span>
-                <h3 className="text-base font-bold">{selectedVoucherForDetail.voucherNumber}</h3>
-              </div>
               <button
                 onClick={() => setSelectedVoucherForDetail(null)}
-                className="p-1 rounded bg-slate-800 text-slate-300 hover:text-white"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="p-5 space-y-4 text-xs">
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-slate-50 p-3.5 rounded-xl border border-slate-200">
-                <div>
-                  <span className="text-slate-400 block">Ngày Xuất:</span>
-                  <strong className="text-slate-800 font-mono">{selectedVoucherForDetail.date}</strong>
-                </div>
-                <div>
-                  <span className="text-slate-400 block">Khách Hàng:</span>
-                  <strong className="text-slate-800">{selectedVoucherForDetail.customerName || '---'}</strong>
-                </div>
-                <div>
-                  <span className="text-slate-400 block">Hợp Đồng:</span>
-                  <strong className="text-slate-800 font-mono">{selectedVoucherForDetail.contractNumber || '---'}</strong>
-                </div>
-                <div>
-                  <span className="text-slate-400 block">Trạng Thái:</span>
-                  <strong
-                    className={
-                      selectedVoucherForDetail.status === 'CONFIRMED'
-                        ? 'text-emerald-700 font-bold'
-                        : 'text-amber-700 font-bold'
-                    }
-                  >
-                    {selectedVoucherForDetail.status === 'CONFIRMED' ? 'Đã Xuất Kho' : 'Bản Nháp'}
-                  </strong>
-                </div>
-              </div>
-
-              <div className="border border-slate-200 rounded-xl overflow-hidden">
-                <table className="w-full text-left border-collapse">
-                  <thead>
-                    <tr className="bg-slate-100 text-slate-600 font-bold border-b border-slate-200">
-                      <th className="p-2.5 w-10 text-center">#</th>
-                      <th className="p-2.5">Mã SKU</th>
-                      <th className="p-2.5">Tên Sản Phẩm</th>
-                      <th className="p-2.5 text-center">ĐVT</th>
-                      <th className="p-2.5 text-right font-bold text-rose-800">Số Lượng Xuất</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {selectedVoucherForDetail.items.map((it, i) => (
-                      <tr key={i}>
-                        <td className="p-2.5 text-center text-slate-400 font-mono">{i + 1}</td>
-                        <td className="p-2.5 font-mono font-bold text-slate-800">{it.sku}</td>
-                        <td className="p-2.5 text-slate-700">{it.productName}</td>
-                        <td className="p-2.5 text-center text-slate-500">{it.unit}</td>
-                        <td className="p-2.5 text-right font-mono font-bold text-rose-800">
-                          {it.quantity}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            <div className="p-4 bg-slate-50 border-t border-slate-200 flex justify-end">
-              <button
-                onClick={() => setSelectedVoucherForDetail(null)}
-                className="px-4 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-lg font-bold"
+                className="px-4 py-1.5 bg-slate-800 hover:bg-slate-900 text-white rounded-lg text-xs font-bold transition cursor-pointer"
               >
                 Đóng
               </button>
