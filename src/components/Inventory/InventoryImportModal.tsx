@@ -1,11 +1,19 @@
 import React, { useState, useRef } from 'react';
 import { useApp } from '../../context/AppContext';
 import { InventoryItem } from '../../types';
-import { parseExcelFile, downloadInventoryTemplateExcel, formatNumber } from '../../utils/formatters';
+import {
+  parseExcelFile,
+  downloadInventoryTemplateExcel,
+  downloadInventoryTemplateJson,
+  formatNumber,
+  cleanExcelString,
+  parseExcelNumber,
+} from '../../utils/formatters';
 import {
   Upload,
   Download,
   FileSpreadsheet,
+  FileJson,
   AlertCircle,
   CheckCircle2,
   AlertTriangle,
@@ -67,9 +75,27 @@ export const InventoryImportModal: React.FC<InventoryImportModalProps> = ({ isOp
     setIsProcessing(true);
 
     try {
-      const rawRows = await parseExcelFile(selectedFile);
+      let rawRows: any[] = [];
+      const fileName = selectedFile.name.toLowerCase();
+
+      if (fileName.endsWith('.json')) {
+        const text = await selectedFile.text();
+        const parsed = JSON.parse(text);
+        if (Array.isArray(parsed)) {
+          rawRows = parsed;
+        } else if (parsed && Array.isArray(parsed.items)) {
+          rawRows = parsed.items;
+        } else if (parsed && Array.isArray(parsed.data)) {
+          rawRows = parsed.data;
+        } else {
+          throw new Error('Cấu trúc file JSON không hợp lệ (cần danh sách array các đối tượng).');
+        }
+      } else {
+        rawRows = await parseExcelFile(selectedFile);
+      }
+
       if (!rawRows || rawRows.length === 0) {
-        setErrorMessage('File Excel không có dữ liệu hoặc định dạng không đúng.');
+        setErrorMessage('File không có dữ liệu hoặc định dạng không đúng.');
         setIsProcessing(false);
         return;
       }
@@ -78,13 +104,71 @@ export const InventoryImportModal: React.FC<InventoryImportModalProps> = ({ isOp
       const seenSkus = new Set<string>();
 
       rawRows.forEach((r: any, index: number) => {
-        const rawSku = r['Mã hàng (SKU)'] || r['Mã hàng'] || r['SKU'] || r['Ma_Hang'] || r['Mã SP'] || r['Mã'];
-        const rawName = r['Tên hàng hóa'] || r['Tên sản phẩm'] || r['Tên hàng'] || r['Ten_Hang'] || r['Name'] || '';
-        const rawUnit = r['ĐVT'] || r['Đơn vị tính'] || r['Unit'] || 'Bộ';
-        const rawQty = r['Tồn thực tế'] || r['Tồn kho'] || r['Số lượng'] || r['TotalQuantity'] || r['SL'] || 0;
-        const rawLocation = r['Vị trí kho'] || r['Vị trí'] || r['Warehouse'] || r['Kệ kho'] || 'Kho Tổng';
+        const rawSku =
+          r['Mã hàng (SKU)'] ||
+          r['Mã hàng'] ||
+          r['SKU'] ||
+          r['sku'] ||
+          r['product_code'] ||
+          r['productCode'] ||
+          r['Ma_Hang'] ||
+          r['Mã SP'] ||
+          r['Mã sản phẩm'] ||
+          r['Mã'] ||
+          r['code'] ||
+          r['MaHang'];
 
-        if (!rawSku && !rawName && rawQty === '') {
+        const rawName =
+          r['Tên hàng hóa'] ||
+          r['Tên sản phẩm'] ||
+          r['Tên hàng'] ||
+          r['Ten_Hang'] ||
+          r['Name'] ||
+          r['name'] ||
+          r['product_name'] ||
+          r['productName'] ||
+          r['TenHang'] ||
+          '';
+
+        const rawUnit =
+          r['ĐVT'] ||
+          r['Đơn vị tính'] ||
+          r['Unit'] ||
+          r['unit'] ||
+          r['dvt'] ||
+          r['DonViTinh'] ||
+          r['Đơn vị'] ||
+          'Bộ';
+
+        const rawQty =
+          r['Tồn thực tế'] ??
+          r['Tồn kho'] ??
+          r['Số lượng'] ??
+          r['TotalQuantity'] ??
+          r['totalQuantity'] ??
+          r['total_quantity'] ??
+          r['SL'] ??
+          r['TonThucTe'] ??
+          r['TonKho'] ??
+          r['SoLuong'] ??
+          r['qty'] ??
+          r['quantity'] ??
+          r['availableQuantity'] ??
+          0;
+
+        const rawLocation =
+          r['Vị trí kho'] ||
+          r['Vị trí'] ||
+          r['Warehouse'] ||
+          r['warehouseLocation'] ||
+          r['warehouse_location'] ||
+          r['Kệ kho'] ||
+          r['ViTriKho'] ||
+          r['ViTri'] ||
+          r['location'] ||
+          'Kho Tổng';
+
+        if (!rawSku && !rawName && (rawQty === '' || rawQty === null || rawQty === undefined)) {
           return;
         }
 
@@ -152,7 +236,7 @@ export const InventoryImportModal: React.FC<InventoryImportModalProps> = ({ isOp
 
       setParsedRows(rows);
     } catch (err: any) {
-      console.error(err);
+      console.error('[InventoryImport] Parse error:', err);
       setErrorMessage(`Lỗi đọc file: ${err.message || 'Định dạng file không được hỗ trợ'}`);
     } finally {
       setIsProcessing(false);
@@ -249,7 +333,7 @@ export const InventoryImportModal: React.FC<InventoryImportModalProps> = ({ isOp
               <Boxes className="w-4 h-4" />
             </div>
             <div>
-              <h3 className="font-bold text-sm">Import Dữ Liệu Tồn Kho (Inventory Master) Từ Excel</h3>
+              <h3 className="font-bold text-sm">Import Dữ Liệu Tồn Kho (Excel / JSON)</h3>
               <p className="text-[11px] text-slate-400">
                 Cập nhật số lượng tồn thực tế hoặc nhập thêm hàng, tự động bảo toàn số lượng đang giữ của các Hợp đồng đã chốt
               </p>
@@ -259,13 +343,23 @@ export const InventoryImportModal: React.FC<InventoryImportModalProps> = ({ isOp
           <div className="flex items-center space-x-2">
             <button
               type="button"
+              onClick={downloadInventoryTemplateJson}
+              className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-amber-300 border border-slate-700 rounded text-xs font-semibold flex items-center space-x-1 transition cursor-pointer"
+              title="Tải cấu trúc file JSON mẫu"
+            >
+              <FileJson className="w-3.5 h-3.5 text-amber-400" />
+              <span>File JSON Mẫu</span>
+            </button>
+            <button
+              type="button"
               onClick={downloadInventoryTemplateExcel}
-              className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-blue-300 border border-slate-700 rounded text-xs font-semibold flex items-center space-x-1 transition"
+              className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-blue-300 border border-slate-700 rounded text-xs font-semibold flex items-center space-x-1 transition cursor-pointer"
+              title="Tải bảng tính Excel mẫu"
             >
               <Download className="w-3.5 h-3.5" />
-              <span>Tải File Mẫu Tồn Kho (.xlsx)</span>
+              <span>File Excel Mẫu (.xlsx)</span>
             </button>
-            <button onClick={onClose} className="p-1 text-slate-400 hover:text-white rounded transition">
+            <button onClick={onClose} className="p-1 text-slate-400 hover:text-white rounded transition cursor-pointer">
               <X className="w-4 h-4" />
             </button>
           </div>
@@ -305,17 +399,17 @@ export const InventoryImportModal: React.FC<InventoryImportModalProps> = ({ isOp
                 type="file"
                 ref={fileInputRef}
                 onChange={(e) => e.target.files?.[0] && handleFileChange(e.target.files[0])}
-                accept=".xlsx,.xls,.csv"
+                accept=".xlsx,.xls,.csv,.json"
                 className="hidden"
               />
               <div className="w-12 h-12 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center">
                 <Warehouse className="w-6 h-6" />
               </div>
               <div className="font-bold text-sm text-slate-800">
-                Kéo thả file Excel Tồn kho vào đây hoặc <span className="text-blue-600 underline">bấm để chọn file</span>
+                Kéo thả file Excel hoặc JSON Tồn kho vào đây hoặc <span className="text-blue-600 underline">bấm để chọn file</span>
               </div>
               <p className="text-[11px] text-slate-500">
-                Hỗ trợ file .xlsx, .xls, .csv có các cột: Mã hàng (SKU), Tên hàng, ĐVT, Tồn thực tế, Vị trí kho
+                Hỗ trợ file .xlsx, .xls, .csv, .json với các trường: Mã hàng (SKU), Tên hàng, ĐVT, Tồn thực tế, Vị trí kho
               </p>
             </div>
           ) : (

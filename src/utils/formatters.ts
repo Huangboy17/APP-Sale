@@ -288,6 +288,45 @@ export const downloadInventoryTemplateExcel = () => {
   XLSX.writeFile(workbook, 'Mau_Import_Ton_Kho.xlsx');
 };
 
+export const downloadInventoryTemplateJson = () => {
+  const sampleData = [
+    {
+      product_code: 'LED-DL-01-W',
+      product_name: 'Đèn Downlight Âm Trần COB 12W Viền Trắng',
+      unit: 'Bộ',
+      total_quantity: 150,
+      warehouse_location: 'Kho Tổng HCM (Kệ A1-01)',
+      notes: 'Hàng có sẵn tại kho',
+    },
+    {
+      product_code: 'SW-SCH-01-BK',
+      product_name: 'Công Tắc 3 Phím AvatarOn Mặt Vuông',
+      unit: 'Cái',
+      total_quantity: 80,
+      warehouse_location: 'Kho Tổng HCM (Kệ B2-05)',
+      notes: 'Hàng nhập khẩu chính hãng',
+    },
+    {
+      product_code: 'LED-PANEL-6060',
+      product_name: 'Đèn Panel Tấm Âm Trần 600x600 48W',
+      unit: 'Bộ',
+      total_quantity: 25,
+      warehouse_location: 'Kho Hà Nội (Kệ C3-02)',
+      notes: 'Sẵn sàng giao dự án',
+    },
+  ];
+
+  const blob = new Blob([JSON.stringify(sampleData, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'mau-import-ton-kho.json';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+};
+
 export const parseExcelFile = async (file: File): Promise<any[]> => {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
