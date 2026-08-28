@@ -333,6 +333,19 @@ export async function deleteQuotationFromCloud(quoteId: string) {
   }
 }
 
+export async function batchDeleteQuotationsFromCloud(quoteIds: string[]) {
+  if (!quoteIds || quoteIds.length === 0) return;
+  try {
+    const batch = writeBatch(db);
+    quoteIds.forEach((id) => {
+      batch.delete(doc(db, COLLECTIONS.QUOTATIONS, id));
+    });
+    await batch.commit();
+  } catch (err) {
+    handleFirestoreError(err, 'Batch delete quotations');
+  }
+}
+
 // Contract Actions
 export async function syncContractToCloud(contract: Contract) {
   try {
@@ -342,12 +355,41 @@ export async function syncContractToCloud(contract: Contract) {
   }
 }
 
+export async function deleteContractFromCloud(contractId: string) {
+  try {
+    await deleteDoc(doc(db, COLLECTIONS.CONTRACTS, contractId));
+  } catch (err) {
+    handleFirestoreError(err, 'Delete contract');
+  }
+}
+
+export async function batchDeleteContractsFromCloud(contractIds: string[]) {
+  if (!contractIds || contractIds.length === 0) return;
+  try {
+    const batch = writeBatch(db);
+    contractIds.forEach((id) => {
+      batch.delete(doc(db, COLLECTIONS.CONTRACTS, id));
+    });
+    await batch.commit();
+  } catch (err) {
+    handleFirestoreError(err, 'Batch delete contracts');
+  }
+}
+
 // Logistics (Reserves & Orders) Actions
 export async function syncReserveItemToCloud(reserve: ReserveItem) {
   try {
     await setDoc(doc(db, COLLECTIONS.RESERVES, reserve.id), cleanForFirestore(reserve), { merge: true });
   } catch (err) {
     handleFirestoreError(err, 'Save reserve item');
+  }
+}
+
+export async function deleteReserveItemFromCloud(reserveId: string) {
+  try {
+    await deleteDoc(doc(db, COLLECTIONS.RESERVES, reserveId));
+  } catch (err) {
+    handleFirestoreError(err, 'Delete reserve item');
   }
 }
 
@@ -363,11 +405,32 @@ export async function batchSyncReservesToCloud(reserves: ReserveItem[]) {
   }
 }
 
+export async function batchDeleteReservesFromCloud(reserveIds: string[]) {
+  if (!reserveIds || reserveIds.length === 0) return;
+  try {
+    const batch = writeBatch(db);
+    reserveIds.forEach((id) => {
+      batch.delete(doc(db, COLLECTIONS.RESERVES, id));
+    });
+    await batch.commit();
+  } catch (err) {
+    handleFirestoreError(err, 'Batch delete reserves');
+  }
+}
+
 export async function syncOrderItemToCloud(order: OrderItem) {
   try {
     await setDoc(doc(db, COLLECTIONS.ORDERS, order.id), cleanForFirestore(order), { merge: true });
   } catch (err) {
     handleFirestoreError(err, 'Save order item');
+  }
+}
+
+export async function deleteOrderItemFromCloud(orderId: string) {
+  try {
+    await deleteDoc(doc(db, COLLECTIONS.ORDERS, orderId));
+  } catch (err) {
+    handleFirestoreError(err, 'Delete order item');
   }
 }
 
@@ -380,6 +443,19 @@ export async function batchSyncOrdersToCloud(orders: OrderItem[]) {
     await batch.commit();
   } catch (err) {
     handleFirestoreError(err, 'Batch save orders');
+  }
+}
+
+export async function batchDeleteOrdersFromCloud(orderIds: string[]) {
+  if (!orderIds || orderIds.length === 0) return;
+  try {
+    const batch = writeBatch(db);
+    orderIds.forEach((id) => {
+      batch.delete(doc(db, COLLECTIONS.ORDERS, id));
+    });
+    await batch.commit();
+  } catch (err) {
+    handleFirestoreError(err, 'Batch delete orders');
   }
 }
 

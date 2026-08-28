@@ -72,11 +72,18 @@ import {
   clearCompanyInventoryFromCloud,
   syncQuotationToCloud,
   deleteQuotationFromCloud,
+  batchDeleteQuotationsFromCloud,
   syncContractToCloud,
+  deleteContractFromCloud,
+  batchDeleteContractsFromCloud,
   syncReserveItemToCloud,
+  deleteReserveItemFromCloud,
   batchSyncReservesToCloud,
+  batchDeleteReservesFromCloud,
   syncOrderItemToCloud,
+  deleteOrderItemFromCloud,
   batchSyncOrdersToCloud,
+  batchDeleteOrdersFromCloud,
   clearAllDataFromCloud,
   clearCollectionFromCloud,
   syncOrganizationToCloud,
@@ -511,10 +518,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               const item = d.data() as Customer;
               if (item && item.id) list.push(item);
             });
-            if (list.length > 0) {
-              list.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
-              setCustomers(list);
-            }
+            list.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+            setCustomers(list);
             setCloudSyncStatus((prev) => (prev === 'quota-exceeded' ? 'quota-exceeded' : 'connected'));
             setLastCloudSyncTime(new Date());
           },
@@ -646,10 +651,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               const item = d.data() as Quotation;
               if (item && item.id) list.push(item);
             });
-            if (list.length > 0) {
-              list.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
-              setQuotations(list);
-            }
+            list.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+            setQuotations(list);
             setCloudSyncStatus((prev) => (prev === 'quota-exceeded' ? 'quota-exceeded' : 'connected'));
             setLastCloudSyncTime(new Date());
           },
@@ -668,10 +671,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               const item = d.data() as Contract;
               if (item && item.id) list.push(item);
             });
-            if (list.length > 0) {
-              list.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
-              setContracts(list);
-            }
+            list.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+            setContracts(list);
             setCloudSyncStatus((prev) => (prev === 'quota-exceeded' ? 'quota-exceeded' : 'connected'));
             setLastCloudSyncTime(new Date());
           },
@@ -690,9 +691,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               const item = d.data() as ReserveItem;
               if (item && item.id) list.push(item);
             });
-            if (list.length > 0) {
-              setReserveItems(list);
-            }
+            setReserveItems(list);
             setCloudSyncStatus((prev) => (prev === 'quota-exceeded' ? 'quota-exceeded' : 'connected'));
             setLastCloudSyncTime(new Date());
           },
@@ -711,9 +710,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               const item = d.data() as OrderItem;
               if (item && item.id) list.push(item);
             });
-            if (list.length > 0) {
-              setOrderItems(list);
-            }
+            setOrderItems(list);
             setCloudSyncStatus((prev) => (prev === 'quota-exceeded' ? 'quota-exceeded' : 'connected'));
             setLastCloudSyncTime(new Date());
           },
@@ -801,6 +798,99 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   useEffect(() => {
     safeSetLocalStorage(STORAGE_KEYS.COMPANY, companyInfo);
   }, [companyInfo]);
+
+  // Automated Self-Healing Orphan Data Reconciliation:
+  // Automatically detects and purges any orphan reserve items, order items, contracts, and quotes
+  // whose customerId no longer exists in customers, and restores locked inventory to available stock.
+  useEffect(() => {
+    if (customers.length === 0) return;
+
+    const validCustomerIds = new Set(customers.map((c) => c.id));
+
+    // 1. Identify orphan reserves
+    const orphanReserves = reserveItems.filter(
+      (r) => !r.customerId || !validCustomerIds.has(r.customerId)
+    );
+
+    // 2. Identify orphan orders
+    const orphanOrders = orderItems.filter(
+      (o) => !o.customerId || !validCustomerIds.has(o.customerId)
+    );
+
+    // 3. Identify orphan contracts
+    const orphanContracts = contracts.filter(
+      (c) => !c.customerId || !validCustomerIds.has(c.customerId)
+    );
+
+    // 4. Identify orphan quotations
+    const orphanQuotes = quotations.filter(
+      (q) => !q.customerId || !validCustomerIds.has(q.customerId)
+    );
+
+    let hadOrphans = false;
+
+    if (orphanReserves.length > 0) {
+      hadOrphans = true;
+      const orphanIds = orphanReserves.map((r) => r.id);
+      console.log(`[OrphanCleanup] Purging ${orphanReserves.length} orphan reserve items:`, orphanIds);
+      setReserveItems((prev) => prev.filter((r) => r.customerId && validCustomerIds.has(r.customerId)));
+      batchDeleteReservesFromCloud(orphanIds);
+    }
+
+    if (orphanOrders.length > 0) {
+      hadOrphans = true;
+      const orphanIds = orphanOrders.map((o) => o.id);
+      console.log(`[OrphanCleanup] Purging ${orphanOrders.length} orphan order items:`, orphanIds);
+      setOrderItems((prev) => prev.filter((o) => o.customerId && validCustomerIds.has(o.customerId)));
+      batchDeleteOrdersFromCloud(orphanIds);
+    }
+
+    if (orphanContracts.length > 0) {
+      hadOrphans = true;
+      const orphanIds = orphanContracts.map((c) => c.id);
+      console.log(`[OrphanCleanup] Purging ${orphanContracts.length} orphan contracts:`, orphanIds);
+      setContracts((prev) => prev.filter((c) => c.customerId && validCustomerIds.has(c.customerId)));
+      batchDeleteContractsFromCloud(orphanIds);
+    }
+
+    if (orphanQuotes.length > 0) {
+      hadOrphans = true;
+      const orphanIds = orphanQuotes.map((q) => q.id);
+      console.log(`[OrphanCleanup] Purging ${orphanQuotes.length} orphan quotations:`, orphanIds);
+      setQuotations((prev) => prev.filter((q) => q.customerId && validCustomerIds.has(q.customerId)));
+      batchDeleteQuotationsFromCloud(orphanIds);
+    }
+
+    if (hadOrphans) {
+      const validHoldingReserves = reserveItems.filter(
+        (r) => r.status === 'holding' && r.customerId && validCustomerIds.has(r.customerId)
+      );
+      const reserveMap = new Map<string, number>();
+      validHoldingReserves.forEach((r) => {
+        const cleanSku = (r.sku || '').trim().toLowerCase();
+        reserveMap.set(cleanSku, (reserveMap.get(cleanSku) || 0) + (r.reservedQuantity || 0));
+      });
+
+      setInventory((prevInv) => {
+        const updated = prevInv.map((item) => {
+          const cleanSku = (item.sku || '').trim().toLowerCase();
+          const actualReserved = reserveMap.get(cleanSku) || 0;
+          const actualAvailable = Math.max(0, (item.totalQuantity || 0) - actualReserved);
+          if (item.reservedQuantity !== actualReserved || item.availableQuantity !== actualAvailable) {
+            return {
+              ...item,
+              reservedQuantity: actualReserved,
+              availableQuantity: actualAvailable,
+              updatedAt: new Date().toISOString().split('T')[0],
+            };
+          }
+          return item;
+        });
+        saveInventoryToIndexedDB(updated);
+        return updated;
+      });
+    }
+  }, [customers.length]);
 
   // Sync all current state to Google Cloud Firestore on demand
   const syncAllToCloudNow = async () => {
@@ -971,12 +1061,46 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const deleteUser = (userId: string) => {
+    const targetUser = users.find((u) => u.id === userId);
+    if (!targetUser) return;
+
+    // 1. Remove user from state and storage
     setUsers((prev) => {
       const newList = prev.filter((u) => u.id !== userId);
-      localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(newList));
+      safeSetLocalStorage(STORAGE_KEYS.USERS, newList);
       return newList;
     });
     deleteUserFromCloud(userId);
+
+    // 2. If deleting Sales C2: reassign their customers to their Manager C1 so customers are not orphaned
+    if (targetUser.role === 'sales_c2') {
+      const mgrId = targetUser.managerId || targetUser.createdBy;
+      const mgr = users.find((u) => u.id === mgrId);
+
+      if (mgr) {
+        setCustomers((prev) => {
+          const updated = prev.map((c) => {
+            if (c.assignedToId === userId || c.createdBy === userId) {
+              const newAssigneeId = c.assignedToId === userId ? mgr.id : c.assignedToId;
+              const newAssigneeName = c.assignedToId === userId ? mgr.name : c.assignedToName;
+              const newMemberIds = (c.memberIds || []).filter((id) => id !== userId);
+              if (!newMemberIds.includes(mgr.id)) newMemberIds.push(mgr.id);
+              const updatedCust = {
+                ...c,
+                assignedToId: newAssigneeId,
+                assignedToName: newAssigneeName,
+                memberIds: newMemberIds,
+                updatedAt: new Date().toISOString().split('T')[0],
+              };
+              syncCustomerToCloud(updatedCust);
+              return updatedCust;
+            }
+            return c;
+          });
+          return updated;
+        });
+      }
+    }
   };
 
   // -------------------------------------------------------------
@@ -1323,8 +1447,85 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const deleteCustomer = (customerId: string) => {
+    // 1. Remove customer from state and Cloud Firestore
     setCustomers((prev) => prev.filter((c) => c.id !== customerId));
     deleteCustomerFromCloud(customerId);
+    deleteCustomerMemberFromCloud(`cm-${customerId}`);
+
+    // 2. Cascade delete all quotations for this customer
+    const quotesToDelete = quotations.filter((q) => q.customerId === customerId);
+    if (quotesToDelete.length > 0) {
+      const quoteIds = quotesToDelete.map((q) => q.id);
+      setQuotations((prev) => prev.filter((q) => q.customerId !== customerId));
+      batchDeleteQuotationsFromCloud(quoteIds);
+    }
+
+    // 3. Cascade delete all contracts for this customer
+    const contractsToDelete = contracts.filter((c) => c.customerId === customerId);
+    if (contractsToDelete.length > 0) {
+      const contractIds = contractsToDelete.map((c) => c.id);
+      setContracts((prev) => prev.filter((c) => c.customerId !== customerId));
+      batchDeleteContractsFromCloud(contractIds);
+    }
+
+    // 4. Cascade delete all reserve items for this customer & identify affected SKUs
+    const reservesToDelete = reserveItems.filter((r) => r.customerId === customerId);
+    const affectedSkus = new Set<string>();
+
+    if (reservesToDelete.length > 0) {
+      const reserveIds = reservesToDelete.map((r) => r.id);
+      reservesToDelete.forEach((r) => {
+        if (r.sku) affectedSkus.add(r.sku.trim().toLowerCase());
+      });
+
+      setReserveItems((prev) => prev.filter((r) => r.customerId !== customerId));
+      batchDeleteReservesFromCloud(reserveIds);
+    }
+
+    // 5. Cascade delete all order items for this customer
+    const ordersToDelete = orderItems.filter((o) => o.customerId === customerId);
+    if (ordersToDelete.length > 0) {
+      const orderIds = ordersToDelete.map((o) => o.id);
+      setOrderItems((prev) => prev.filter((o) => o.customerId !== customerId));
+      batchDeleteOrdersFromCloud(orderIds);
+    }
+
+    // 6. CRITICAL: Release reserved quantity and re-calculate available inventory for all affected SKUs
+    if (affectedSkus.size > 0) {
+      setInventory((prevInv) => {
+        // Remaining valid holding reserves for other customers
+        const remainingHoldingReserves = reserveItems.filter(
+          (r) => r.customerId !== customerId && r.status === 'holding'
+        );
+        const reserveMap = new Map<string, number>();
+        remainingHoldingReserves.forEach((r) => {
+          const cleanSku = (r.sku || '').trim().toLowerCase();
+          reserveMap.set(cleanSku, (reserveMap.get(cleanSku) || 0) + (r.reservedQuantity || 0));
+        });
+
+        const updatedInv = prevInv.map((item) => {
+          const cleanSku = (item.sku || '').trim().toLowerCase();
+          if (affectedSkus.has(cleanSku)) {
+            const actualReserved = reserveMap.get(cleanSku) || 0;
+            const actualAvailable = Math.max(0, (item.totalQuantity || 0) - actualReserved);
+            return {
+              ...item,
+              reservedQuantity: actualReserved,
+              availableQuantity: actualAvailable,
+              updatedAt: new Date().toISOString().split('T')[0],
+            };
+          }
+          return item;
+        });
+
+        saveInventoryToIndexedDB(updatedInv);
+        const changedItems = updatedInv.filter((i) => affectedSkus.has((i.sku || '').trim().toLowerCase()));
+        if (changedItems.length > 0) {
+          batchSyncInventoryToCloud(changedItems);
+        }
+        return updatedInv;
+      });
+    }
   };
 
   // =========================================================================
@@ -2406,48 +2607,64 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   // Logistics Split tables (Reserve & Order) - RBAC Filter:
-  // - Super Admin: returns [] (Super Admin quản lý kho tổng, không xem danh sách giữ/đặt riêng lẻ của sale)
-  // - Cấp 1: views items created by self or their managed C2 sales team
-  // - Level 2: ONLY views items associated with contracts of customers they have permission for
+  // - Super Admin: views all valid records belonging to existing customers
+  // - Cấp 1: views valid items within their organization belonging to existing customers
+  // - Level 2: ONLY views valid items associated with contracts of customers they have permission for
   const filteredReserveItems = useMemo(() => {
-    if (currentUser.role === 'super_admin') return reserveItems; // Super Admin sees all
+    const validCustomerIds = new Set(customers.map((c) => c.id));
+    
+    if (currentUser.role === 'super_admin') {
+      return reserveItems.filter((r) => r.customerId && validCustomerIds.has(r.customerId));
+    }
     
     const myOrgId = resolveOrganizationId(currentUser, users);
-    const orgItems = reserveItems.filter((r) => r.organizationId === myOrgId);
+    const orgItems = reserveItems.filter((r) => {
+      if (!r.customerId || !validCustomerIds.has(r.customerId)) return false;
+      return !r.organizationId || r.organizationId === myOrgId;
+    });
     
     if (currentUser.role === 'manager_c1') return orgItems;
     
-    // Level 2: filter by customer permission (inherited through contract → customer)
+    // Level 2: filter strictly by customer permission
     return orgItems.filter((r) => {
-      const customer = customers.find(c => c.id === r.customerId);
+      const customer = customers.find((c) => c.id === r.customerId);
       if (customer) return canLevel2AccessCustomer(currentUser.id, customer);
-      // Fallback: match by salesRepName
-      return r.salesRepName === currentUser.name;
+      return false;
     });
   }, [reserveItems, currentUser, users, customers]);
 
   const filteredOrderItems = useMemo(() => {
-    if (currentUser.role === 'super_admin') return orderItems; // Super Admin sees all
+    const validCustomerIds = new Set(customers.map((c) => c.id));
+    
+    if (currentUser.role === 'super_admin') {
+      return orderItems.filter((o) => o.customerId && validCustomerIds.has(o.customerId));
+    }
     
     const myOrgId = resolveOrganizationId(currentUser, users);
-    const orgItems = orderItems.filter((o) => o.organizationId === myOrgId);
+    const orgItems = orderItems.filter((o) => {
+      if (!o.customerId || !validCustomerIds.has(o.customerId)) return false;
+      return !o.organizationId || o.organizationId === myOrgId;
+    });
     
     if (currentUser.role === 'manager_c1') return orgItems;
     
-    // Level 2: filter by customer permission (inherited through contract → customer)
+    // Level 2: filter strictly by customer permission
     return orgItems.filter((o) => {
-      const customer = customers.find(c => c.id === o.customerId);
+      const customer = customers.find((c) => c.id === o.customerId);
       if (customer) return canLevel2AccessCustomer(currentUser.id, customer);
-      // Fallback: match by salesRepName
-      return o.salesRepName === currentUser.name;
+      return false;
     });
   }, [orderItems, currentUser, users, customers]);
 
-  // Derived synced inventory: ensures reservedQuantity matches active holding reserves, and available is total - reserved
+  // Derived synced inventory: ensures reservedQuantity matches active holding reserves of VALID existing customers,
+  // and available is total - reserved
   const syncedInventory = useMemo(() => {
+    const validCustomerIds = new Set(customers.map((c) => c.id));
     const reserveMap = new Map<string, number>();
+
     reserveItems.forEach((r) => {
-      if (r.status === 'holding') {
+      // ONLY holding reserves linked to an ACTIVE, VALID customer lock inventory stock
+      if (r.status === 'holding' && r.customerId && validCustomerIds.has(r.customerId)) {
         const cleanSku = (r.sku || '').trim().toLowerCase();
         reserveMap.set(cleanSku, (reserveMap.get(cleanSku) || 0) + (r.reservedQuantity || 0));
       }
@@ -2464,7 +2681,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         availableQuantity: actualAvailable,
       };
     });
-  }, [inventory, reserveItems]);
+  }, [inventory, reserveItems, customers]);
 
   const updateReserveStatus = (id: string, status: 'holding' | 'dispatched' | 'cancelled') => {
     setReserveItems((prev) => {

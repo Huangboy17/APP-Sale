@@ -39,8 +39,8 @@ import {
 const InventoryMasterContent: React.FC = () => {
   const {
     inventory,
-    reserveItems,
-    orderItems,
+    filteredReserveItems,
+    filteredOrderItems,
     customers,
     contracts,
     quotations,
@@ -158,9 +158,9 @@ const InventoryMasterContent: React.FC = () => {
     setReceiveModalOrder(null);
   };
 
-  // Holding & Pending Order counts
-  const activeReservesCount = reserveItems.filter((r) => r.status === 'holding').length;
-  const activeOrdersCount = orderItems.filter((o) => o.status === 'pending_order' || o.status === 'ordered').length;
+  // Holding & Pending Order counts (excluding orphan records)
+  const activeReservesCount = filteredReserveItems.filter((r) => r.status === 'holding').length;
+  const activeOrdersCount = filteredOrderItems.filter((o) => o.status === 'pending_order' || o.status === 'ordered').length;
   const criticalCount = inventory.filter((i) => i.availableQuantity <= 5).length;
 
   return (
@@ -257,8 +257,8 @@ const InventoryMasterContent: React.FC = () => {
       {/* DASHBOARD KPI OVERVIEW STRIP */}
       <WarehouseOverviewStats
         inventory={inventory}
-        reserveItems={reserveItems}
-        orderItems={orderItems}
+        reserveItems={filteredReserveItems}
+        orderItems={filteredOrderItems}
         onSelectTab={(tabKey) => setActiveSubTab(tabKey)}
       />
 
@@ -585,7 +585,7 @@ const InventoryMasterContent: React.FC = () => {
       {/* TAB 2: HOLDING RESERVES */}
       {activeSubTab === 'holding_reserves' && (
         <ReservedItemsWarehouseTable
-          reserveItems={reserveItems}
+          reserveItems={filteredReserveItems}
           customers={customers}
           contracts={contracts}
           onOpenDispatchModal={(resItem) => setDispatchModalItem(resItem)}
@@ -596,7 +596,7 @@ const InventoryMasterContent: React.FC = () => {
       {/* TAB 3: CONTRACT ORDERS NEEDED */}
       {activeSubTab === 'contract_orders' && (
         <ContractOrdersWarehouseTable
-          orderItems={orderItems}
+          orderItems={filteredOrderItems}
           contracts={contracts}
           customers={customers}
           onOpenReceiveModal={(order) => setReceiveModalOrder(order)}

@@ -33,9 +33,9 @@ interface ItemReservationsModalProps {
 
 export const ItemReservationsModal: React.FC<ItemReservationsModalProps> = ({ item, onClose }) => {
   const {
-    reserveItems,
+    filteredReserveItems,
     contracts,
-    quotations,
+    filteredQuotations,
     customers,
     currentUser,
     updateReserveStatus,
@@ -49,8 +49,8 @@ export const ItemReservationsModal: React.FC<ItemReservationsModalProps> = ({ it
 
   if (!item) return null;
 
-  // Filter all reserve items for this SKU (case-insensitive & trimmed)
-  const itemReserves = reserveItems.filter(
+  // Filter all reserve items for this SKU (case-insensitive & trimmed) - strictly excluding orphan data
+  const itemReserves = filteredReserveItems.filter(
     (r) =>
       (r.sku || '').trim().toLowerCase() === (item.sku || '').trim().toLowerCase() ||
       (r.productName && item.name && r.productName.trim().toLowerCase() === item.name.trim().toLowerCase())
@@ -60,7 +60,7 @@ export const ItemReservationsModal: React.FC<ItemReservationsModalProps> = ({ it
   const totalHoldingQty = activeHolds.reduce((sum, r) => sum + r.reservedQuantity, 0);
 
   // Find quotations in draft/sent/negotiating that contain this SKU
-  const pipelineQuotes = quotations
+  const pipelineQuotes = filteredQuotations
     .filter(
       (q) =>
         (q.status === 'draft' || q.status === 'sent' || q.status === 'negotiating') &&
