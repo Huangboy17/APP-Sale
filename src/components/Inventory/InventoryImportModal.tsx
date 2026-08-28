@@ -14,6 +14,7 @@ import {
   Boxes,
   Layers,
   ArrowRight,
+  Building2,
 } from 'lucide-react';
 
 interface ParsedInventoryRow {
@@ -37,7 +38,7 @@ interface InventoryImportModalProps {
 }
 
 export const InventoryImportModal: React.FC<InventoryImportModalProps> = ({ isOpen, onClose }) => {
-  const { inventory, products, importInventory } = useApp();
+  const { inventory, products, importInventory, companyScope, currentUser } = useApp();
 
   const [file, setFile] = useState<File | null>(null);
   const [parsedRows, setParsedRows] = useState<ParsedInventoryRow[]>([]);
@@ -268,6 +269,21 @@ export const InventoryImportModal: React.FC<InventoryImportModalProps> = ({ isOp
 
         {/* Modal Body */}
         <div className="p-4 space-y-4 overflow-y-auto flex-1 text-slate-800 text-xs">
+          {/* Target Company Alert */}
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-2.5 flex items-center justify-between">
+            <div className="flex items-center space-x-2">
+              <Building2 className="w-4 h-4 text-blue-700 shrink-0" />
+              <div>
+                <span className="font-bold text-blue-900">Kho hàng doanh nghiệp: </span>
+                <span className="font-semibold text-blue-800">{companyScope.companyName}</span>
+                <span className="text-slate-500 ml-1.5">({currentUser.name} - {currentUser.role === 'manager_c1' ? 'Cấp 1' : 'Cấp 2'})</span>
+              </div>
+            </div>
+            <span className="text-[11px] font-medium text-emerald-700 bg-emerald-100/80 px-2 py-0.5 rounded border border-emerald-300 shrink-0">
+              Độc quyền công ty
+            </span>
+          </div>
+
           {/* Upload / Drag-drop Zone */}
           {!file ? (
             <div

@@ -30,6 +30,7 @@ import {
   PackageCheck,
   CheckCircle2,
   RefreshCw,
+  Building2,
 } from 'lucide-react';
 
 export const InventoryMaster: React.FC = () => {
@@ -48,6 +49,7 @@ export const InventoryMaster: React.FC = () => {
     receiveOrderToWarehouseAndReserve,
     setPdfPreviewData,
     currentUser,
+    companyScope,
   } = useApp();
 
   // Navigation tab inside Inventory & Warehouse module
@@ -70,7 +72,7 @@ export const InventoryMaster: React.FC = () => {
   const [dispatchModalItem, setDispatchModalItem] = useState<ReserveItem | null>(null);
   const [receiveModalOrder, setReceiveModalOrder] = useState<OrderItem | null>(null);
 
-  const isManagerOrAdmin = currentUser.role === 'super_admin' || currentUser.role === 'manager_c1';
+  const canManageInventory = currentUser.role === 'manager_c1' || currentUser.role === 'sales_c2';
 
   // Extract distinct warehouse locations
   const locationList = Array.from(
@@ -149,6 +151,38 @@ export const InventoryMaster: React.FC = () => {
 
   return (
     <div className="space-y-4">
+      {/* Company Tenant Scope Banner */}
+      <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-lg p-3 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5 text-xs">
+        <div className="flex items-center space-x-2.5">
+          <div className="p-2 bg-blue-600 text-white rounded-md shrink-0 shadow-xs">
+            <Building2 className="w-4 h-4" />
+          </div>
+          <div>
+            <div className="font-bold text-slate-900 flex items-center space-x-2">
+              <span>{companyScope.companyName}</span>
+              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-blue-800 border border-blue-300">
+                {currentUser.role === 'manager_c1'
+                  ? 'Quản lý Cấp 1 (Công ty)'
+                  : currentUser.role === 'sales_c2'
+                  ? 'Kinh doanh Cấp 2 (Thuộc công ty)'
+                  : 'Super Admin Quản trị'}
+              </span>
+            </div>
+            <p className="text-slate-600 text-[11px] mt-0.5">
+              {currentUser.role === 'super_admin'
+                ? 'Super Admin chỉ quản trị tài khoản hệ thống. Mỗi công ty Cấp 1 sở hữu và quản lý dữ liệu kho độc lập.'
+                : 'Kho hàng và dữ liệu giữ hàng được cách ly theo từng công ty. Cấp 1 và Cấp 2 thuộc cùng công ty dùng chung kho hàng này.'}
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center space-x-2 shrink-0 self-end sm:self-center">
+          <span className="inline-flex items-center space-x-1 px-2.5 py-1 bg-white/80 border border-blue-200 rounded-md font-medium text-slate-700 text-[11px]">
+            <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+            <span>Đã kết nối Cloud Firestore</span>
+          </span>
+        </div>
+      </div>
+
       {/* Top Header */}
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 bg-white p-4 rounded-xl border border-slate-200 shadow-2xs">
         <div>
@@ -183,23 +217,25 @@ export const InventoryMaster: React.FC = () => {
             <span>Xuất Excel ({inventory.length})</span>
           </button>
 
-          <button
-            onClick={() => setIsImportModalOpen(true)}
-            className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-900 text-white rounded-lg text-xs font-bold flex items-center space-x-1 shadow-2xs transition cursor-pointer"
-            title="Import tồn kho từ file Excel"
-          >
-            <Upload className="w-3.5 h-3.5" />
-            <span>Import Excel</span>
-          </button>
+          {canManageInventory && (
+            <>
+              <button
+                onClick={() => setIsImportModalOpen(true)}
+                className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-900 text-white rounded-lg text-xs font-bold flex items-center space-x-1 shadow-2xs transition cursor-pointer"
+                title="Import tồn kho từ file Excel"
+              >
+                <Upload className="w-3.5 h-3.5" />
+                <span>Import Excel</span>
+              </button>
 
-          {isManagerOrAdmin && (
-            <button
-              onClick={handleOpenAddModal}
-              className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold flex items-center space-x-1 shadow-2xs transition cursor-pointer"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span>+ Thêm Mã Hàng</span>
-            </button>
+              <button
+                onClick={handleOpenAddModal}
+                className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold flex items-center space-x-1 shadow-2xs transition cursor-pointer"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>+ Thêm Mã Hàng</span>
+              </button>
+            </>
           )}
         </div>
       </div>
@@ -364,17 +400,21 @@ export const InventoryMaster: React.FC = () => {
                     </th>
                     <th className="px-3.5 py-3">Vị Trí Kệ Lưu Kho</th>
                     <th className="px-3.5 py-3 text-center">Cập Nhật</th>
-                    {isManagerOrAdmin && <th className="px-3.5 py-3 text-center">Kiểm Kê Nhanh & Thao Tác</th>}
+                    {canManageInventory && <th className="px-3.5 py-3 text-center">Kiểm Kê Nhanh & Thao Tác</th>}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-slate-700">
                   {displayedInventory.length === 0 ? (
                     <tr>
-                      <td colSpan={9} className="px-4 py-12 text-center text-slate-400">
+                      <td colSpan={canManageInventory ? 9 : 8} className="px-4 py-12 text-center text-slate-400">
                         <div className="flex flex-col items-center justify-center space-y-2">
                           <Boxes className="w-8 h-8 text-slate-300" />
-                          <p className="font-semibold text-sm">Không tìm thấy dữ liệu tồn kho nào phù hợp</p>
-                          <p className="text-xs text-slate-400">Thử thay đổi từ khóa tìm kiếm hoặc điều kiện lọc</p>
+                          <p className="font-semibold text-sm">
+                            {currentUser.role === 'super_admin'
+                              ? 'Tài khoản Super Admin không hiển thị kho hàng bán lẻ của các công ty. Vui lòng đăng nhập tài khoản Cấp 1 tương ứng để xem và quản lý kho.'
+                              : 'Không tìm thấy dữ liệu tồn kho nào phù hợp'}
+                          </p>
+                          <p className="text-xs text-slate-400">Thử thay đổi từ khóa tìm kiếm hoặc bấm "Import Excel" để nạp tồn kho ban đầu</p>
                         </div>
                       </td>
                     </tr>
@@ -385,7 +425,7 @@ export const InventoryMaster: React.FC = () => {
                         <td className="px-3.5 py-2.5 font-bold text-slate-900 line-clamp-1" title={item.name}>
                           {item.name}
                         </td>
-                        <td className="px-3 py-2.5 text-center font-medium text-slate-600">{item.unit}</td>
+                        <td className="px-3.5 py-2.5 text-center font-medium text-slate-600">{item.unit}</td>
                         <td className="px-3.5 py-2.5 text-center font-bold text-slate-900 font-mono">
                           {item.totalQuantity}
                         </td>
@@ -440,7 +480,7 @@ export const InventoryMaster: React.FC = () => {
                         </td>
 
                         {/* Management Actions */}
-                        {isManagerOrAdmin && (
+                        {canManageInventory && (
                           <td className="px-3.5 py-2.5 text-center">
                             <div className="flex items-center justify-center space-x-1">
                               <button

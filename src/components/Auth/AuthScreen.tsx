@@ -40,16 +40,15 @@ export const AuthScreen: React.FC = () => {
   const [showLoginPassword, setShowLoginPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(true);
 
-  // Register Form State
+  // Register Form State (Always Cấp 1 - Giám Đốc / Doanh Nghiệp)
   const [regName, setRegName] = useState('');
+  const [regCompany, setRegCompany] = useState('');
+  const [regPosition, setRegPosition] = useState('Giám Đốc / Chủ Doanh Nghiệp');
   const [regEmail, setRegEmail] = useState('');
   const [regPhone, setRegPhone] = useState('');
   const [regPassword, setRegPassword] = useState('');
   const [regConfirmPassword, setRegConfirmPassword] = useState('');
   const [showRegPassword, setShowRegPassword] = useState(false);
-  const [regRole, setRegRole] = useState<UserRole>('sales_c2');
-  const [regDepartment, setRegDepartment] = useState('Phòng Kinh Doanh Dự Án 1');
-  const [regManagerId, setRegManagerId] = useState('');
 
   // Forgot Password State
   const [forgotEmail, setForgotEmail] = useState('');
@@ -60,8 +59,6 @@ export const AuthScreen: React.FC = () => {
   // Feedback notifications
   const [alert, setAlert] = useState<{ type: 'error' | 'success' | 'info'; message: string } | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-
-  const managersC1 = users.filter((u) => u.role === 'manager_c1' && u.status === 'active');
 
   const handleLoginSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -92,7 +89,7 @@ export const AuthScreen: React.FC = () => {
     }
 
     if (!regEmail.includes('@') || !regEmail.includes('.')) {
-      setAlert({ type: 'error', message: 'Định dạng Email không hợp lệ. Ví dụ: sales@company.vn' });
+      setAlert({ type: 'error', message: 'Định dạng Email không hợp lệ. Ví dụ: giamdoc@company.vn' });
       return;
     }
 
@@ -108,21 +105,25 @@ export const AuthScreen: React.FC = () => {
 
     setIsLoading(true);
     setTimeout(() => {
+      // Đăng ký tài khoản công khai luôn luôn là Cấp 1 (Chờ Super Admin phê duyệt)
       const res = register({
         name: regName.trim(),
         email: regEmail.trim(),
         phone: regPhone.trim() || '0901234567',
         password: regPassword || '123456',
-        role: regRole,
-        department: regDepartment,
-        managerId: regRole === 'sales_c2' ? (regManagerId || managersC1[0]?.id) : undefined,
+        department: regCompany.trim() || 'Công Ty Đối Tác / Ban Giám Đốc C1',
+        position: regPosition.trim() || 'Giám Đốc / Chủ Doanh Nghiệp',
+        role: 'manager_c1',
       });
 
       setIsLoading(false);
       if (!res.success) {
         setAlert({ type: 'error', message: res.message });
       } else {
-        setAlert({ type: 'success', message: res.message });
+        setAlert({
+          type: 'success',
+          message: 'Đăng ký tài khoản Doanh Nghiệp (Cấp 1) thành công! Hồ sơ của bạn đã được chuyển tới Super Admin để xét duyệt kích hoạt.',
+        });
       }
     }, 300);
   };
@@ -257,7 +258,7 @@ export const AuthScreen: React.FC = () => {
                     <span className="text-[10px] text-blue-400 font-mono">L1 Director</span>
                   </div>
                   <p className="text-slate-400 text-[11px] mt-0.5">
-                    Tạo tài khoản C2, quản lý toàn bộ khách hàng & báo giá thuộc phòng, theo dõi hợp đồng và chốt tiến độ.
+                    Đăng ký tài khoản doanh nghiệp (chờ Super Admin duyệt). Trực tiếp tạo & cấp tài khoản cho nhân viên C2, quản lý toàn bộ khách hàng & doanh số phòng.
                   </p>
                 </div>
               </div>
@@ -272,7 +273,7 @@ export const AuthScreen: React.FC = () => {
                     <span className="text-[10px] text-emerald-400 font-mono">L2 Sales</span>
                   </div>
                   <p className="text-slate-400 text-[11px] mt-0.5">
-                    Lập báo giá nhiều phiên bản (v1, v2...), kiểm tra giá DP sàn, chốt HĐ tự động tách bảng Giữ/Đặt hàng.
+                    Do Giám đốc Cấp 1 tạo và cấp quyền (không cần tự đăng ký). Lập báo giá nhiều phiên bản, kiểm tra giá DP sàn, chốt HĐ tự động tách bảng Giữ/Đặt hàng.
                   </p>
                 </div>
               </div>
@@ -376,8 +377,8 @@ export const AuthScreen: React.FC = () => {
                       : 'border-transparent text-slate-400 hover:text-slate-200'
                   }`}
                 >
-                  <UserIcon className="w-4 h-4" />
-                  <span>Đăng Ký Tài Khoản</span>
+                  <Briefcase className="w-4 h-4" />
+                  <span>Đăng Ký Cấp 1</span>
                 </button>
 
                 <button
@@ -520,13 +521,25 @@ export const AuthScreen: React.FC = () => {
                 </form>
               )}
 
-              {/* MODE 2: REGISTER FORM */}
+              {/* MODE 2: REGISTER FORM (STRICTLY C1 & PENDING SUPER ADMIN APPROVAL) */}
               {authScreenMode === 'register' && (
                 <form onSubmit={handleRegisterSubmit} className="space-y-3.5">
+                  {/* Notice Banner */}
+                  <div className="p-3 rounded-xl bg-blue-950/60 border border-blue-800/60 text-xs space-y-1.5 text-slate-300">
+                    <div className="flex items-center space-x-2 font-bold text-blue-300">
+                      <ShieldCheck className="w-4 h-4 text-blue-400 shrink-0" />
+                      <span>Quy định Đăng ký Tài khoản Doanh nghiệp:</span>
+                    </div>
+                    <ul className="list-disc list-inside text-[11px] text-slate-300 space-y-0.5 pl-1">
+                      <li>Tài khoản đăng ký mới sẽ <strong className="text-white">luôn là Cấp 1 (Giám Đốc / Chủ Doanh Nghiệp)</strong> và sẽ được Super Admin xem xét phê duyệt kích hoạt.</li>
+                      <li>Tài khoản <strong className="text-emerald-300">Nhân viên Sales (Cấp 2)</strong> không cần đăng ký tại đây mà do tài khoản Cấp 1 trực tiếp tạo và quản lý trong hệ thống.</li>
+                    </ul>
+                  </div>
+
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
                       <label className="block text-xs font-semibold text-slate-300 mb-1">
-                        Họ và tên <span className="text-rose-400">*</span>
+                        Họ và tên Giám đốc / Đại diện <span className="text-rose-400">*</span>
                       </label>
                       <div className="relative">
                         <UserIcon className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
@@ -534,7 +547,7 @@ export const AuthScreen: React.FC = () => {
                           type="text"
                           value={regName}
                           onChange={(e) => setRegName(e.target.value)}
-                          placeholder="Nguyễn Văn A"
+                          placeholder="Ví dụ: Nguyễn Văn Hùng"
                           required
                           className="w-full pl-9 pr-3 py-2 bg-slate-900/80 border border-slate-700 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-hidden focus:ring-2 focus:ring-blue-500"
                         />
@@ -543,7 +556,7 @@ export const AuthScreen: React.FC = () => {
 
                     <div>
                       <label className="block text-xs font-semibold text-slate-300 mb-1">
-                        Số điện thoại <span className="text-rose-400">*</span>
+                        Số điện thoại liên hệ <span className="text-rose-400">*</span>
                       </label>
                       <div className="relative">
                         <Phone className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
@@ -558,9 +571,44 @@ export const AuthScreen: React.FC = () => {
                     </div>
                   </div>
 
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-300 mb-1">
+                        Tên Doanh nghiệp / Công ty C1 <span className="text-rose-400">*</span>
+                      </label>
+                      <div className="relative">
+                        <Building className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                        <input
+                          type="text"
+                          value={regCompany}
+                          onChange={(e) => setRegCompany(e.target.value)}
+                          placeholder="Công ty CP Thiết Bị & Thương Mại..."
+                          required
+                          className="w-full pl-9 pr-3 py-2 bg-slate-900/80 border border-slate-700 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-hidden focus:ring-2 focus:ring-blue-500"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-300 mb-1">
+                        Chức vụ / Vị trí
+                      </label>
+                      <div className="relative">
+                        <Briefcase className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                        <input
+                          type="text"
+                          value={regPosition}
+                          onChange={(e) => setRegPosition(e.target.value)}
+                          placeholder="Giám Đốc / Chủ Doanh Nghiệp"
+                          className="w-full pl-9 pr-3 py-2 bg-slate-900/80 border border-slate-700 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-hidden focus:ring-2 focus:ring-blue-500"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
                   <div>
                     <label className="block text-xs font-semibold text-slate-300 mb-1">
-                      Email công việc <span className="text-rose-400">*</span>
+                      Email công việc (Tài khoản đăng nhập) <span className="text-rose-400">*</span>
                     </label>
                     <div className="relative">
                       <Mail className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
@@ -568,94 +616,11 @@ export const AuthScreen: React.FC = () => {
                         type="email"
                         value={regEmail}
                         onChange={(e) => setRegEmail(e.target.value)}
-                        placeholder="ten.nguyen@salesflow.vn"
+                        placeholder="giamdoc@congty.vn"
                         required
                         className="w-full pl-9 pr-3 py-2 bg-slate-900/80 border border-slate-700 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-hidden focus:ring-2 focus:ring-blue-500"
                       />
                     </div>
-                  </div>
-
-                  {/* Role Selector */}
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-300 mb-1.5">
-                      Đăng ký Vai trò / Cấp bậc <span className="text-rose-400">*</span>
-                    </label>
-                    <div className="grid grid-cols-2 gap-2.5">
-                      <button
-                        type="button"
-                        onClick={() => setRegRole('sales_c2')}
-                        className={`p-2.5 rounded-xl border text-left transition flex flex-col justify-between ${
-                          regRole === 'sales_c2'
-                            ? 'bg-emerald-950/60 border-emerald-500 text-emerald-200'
-                            : 'bg-slate-900/50 border-slate-700 text-slate-400 hover:border-slate-600'
-                        }`}
-                      >
-                        <div className="flex items-center space-x-1.5 font-bold text-xs">
-                          <UserCheck className="w-3.5 h-3.5 text-emerald-400" />
-                          <span>Sales (Cấp 2)</span>
-                        </div>
-                        <span className="text-[10px] mt-1 text-slate-400">
-                          Tự động kích hoạt ngay để tạo báo giá
-                        </span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => setRegRole('manager_c1')}
-                        className={`p-2.5 rounded-xl border text-left transition flex flex-col justify-between ${
-                          regRole === 'manager_c1'
-                            ? 'bg-blue-950/60 border-blue-500 text-blue-200'
-                            : 'bg-slate-900/50 border-slate-700 text-slate-400 hover:border-slate-600'
-                        }`}
-                      >
-                        <div className="flex items-center space-x-1.5 font-bold text-xs">
-                          <Briefcase className="w-3.5 h-3.5 text-blue-400" />
-                          <span>Giám Đốc (Cấp 1)</span>
-                        </div>
-                        <span className="text-[10px] mt-1 text-slate-400">
-                          Gửi yêu cầu chờ Super Admin phê duyệt
-                        </span>
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Manager and Department fields */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-300 mb-1">
-                        Phòng ban / Đội ngũ
-                      </label>
-                      <div className="relative">
-                        <Building className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                        <input
-                          type="text"
-                          value={regDepartment}
-                          onChange={(e) => setRegDepartment(e.target.value)}
-                          placeholder="Phòng Kinh Doanh Dự Án 1"
-                          className="w-full pl-9 pr-3 py-2 bg-slate-900/80 border border-slate-700 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-hidden focus:ring-2 focus:ring-blue-500"
-                        />
-                      </div>
-                    </div>
-
-                    {regRole === 'sales_c2' && (
-                      <div>
-                        <label className="block text-xs font-semibold text-slate-300 mb-1">
-                          Trưởng phòng (C1) quản lý
-                        </label>
-                        <select
-                          value={regManagerId}
-                          onChange={(e) => setRegManagerId(e.target.value)}
-                          className="w-full px-3 py-2 bg-slate-900/80 border border-slate-700 rounded-xl text-xs text-white focus:outline-hidden focus:ring-2 focus:ring-blue-500 cursor-pointer"
-                        >
-                          <option value="">Chọn Giám Đốc Cấp 1</option>
-                          {managersC1.map((m) => (
-                            <option key={m.id} value={m.id}>
-                              {m.name} ({m.department})
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                    )}
                   </div>
 
                   {/* Passwords */}
@@ -677,7 +642,7 @@ export const AuthScreen: React.FC = () => {
                         <button
                           type="button"
                           onClick={() => setShowRegPassword(!showRegPassword)}
-                          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200"
+                          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200 cursor-pointer"
                         >
                           {showRegPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
                         </button>
@@ -705,14 +670,14 @@ export const AuthScreen: React.FC = () => {
                   <button
                     type="submit"
                     disabled={isLoading}
-                    className="w-full mt-2 py-3 bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white rounded-xl font-bold text-sm transition shadow-lg shadow-emerald-600/30 flex items-center justify-center space-x-2 cursor-pointer disabled:opacity-50"
+                    className="w-full mt-2 py-3 bg-blue-600 hover:bg-blue-500 active:bg-blue-700 text-white rounded-xl font-bold text-sm transition shadow-lg shadow-blue-600/30 flex items-center justify-center space-x-2 cursor-pointer disabled:opacity-50"
                   >
                     {isLoading ? (
                       <span className="inline-block w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                     ) : (
                       <>
-                        <span>Tạo Tài Khoản & Bắt Đầu</span>
-                        <ArrowRight className="w-4 h-4" />
+                        <Briefcase className="w-4 h-4" />
+                        <span>Gửi Đăng Ký Tài Khoản Cấp 1 (Chờ Super Admin Duyệt)</span>
                       </>
                     )}
                   </button>
@@ -725,7 +690,7 @@ export const AuthScreen: React.FC = () => {
                         setAlert(null);
                         setAuthScreenMode('login');
                       }}
-                      className="text-blue-400 hover:underline font-bold"
+                      className="text-blue-400 hover:underline font-bold cursor-pointer"
                     >
                       Đăng nhập ngay
                     </button>

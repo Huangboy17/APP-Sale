@@ -53,14 +53,14 @@ export const StandardQuotationDocument: React.FC<StandardQuotationDocumentProps>
   const customerPhone = customConfig?.customerPhone || quote?.customerPhone || '0978 322 208';
   const contactPerson = customConfig?.contactPerson || quote?.contactPerson || 'CHỊ HUYỀN';
 
-  // Seller / Company Identity (From C1 Brand Settings or Quote Overrides)
-  const companyName = customConfig?.companyName || quote?.companyName || globalCompany?.name || 'CÔNG TY TNHH HHG HOLDINGS';
-  const companyAddress = customConfig?.companyAddress || quote?.companyAddress || globalCompany?.address || 'Số 5-6-7 The Premier, Tôn Thất Thuyết, Cầu Giấy, Hà Nội';
-  const companyHotline = customConfig?.companyHotline || quote?.companyHotline || globalCompany?.phone || globalCompany?.hotline || '+84 243 821 6666';
-  const companyWebsite = customConfig?.companyWebsite || quote?.companyWebsite || globalCompany?.website || 'www.hhg.vn';
-  const companyEmail = customConfig?.companyEmail || quote?.companyEmail || globalCompany?.email || 'info@hhg.vn';
-  const companyTaxCode = quote?.companyTaxCode || globalCompany?.taxCode || '0108999888';
-  const companyLogo = customConfig?.companyLogo || quote?.companyLogo || quote?.companyLogoUrl || globalCompany?.logoUrl || globalCompany?.logo;
+  // Seller / Company Identity (Priority: Custom Config -> Master C1 Settings -> Quote Overrides)
+  const companyName = customConfig?.companyName || globalCompany?.name || quote?.companyName || 'CÔNG TY TNHH HHG HOLDINGS';
+  const companyAddress = customConfig?.companyAddress || globalCompany?.address || quote?.companyAddress || 'Số 5-6-7 The Premier, Tôn Thất Thuyết, Cầu Giấy, Hà Nội';
+  const companyHotline = customConfig?.companyHotline || globalCompany?.phone || globalCompany?.hotline || quote?.companyHotline || '+84 243 821 6666';
+  const companyWebsite = customConfig?.companyWebsite || globalCompany?.website || quote?.companyWebsite || 'www.hhg.vn';
+  const companyEmail = customConfig?.companyEmail || globalCompany?.email || quote?.companyEmail || 'info@hhg.vn';
+  const companyTaxCode = globalCompany?.taxCode || quote?.companyTaxCode || '0108999888';
+  const companyLogo = customConfig?.companyLogo || globalCompany?.logoUrl || globalCompany?.logo || quote?.companyLogo || quote?.companyLogoUrl;
 
   const salesRepName = customConfig?.salesRepName || quote?.salesRepName || appContext?.currentUser?.name || 'Nguyễn Thị Hương';
   const salesRepPhone = customConfig?.salesRepPhone || quote?.salesRepPhone || appContext?.currentUser?.phone || '0978 322 208';
@@ -628,6 +628,23 @@ export const StandardQuotationDocument: React.FC<StandardQuotationDocumentProps>
               <p className="text-slate-600 leading-tight text-[9px]">{leadTimeTerms}</p>
             </div>
           </div>
+
+          {/* Banking details if configured */}
+          {globalCompany?.bankAccountNumber && (
+            <div className="col-span-2 flex items-start space-x-1.5 bg-blue-50/60 p-2 rounded border border-blue-200">
+              <span className="w-4 h-4 rounded-full bg-blue-600 text-white font-black text-[9px] flex items-center justify-center shrink-0">
+                <CreditCard className="w-2.5 h-2.5" />
+              </span>
+              <div className="space-y-0.5 text-[9px]">
+                <strong className="text-blue-950">Thông tin tài khoản nhận thanh toán:</strong>
+                <p className="text-slate-700 leading-tight">
+                  Số TK: <strong className="font-mono text-blue-900 font-bold">{globalCompany.bankAccountNumber}</strong> • Chủ TK:{' '}
+                  <strong className="text-slate-900 uppercase">{globalCompany.bankAccountHolder || globalCompany.name}</strong> •{' '}
+                  {globalCompany.bankName}
+                </p>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
@@ -675,8 +692,8 @@ export const StandardQuotationDocument: React.FC<StandardQuotationDocumentProps>
 
         {/* Formal A4 Print Footer */}
         <div className="text-center pt-2 border-t border-slate-300 text-[8.5px] text-slate-400 flex items-center justify-between">
-          <span>Hệ thống Quản lý Báo giá Dự án SalesFlow • www.hhg.vn</span>
-          <span>Hotline hỗ trợ kỹ thuật: {companyHotline}</span>
+          <span>{companyName} • {companyWebsite || 'Hệ thống Quản lý Báo giá Dự án'}</span>
+          <span>Hotline hỗ trợ: {companyHotline}</span>
           <span>Bản in khổ A4 tiêu chuẩn</span>
         </div>
       </div>

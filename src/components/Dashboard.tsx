@@ -45,6 +45,8 @@ export const Dashboard: React.FC = () => {
     filteredOrderItems,
     inventory,
     products,
+    allProducts,
+    allInventory,
     users,
     setActiveTab,
     setIsCreateQuoteModalOpen,
@@ -61,7 +63,7 @@ export const Dashboard: React.FC = () => {
   const isSalesC2 = currentUser.role === 'sales_c2';
 
   // State for Super Admin mode toggle (System View vs Sales Overview)
-  const [adminViewMode, setAdminViewMode] = useState<'sales_overview' | 'system_admin'>('sales_overview');
+  const [adminViewMode, setAdminViewMode] = useState<'sales_overview' | 'system_admin'>('system_admin');
 
   // Filter state for Sales Overview
   const currentYear = new Date().getFullYear();
@@ -86,11 +88,11 @@ export const Dashboard: React.FC = () => {
       return users.filter(
         (u) =>
           u.role === 'sales_c2' &&
-          (u.managerId === currentUser.id || u.createdBy === currentUser.id || u.department === currentUser.department)
+          (u.managerId === currentUser.id || u.createdBy === currentUser.id)
       );
     }
-    // Sales C2: show self and peers
-    return users.filter((u) => u.role === 'sales_c2' && u.department === currentUser.department);
+    // Sales C2: show only self
+    return users.filter((u) => u.id === currentUser.id);
   }, [users, currentUser, isSuperAdmin, isManagerC1]);
 
   // Apply Sales Rep filter
@@ -267,8 +269,8 @@ export const Dashboard: React.FC = () => {
               <Database className="w-4 h-4 text-emerald-600" />
             </div>
             <div className="flex items-baseline space-x-2 mt-2">
-              <span className="text-2xl font-extrabold text-slate-900">{products.length} mã</span>
-              <span className="text-xs text-emerald-600 font-semibold">{inventory.length} kho</span>
+              <span className="text-2xl font-extrabold text-slate-900">{allProducts.length} mã</span>
+              <span className="text-xs text-emerald-600 font-semibold">{allInventory.length} mã kho</span>
             </div>
             <p className="text-[11px] text-slate-400 mt-1">Bảng giá & Tồn kho toàn hệ thống</p>
           </div>

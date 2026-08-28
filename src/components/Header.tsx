@@ -97,17 +97,33 @@ export const Header: React.FC = () => {
           {/* Google Cloud Firestore Status Indicator */}
           <div
             onClick={() => syncAllToCloudNow()}
-            className="hidden md:inline-flex items-center space-x-1.5 bg-emerald-50 text-emerald-700 border border-emerald-200 text-[11px] font-semibold px-2.5 py-1 rounded-full cursor-pointer hover:bg-emerald-100 transition shadow-2xs"
-            title="Google Cloud Firestore đang hoạt động theo thời gian thực. Bấm để ép đồng bộ lại."
+            className={`hidden md:inline-flex items-center space-x-1.5 border text-[11px] font-semibold px-2.5 py-1 rounded-full cursor-pointer transition shadow-2xs ${
+              cloudSyncStatus === 'quota-exceeded'
+                ? 'bg-amber-50 text-amber-800 border-amber-300 hover:bg-amber-100'
+                : cloudSyncStatus === 'error'
+                ? 'bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100'
+                : 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
+            }`}
+            title={
+              cloudSyncStatus === 'quota-exceeded'
+                ? 'Hạn ngạch Google Cloud Free Tier hôm nay đã đạt giới hạn. Toàn bộ dữ liệu được lưu trữ an toàn tức thì vào bộ nhớ trình duyệt (LocalStorage).'
+                : 'Google Cloud Firestore đang hoạt động. Bấm để đồng bộ dữ liệu.'
+            }
           >
             {cloudSyncStatus === 'syncing' ? (
               <RefreshCw className="w-3 h-3 text-emerald-600 animate-spin" />
+            ) : cloudSyncStatus === 'quota-exceeded' ? (
+              <span className="w-2 h-2 rounded-full bg-amber-500"></span>
+            ) : cloudSyncStatus === 'error' ? (
+              <span className="w-2 h-2 rounded-full bg-rose-500"></span>
             ) : (
               <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
             )}
             <span className="flex items-center space-x-1">
               <span>Google Cloud</span>
-              <span className="font-normal text-emerald-600">| Firestore Live</span>
+              <span className={`font-normal ${cloudSyncStatus === 'quota-exceeded' ? 'text-amber-700' : 'text-emerald-600'}`}>
+                {cloudSyncStatus === 'quota-exceeded' ? '| Lưu Cục Bộ An Toàn' : '| Firestore Live'}
+              </span>
             </span>
           </div>
         </div>

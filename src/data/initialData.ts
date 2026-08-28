@@ -29,6 +29,7 @@ export const INITIAL_USERS: User[] = [
     phone: '0988 765 432',
     password: 'admin',
     status: 'active',
+    organizationId: 'org-system',
     department: 'Ban Giám Đốc Quản Trị Hệ Thống',
     createdAt: '2026-01-01',
   },
@@ -40,7 +41,8 @@ export const INITIAL_USERS: User[] = [
     phone: '0912 345 678',
     password: '123456',
     status: 'active',
-    department: 'Phòng Kinh Doanh Dự Án 1',
+    organizationId: 'org-hung-nguyen',
+    department: 'Phòng Kinh Doanh Dự Án 1 (Công ty A)',
     createdAt: '2026-01-10',
   },
   {
@@ -51,7 +53,8 @@ export const INITIAL_USERS: User[] = [
     phone: '0933 222 111',
     password: '123456',
     status: 'pending_approval', // Chờ Super Admin duyệt
-    department: 'Phòng Kinh Doanh Bán Lẻ & Đại Lý',
+    organizationId: 'org-huong-le',
+    department: 'Phòng Kinh Doanh Bán Lẻ & Đại Lý (Công ty B)',
     createdAt: '2026-02-15',
   },
   {
@@ -62,8 +65,10 @@ export const INITIAL_USERS: User[] = [
     phone: '0901 888 999',
     password: '123456',
     status: 'active',
-    department: 'Phòng Kinh Doanh Dự Án 1',
+    organizationId: 'org-hung-nguyen',
+    parentId: 'user-mgr-1',
     managerId: 'user-mgr-1',
+    department: 'Phòng Kinh Doanh Dự Án 1',
     createdAt: '2026-01-15',
   },
   {
@@ -74,8 +79,10 @@ export const INITIAL_USERS: User[] = [
     phone: '0977 123 987',
     password: '123456',
     status: 'active',
-    department: 'Phòng Kinh Doanh Dự Án 1',
+    organizationId: 'org-hung-nguyen',
+    parentId: 'user-mgr-1',
     managerId: 'user-mgr-1',
+    department: 'Phòng Kinh Doanh Dự Án 1',
     createdAt: '2026-01-20',
   },
   {
@@ -86,8 +93,10 @@ export const INITIAL_USERS: User[] = [
     phone: '0944 555 666',
     password: '123456',
     status: 'active',
-    department: 'Phòng Kinh Doanh Bán Lẻ & Đại Lý',
+    organizationId: 'org-huong-le',
+    parentId: 'user-mgr-2',
     managerId: 'user-mgr-2',
+    department: 'Phòng Kinh Doanh Bán Lẻ & Đại Lý',
     createdAt: '2026-02-01',
   },
   {
@@ -98,108 +107,22 @@ export const INITIAL_USERS: User[] = [
     phone: '0966 888 222',
     password: '123456',
     status: 'active',
-    department: 'Phòng Kinh Doanh Bán Lẻ & Đại Lý',
+    organizationId: 'org-huong-le',
+    parentId: 'user-mgr-2',
     managerId: 'user-mgr-2',
+    department: 'Phòng Kinh Doanh Bán Lẻ & Đại Lý',
     createdAt: '2026-02-10',
   },
 ];
 
-// Bảng Giữ Hàng ban đầu
-export const INITIAL_RESERVE_ITEMS: ReserveItem[] = [
-  {
-    id: 'res-1',
-    contractId: 'contract-1',
-    contractNumber: 'HĐKT-2026/02-APLUS',
-    quoteNumber: 'BG-2026-001-V2',
-    customerId: 'cust-1',
-    customerName: 'KTS. Nguyễn Đình Khoa',
-    salesRepName: 'Trần Đức Toàn',
-    sku: 'LED-DL-01-W',
-    productName: 'Đèn Downlight Âm Trần COB Cao Cấp 12W',
-    unit: 'Bộ',
-    reservedQuantity: 80,
-    warehouseLocation: 'Kho Tổng TP.HCM (Kệ A1-03)',
-    reservedDate: '2026-02-20',
-    status: 'holding',
-    expectedDeliveryDate: '2026-03-05',
-  },
-  {
-    id: 'res-2',
-    contractId: 'contract-1',
-    contractNumber: 'HĐKT-2026/02-APLUS',
-    quoteNumber: 'BG-2026-001-V2',
-    customerId: 'cust-1',
-    customerName: 'KTS. Nguyễn Đình Khoa',
-    salesRepName: 'Trần Đức Toàn',
-    sku: 'LED-DL-02-B',
-    productName: 'Đèn Downlight Âm Trần Chống Chói 18W',
-    unit: 'Bộ',
-    reservedQuantity: 40,
-    warehouseLocation: 'Kho Tổng TP.HCM (Kệ A2-01)',
-    reservedDate: '2026-02-20',
-    status: 'holding',
-    expectedDeliveryDate: '2026-03-05',
-  },
-  {
-    id: 'res-3',
-    contractId: 'contract-1',
-    contractNumber: 'HĐKT-2026/02-APLUS',
-    quoteNumber: 'BG-2026-001-V2',
-    customerId: 'cust-1',
-    customerName: 'KTS. Nguyễn Đình Khoa',
-    salesRepName: 'Trần Đức Toàn',
-    sku: 'LED-TRACK-03',
-    productName: 'Đèn Rọi Ray Nam Châm Từ Tính Ultra-Slim 20W',
-    unit: 'Cái',
-    reservedQuantity: 5, // Có sẵn 5 trong kho giữ hết 5
-    warehouseLocation: 'Kho Hà Nội (Kệ B1-12)',
-    reservedDate: '2026-02-20',
-    status: 'holding',
-    expectedDeliveryDate: '2026-03-05',
-  },
-  {
-    id: 'res-4',
-    contractId: 'contract-1',
-    contractNumber: 'HĐKT-2026/02-APLUS',
-    quoteNumber: 'BG-2026-001-V2',
-    customerId: 'cust-1',
-    customerName: 'KTS. Nguyễn Đình Khoa',
-    salesRepName: 'Trần Đức Toàn',
-    sku: 'SW-SCH-01-G',
-    productName: 'Mặt Công Tắc 3 Phím Cao Cấp AvatarOn',
-    unit: 'Chiếc',
-    reservedQuantity: 50,
-    warehouseLocation: 'Kho Tổng TP.HCM (Kệ C3-05)',
-    reservedDate: '2026-02-20',
-    status: 'holding',
-    expectedDeliveryDate: '2026-03-05',
-  },
-];
+// Bảng Giữ Hàng ban đầu (trống - import hoặc chốt từ báo giá thực tế)
+export const INITIAL_RESERVE_ITEMS: ReserveItem[] = [];
 
-export const INITIAL_PRODUCTS: ProductPriceItem[] = IMPORTED_PRODUCTS;
+// Master Data Giá ban đầu (trống - C1 / C2 import từ Excel/CSV theo từng công ty)
+export const INITIAL_PRODUCTS: ProductPriceItem[] = [];
 
-export const INITIAL_INVENTORY: InventoryItem[] = IMPORTED_PRODUCTS.map((prod, idx) => {
-  const isOutOfStock = idx % 8 === 0;
-  // Calculate exact initial reserved quantity matching INITIAL_RESERVE_ITEMS
-  const matchReserves = INITIAL_RESERVE_ITEMS.filter((r) => r.sku === prod.sku && r.status === 'holding');
-  const exactReserved = matchReserves.reduce((sum, r) => sum + r.reservedQuantity, 0);
-
-  // Total quantity is base quantity plus any active holds to ensure non-negative stock
-  const baseQty = isOutOfStock && exactReserved === 0 ? 0 : ((idx * 7) % 65) + 10;
-  const total = Math.max(baseQty, exactReserved);
-  const available = Math.max(0, total - exactReserved);
-  const warehouse = idx % 2 === 0 ? 'Kho Tổng TP.HCM (Kệ A1)' : 'Kho Hà Nội (Kệ B2)';
-  return {
-    sku: prod.sku,
-    name: prod.name,
-    unit: prod.unit,
-    totalQuantity: total,
-    reservedQuantity: exactReserved,
-    availableQuantity: available,
-    warehouseLocation: warehouse,
-    updatedAt: '2026-08-26',
-  };
-});
+// Tồn kho ban đầu (trống - C1 / C2 import hoặc tự động tạo theo mã hàng của công ty)
+export const INITIAL_INVENTORY: InventoryItem[] = [];
 
 export const INITIAL_CUSTOMERS: Customer[] = [
   {
@@ -212,8 +135,10 @@ export const INITIAL_CUSTOMERS: Customer[] = [
     address: 'Toà nhà Golden King, 15 Nguyễn Lương Bằng, P. Tân Phú, Quận 7, TP.HCM',
     taxCode: '0315894120',
     stage: 'contract_signed',
+    organizationId: 'org-hung-nguyen',
     assignedToId: 'user-sales-1',
     assignedToName: 'Trần Đức Toàn',
+    memberIds: ['user-sales-1'],
     createdBy: 'user-sales-1',
     expectedValue: 135800000,
     notes: 'Dự án biệt thự Chateau Phú Mỹ Hưng, khách chốt phương án LED Ray & Downlight Philips',
@@ -230,9 +155,11 @@ export const INITIAL_CUSTOMERS: Customer[] = [
     address: 'Số 45 Đường số 8, KĐT Vạn Phúc, P. Hiệp Bình Phước, TP. Thủ Đức',
     taxCode: '0316778901',
     stage: 'quoting',
+    organizationId: 'org-hung-nguyen',
     assignedToId: 'user-sales-1',
     assignedToName: 'Trần Đức Toàn',
-    createdBy: 'user-mgr-1', // Cấp 1 giao việc
+    memberIds: ['user-sales-1', 'user-sales-2'],
+    createdBy: 'user-mgr-1', // Cấp 1 giao việc và chia sẻ quyền
     expectedValue: 280000000,
     notes: 'Dự án chuỗi nhà hàng cao cấp, đang gửi báo giá đợt 2 điều chỉnh chiết khấu công tắc Schneider',
     createdAt: '2026-02-10',
@@ -247,8 +174,10 @@ export const INITIAL_CUSTOMERS: Customer[] = [
     email: 'thuthuy.ecopark@gmail.com',
     address: 'Khu biệt thự Đảo Ecopark Grand, Hưng Yên',
     stage: 'contacted',
+    organizationId: 'org-hung-nguyen',
     assignedToId: 'user-sales-1',
     assignedToName: 'Trần Đức Toàn',
+    memberIds: ['user-sales-1'],
     createdBy: 'user-sales-1',
     expectedValue: 95000000,
     notes: 'Khách quan tâm gói Smart Home Aqara Pro và đèn rọi ray nam châm phòng khách',
@@ -265,8 +194,10 @@ export const INITIAL_CUSTOMERS: Customer[] = [
     address: 'Tầng 5, Tòa nhà Thăng Long, Cầu Giấy, Hà Nội',
     taxCode: '0108992134',
     stage: 'new',
+    organizationId: 'org-hung-nguyen',
     assignedToId: 'user-sales-2',
     assignedToName: 'Phạm Minh Trang',
+    memberIds: ['user-sales-2'],
     createdBy: 'user-sales-2',
     expectedValue: 450000000,
     notes: 'Dự án tòa nhà văn phòng 7 tầng, cần báo giá cáp Cadivi và đèn Panel Rạng Đông 60x60',
@@ -282,8 +213,10 @@ export const INITIAL_CUSTOMERS: Customer[] = [
     email: 'triet.studio@gmail.com',
     address: '228 Nam Kỳ Khởi Nghĩa, Quận 3, TP.HCM',
     stage: 'rejected',
+    organizationId: 'org-hung-nguyen',
     assignedToId: 'user-sales-1',
     assignedToName: 'Trần Đức Toàn',
+    memberIds: ['user-sales-1'],
     createdBy: 'user-sales-1',
     rejectReason: 'Khách hàng chọn nhà cung cấp giá rẻ hơn dùng chíp LED Trung Quốc không có CO/CQ.',
     expectedValue: 50000000,
@@ -300,8 +233,10 @@ export const INITIAL_CUSTOMERS: Customer[] = [
     email: 'mylinh.lighting@gmail.com',
     address: '128 Đường 30/4, P. An Phú, Ninh Kiều, Cần Thơ',
     stage: 'quoting',
+    organizationId: 'org-huong-le',
     assignedToId: 'user-sales-3',
     assignedToName: 'Đặng Quốc Bảo',
+    memberIds: ['user-sales-3'],
     createdBy: 'user-sales-3',
     expectedValue: 180000000,
     notes: 'Đại lý phân phối độc quyền thiết bị Opple và Schneider khu vực Cần Thơ',
@@ -313,6 +248,7 @@ export const INITIAL_CUSTOMERS: Customer[] = [
 export const INITIAL_QUOTATIONS: Quotation[] = [
   {
     id: 'quote-1',
+    organizationId: 'org-hung-nguyen',
     quoteNumber: 'BG-2026-001-V2',
     version: 2, // Đợt 2 (Chốt)
     customerId: 'cust-1',
@@ -330,6 +266,7 @@ export const INITIAL_QUOTATIONS: Quotation[] = [
     status: 'approved_contract',
     isContractQuote: true,
     contractId: 'contract-1',
+    createdBy: 'user-sales-1',
     notes: 'Giá đã bao gồm chi phí vận chuyển tận công trình tại Quận 7. Bảo hành 36 tháng.',
     termsAndConditions: '1. Thời gian giao hàng: Trong vòng 3-5 ngày sau khi nhận tạm ứng.\n2. Hàng hóa 100% chính hãng mới nguyên kiện, đầy đủ CO/CQ.\n3. Thanh toán bằng chuyển khoản theo các mốc hợp đồng.',
     items: [
@@ -463,6 +400,7 @@ export const INITIAL_QUOTATIONS: Quotation[] = [
   },
   {
     id: 'quote-1-v1',
+    organizationId: 'org-hung-nguyen',
     quoteNumber: 'BG-2026-001-V1',
     version: 1, // Đợt 1 (Lịch sử báo giá)
     customerId: 'cust-1',
@@ -479,6 +417,7 @@ export const INITIAL_QUOTATIONS: Quotation[] = [
     validUntil: '2026-02-20',
     status: 'negotiating',
     isContractQuote: false,
+    createdBy: 'user-sales-1',
     notes: 'Bản chào ban đầu chưa áp dụng chiết khấu đặc biệt cho KTS.',
     termsAndConditions: 'Thời hạn giao hàng 7 ngày.',
     items: [
@@ -529,6 +468,7 @@ export const INITIAL_QUOTATIONS: Quotation[] = [
   },
   {
     id: 'quote-2',
+    organizationId: 'org-hung-nguyen',
     quoteNumber: 'BG-2026-002-V1',
     version: 1,
     customerId: 'cust-2',
@@ -545,6 +485,7 @@ export const INITIAL_QUOTATIONS: Quotation[] = [
     validUntil: '2026-03-23',
     status: 'sent',
     isContractQuote: false,
+    createdBy: 'user-mgr-1',
     notes: 'Đang chờ khách hàng phản hồi về bảng giá cáp Cadivi và mặt Schneider.',
     termsAndConditions: 'Giao hàng thành 2 đợt theo tiến độ hoàn thiện thô và hoàn thiện tinh.',
     items: [
@@ -624,6 +565,7 @@ export const INITIAL_QUOTATIONS: Quotation[] = [
 export const INITIAL_CONTRACTS: Contract[] = [
   {
     id: 'contract-1',
+    organizationId: 'org-hung-nguyen',
     contractNumber: 'HĐKT-2026/02-APLUS',
     quotationId: 'quote-1',
     quoteNumber: 'BG-2026-001-V2',
@@ -645,6 +587,7 @@ export const INITIAL_CONTRACTS: Contract[] = [
     status: 'signed',
     reserveBatchId: 'res-batch-1',
     orderBatchId: 'ord-batch-1',
+    createdBy: 'user-sales-1',
     createdAt: '2026-02-20',
   },
 ];
@@ -653,6 +596,7 @@ export const INITIAL_CONTRACTS: Contract[] = [
 export const INITIAL_ORDER_ITEMS: OrderItem[] = [
   {
     id: 'ord-1',
+    organizationId: 'org-hung-nguyen',
     contractId: 'contract-1',
     contractNumber: 'HĐKT-2026/02-APLUS',
     quoteNumber: 'BG-2026-001-V2',
@@ -673,6 +617,7 @@ export const INITIAL_ORDER_ITEMS: OrderItem[] = [
   },
   {
     id: 'ord-2',
+    organizationId: 'org-hung-nguyen',
     contractId: 'contract-1',
     contractNumber: 'HĐKT-2026/02-APLUS',
     quoteNumber: 'BG-2026-001-V2',

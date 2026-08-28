@@ -61,6 +61,21 @@ export const QuotationHeaderFooterConfig: React.FC<QuotationHeaderFooterConfigPr
     });
   };
 
+  const handleSyncFromTier1Company = () => {
+    onChange({
+      ...config,
+      companyName: companyInfo?.name || config.companyName,
+      companyAddress: companyInfo?.address || config.companyAddress,
+      companyHotline: companyInfo?.phone || companyInfo?.hotline || config.companyHotline,
+      companyWebsite: companyInfo?.website || config.companyWebsite,
+      companyEmail: companyInfo?.email || config.companyEmail,
+      companyLogo: companyInfo?.logoUrl || companyInfo?.logo || config.companyLogo,
+      signatoryTitle: companyInfo?.name || config.signatoryTitle,
+      openingGreeting: `Thay mặt ${companyInfo?.name || 'Công ty'}, xin hân hạnh gửi đến quý khách xác nhận đơn hàng gồm các hạng mục như sau:`,
+      closingNotes: `Mọi thông tin cần làm rõ, Quý khách vui lòng liên hệ với nhân viên phụ trách hoặc ${companyInfo?.name || 'Công ty'};\nChân thành cám ơn Quý khách!`,
+    });
+  };
+
   const titlePresets = [
     'BÁO GIÁ THIẾT BỊ VỆ SINH',
     'BÁO GIÁ THIẾT BỊ HOÀN THIỆN',
@@ -78,19 +93,31 @@ export const QuotationHeaderFooterConfig: React.FC<QuotationHeaderFooterConfigPr
             <Sparkles className="w-4 h-4" />
           </div>
           <div>
-            <div className="font-bold text-slate-900 text-xs sm:text-sm">Tùy Chọn Mẫu Form Mở Đầu & Kết Thúc Báo Giá</div>
-            <div className="text-[11px] text-slate-500">Mẫu chuẩn 2 cột bảng khung (HHG Holdings) hoặc mẫu hiện đại SalesFlow</div>
+            <div className="font-bold text-slate-900 text-xs sm:text-sm">Tùy Chọn Mẫu Form & Tự Động Nhận Diện Cấp 1</div>
+            <div className="text-[11px] text-slate-500">
+              Tự động áp dụng Logo, Địa chỉ, Hotline, Email, Website và Tên Doanh Nghiệp đã nhập từ tài khoản Cấp 1
+            </div>
           </div>
         </div>
 
-        <div className="flex items-center space-x-2">
+        <div className="flex items-center flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={handleSyncFromTier1Company}
+            className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition flex items-center space-x-1.5 shadow-2xs cursor-pointer"
+            title="Đồng bộ tự động thông tin & logo từ cấu hình Cấp 1"
+          >
+            <ShieldCheck className="w-3.5 h-3.5 text-emerald-200" />
+            <span>Đồng bộ từ Cấp 1</span>
+          </button>
+
           <button
             type="button"
             onClick={onApplyHHGTemplate}
             className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold transition flex items-center space-x-1.5 shadow-2xs cursor-pointer"
           >
             <Sparkles className="w-3.5 h-3.5 text-amber-300" />
-            <span>Nạp Mẫu Báo Giá HHG Holdings</span>
+            <span>Mẫu Khung Chuẩn Doanh Nghiệp</span>
           </button>
 
           <button

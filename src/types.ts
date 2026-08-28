@@ -1,4 +1,5 @@
 export type UserRole = 'super_admin' | 'manager_c1' | 'sales_c2';
+export type UserStatus = 'active' | 'pending_approval' | 'blocked' | 'archived' | 'inactive';
 
 export interface User {
   id: string;
@@ -8,16 +9,29 @@ export interface User {
   phone: string;
   password?: string; // Mật khẩu tài khoản
   avatar?: string;
-  status: 'active' | 'pending_approval' | 'inactive';
+  status: UserStatus;
+  organizationId?: string; // Tenant ID (Mỗi Level 1 là 1 organizationId độc lập)
+  parentId?: string; // Level 1 user ID who manages this Level 2
+  managerId?: string; // Alias for parentId
   department?: string;
   position?: string; // Chức danh/vị trí (VD: Giám đốc kinh doanh, Kỹ sư dự án...)
-  managerId?: string; // For Cấp 2, which Cấp 1 manages them
   createdBy?: string; // Which Cấp 1 or Super Admin created this user
+  createdAt: string;
+}
+
+export interface CustomerMember {
+  id: string;
+  customerId: string;
+  userId: string;
+  userName: string;
+  organizationId: string;
+  createdBy: string;
   createdAt: string;
 }
 
 export interface CompanyInfo {
   id: string;
+  organizationId?: string;
   name: string; // Tên hiển thị công ty
   legalName?: string; // Tên đăng ký doanh nghiệp
   address: string; // Trụ sở / Showroom
@@ -50,8 +64,10 @@ export interface Customer {
   address?: string;
   taxCode?: string;
   stage: CustomerStage;
-  assignedToId: string; // Cấp 2 user id
+  organizationId: string; // Organization ID (Tenant Level 1)
+  assignedToId: string; // Cấp 2 user id phụ trách chính
   assignedToName: string;
+  memberIds?: string[]; // Danh sách ID các Level 2 được Level 1 phân quyền truy cập khách hàng này
   createdBy: string;
   rejectReason?: string;
   notes?: string;
@@ -72,6 +88,10 @@ export interface ProductPriceItem {
   dpPrice: number; // Giá DP (Giá thấp nhất có thể bán ra - Floor Price)
   description?: string;
   status: 'active' | 'discontinued';
+  organizationId?: string; // Tenant Level 1 ID
+  companyId?: string; // ID của tài khoản Cấp 1 (Công ty sở hữu bảng giá này)
+  createdBy?: string; // ID của người tạo (C1 hoặc C2)
+  createdByName?: string;
 }
 
 export interface InventoryItem {
@@ -83,6 +103,10 @@ export interface InventoryItem {
   availableQuantity: number; // Khả dụng = total - reserved
   warehouseLocation?: string; // Vị trí kho (Kho A1, Kho B2, Tổng kho HCM, Kho Hà Nội...)
   updatedAt: string;
+  organizationId?: string; // Tenant Level 1 ID
+  companyId?: string; // ID của tài khoản Cấp 1 (Công ty sở hữu kho hàng này)
+  createdBy?: string; // ID của người tạo/cập nhật (C1 hoặc C2)
+  createdByName?: string;
 }
 
 export interface QuoteProductRow {
@@ -119,6 +143,7 @@ export type QuotationStatus = 'draft' | 'sent' | 'negotiating' | 'approved_contr
 
 export interface Quotation {
   id: string;
+  organizationId?: string; // Tenant Level 1 ID
   quoteNumber: string; // BG-2026-001 hoặc 01/HHG
   version: number; // 1, 2, 3... (Đợt báo giá lần 1, 2, 3...)
   customerId: string;
@@ -170,6 +195,7 @@ export interface Quotation {
   status: QuotationStatus;
   isContractQuote: boolean; // Đã chốt thành báo giá ký hợp đồng
   contractId?: string;
+  createdBy?: string;
   notes?: string;
   termsAndConditions?: string;
   createdAt: string;
@@ -178,11 +204,13 @@ export interface Quotation {
 
 export interface Contract {
   id: string;
+  organizationId?: string; // Tenant Level 1 ID
   contractNumber: string; // HĐKT-2026-001
   quotationId: string;
   quoteNumber: string;
   customerId: string;
   customerName: string;
+  createdBy?: string;
   customerCompany?: string;
   customerTaxCode?: string;
   customerAddress?: string;
@@ -214,6 +242,7 @@ export interface Contract {
 
 export interface ReserveItem {
   id: string;
+  organizationId?: string; // Tenant Level 1 ID
   contractId: string;
   contractNumber: string;
   quoteNumber: string;
@@ -232,6 +261,7 @@ export interface ReserveItem {
 
 export interface OrderItem {
   id: string;
+  organizationId?: string; // Tenant Level 1 ID
   contractId: string;
   contractNumber: string;
   quoteNumber: string;

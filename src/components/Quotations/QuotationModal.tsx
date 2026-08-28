@@ -124,10 +124,10 @@ export const QuotationModal: React.FC<QuotationModalProps> = ({
   // Active info tab in Step 2
   const [activeInfoTab, setActiveInfoTab] = useState<'header_footer' | 'milestones' | 'delivery' | 'terms' | 'notes'>('header_footer');
 
-  // Header & Footer customizable settings state (Inherited from Master Company Settings)
+  // Header & Footer customizable settings state (Auto-detected from Tier 1 Company Profile)
   const [headerFooterConfig, setHeaderFooterConfig] = useState<HeaderFooterConfigState>(() => ({
     quoteTitle: 'BÁO GIÁ THIẾT BỊ VỆ SINH',
-    orderCode: '01/HHG',
+    orderCode: '01/BG',
     quoteDate: new Date().toISOString().split('T')[0],
     validUntilDate: new Date(Date.now() + 30 * 86400000).toISOString().split('T')[0],
     customerName: 'CÔNG TRÌNH NHÀ CHỊ HẠNH',
@@ -139,49 +139,51 @@ export const QuotationModal: React.FC<QuotationModalProps> = ({
     companyHotline: companyInfo?.phone || companyInfo?.hotline || '+84 243 821 6666',
     companyWebsite: companyInfo?.website || 'www.hhg.vn',
     companyEmail: companyInfo?.email || 'info@hhg.vn',
+    companyLogo: companyInfo?.logoUrl || companyInfo?.logo || '',
     salesRepName: currentUser?.name || 'Nguyễn Thị Hương',
     salesRepPhone: currentUser?.phone || '0978322208',
     salesRepEmail: currentUser?.email || 'huongnt@hhg.vn',
-    openingGreeting: `Thay mặt ${companyInfo?.name || 'Công ty TNHH HHG HOLDINGS'}, xin hân hạnh gửi đến quý khách xác nhận đơn hàng gồm các hạng mục như sau:`,
+    openingGreeting: `Thay mặt ${companyInfo?.name || 'Công ty'}, xin hân hạnh gửi đến quý khách xác nhận đơn hàng gồm các hạng mục như sau:`,
     priceTerms: '- VNĐ, đã bao gồm thuế VAT và chưa bao gồm chi phí lắp đặt.\n- Khối lượng là tạm tính, giá trị thanh toán là khối lượng giao nhận thực tế.',
-    deliveryTerms: 'Starlake',
-    shippingTerms: 'Miễn phí giao hàng đến chân công trình vào các ngày thứ 3 và thứ 5 hàng tuần trong nội thành Hà Nội',
-    warrantyTerms: 'Bảo hành 24 tháng',
-    leadTimeTerms: '180 ngày kể từ ngày nhận tạm ứng',
-    closingNotes: `Mọi thông tin cần làm rõ, Quý khách vui lòng liên hệ với nhân viên phụ trách hoặc ${companyInfo?.name || 'Công ty TNHH HHG Holdings'};\nChân thành cám ơn Quý khách!`,
-    signatoryTitle: companyInfo?.name || 'CÔNG TY TNHH HHG HOLDINGS',
+    deliveryTerms: 'Tại chân công trình',
+    shippingTerms: 'Miễn phí giao hàng đến chân công trình theo lịch thỏa thuận trong nội thành',
+    warrantyTerms: 'Bảo hành chính hãng 24 - 36 tháng theo tiêu chuẩn nhà sản xuất',
+    leadTimeTerms: 'Giao hàng theo tiến độ công trình hoặc sau khi nhận tạm ứng',
+    closingNotes: `Mọi thông tin cần làm rõ, Quý khách vui lòng liên hệ với nhân viên phụ trách hoặc ${companyInfo?.name || 'Công ty'};\nChân thành cám ơn Quý khách!`,
+    signatoryTitle: companyInfo?.name || 'ĐẠI DIỆN DOANH NGHIỆP',
   }));
 
-  // Handler: Apply HHG Holdings Template
+  // Handler: Apply Enterprise Standard Template (Auto-fills Tier 1 Company Profile)
   const handleApplyHHGTemplate = () => {
     setHeaderFooterConfig((prev) => ({
       ...prev,
-      quoteTitle: 'BÁO GIÁ THIẾT BỊ VỆ SINH',
-      orderCode: '01/HHG',
+      quoteTitle: 'BÁO GIÁ THIẾT BỊ VỆ SINH & HOÀN THIỆN',
+      orderCode: quoteNumber || `01/${companyInfo?.name?.substring(0, 3)?.toUpperCase() || 'BG'}`,
       customerName: selectedCustomer ? `CÔNG TRÌNH NHÀ ${selectedCustomer.name.toUpperCase()}` : 'CÔNG TRÌNH NHÀ CHỊ HẠNH',
       projectLocation: selectedCustomer?.address || 'STARLAKE',
       customerPhone: selectedCustomer?.phone || '0978 322 208',
       contactPerson: selectedCustomer?.name || 'CHỊ HUYỀN',
-      companyName: 'CÔNG TY TNHH HHG HOLDINGS',
-      companyAddress: 'Số 5-6-7 The Premier, Tôn Thất Thuyết, Cầu Giấy, Hà Nội',
-      companyHotline: '+84 243 821 6666',
-      companyWebsite: 'www.hhg.vn',
-      companyEmail: 'info@hhg.vn',
+      companyName: companyInfo?.name || 'CÔNG TY TNHH HHG HOLDINGS',
+      companyAddress: companyInfo?.address || 'Số 5-6-7 The Premier, Tôn Thất Thuyết, Cầu Giấy, Hà Nội',
+      companyHotline: companyInfo?.phone || companyInfo?.hotline || '+84 243 821 6666',
+      companyWebsite: companyInfo?.website || 'www.hhg.vn',
+      companyEmail: companyInfo?.email || 'info@hhg.vn',
+      companyLogo: companyInfo?.logoUrl || companyInfo?.logo || '',
       salesRepName: currentUser?.name || 'Nguyễn Thị Hương',
       salesRepPhone: currentUser?.phone || '0978322208',
       salesRepEmail: currentUser?.email || 'huongnt@hhg.vn',
-      openingGreeting: 'Thay mặt Công ty TNHH HHG HOLDINGS, xin hân hạnh gửi đến quý khách xác nhận đơn hàng gồm các hạng mục như sau:',
+      openingGreeting: `Thay mặt ${companyInfo?.name || 'Công ty'}, xin hân hạnh gửi đến quý khách xác nhận đơn hàng gồm các hạng mục như sau:`,
       priceTerms: '- VNĐ, đã bao gồm thuế VAT và chưa bao gồm chi phí lắp đặt.\n- Khối lượng là tạm tính, giá trị thanh toán là khối lượng giao nhận thực tế.',
-      deliveryTerms: selectedCustomer?.address || 'Starlake',
-      shippingTerms: 'Miễn phí giao hàng đến chân công trình vào các ngày thứ 3 và thứ 5 hàng tuần trong nội thành Hà Nội',
-      warrantyTerms: 'Bảo hành 24 tháng',
-      leadTimeTerms: '180 ngày kể từ ngày nhận tạm ứng',
-      closingNotes: 'Mọi thông tin cần làm rõ, Quý khách vui lòng liên hệ với nhân viên phụ trách hoặc Công ty TNHH HHG Holdings;\nChân thành cám ơn Quý khách!',
-      signatoryTitle: 'CÔNG TY TNHH HHG HOLDINGS',
+      deliveryTerms: selectedCustomer?.address || 'Tại chân công trình',
+      shippingTerms: 'Miễn phí giao hàng đến chân công trình trong nội thành',
+      warrantyTerms: 'Bảo hành chính hãng 24 - 36 tháng',
+      leadTimeTerms: 'Theo tiến độ công trình hoặc trong vòng 03 - 07 ngày sau khi nhận tạm ứng',
+      closingNotes: `Mọi thông tin cần làm rõ, Quý khách vui lòng liên hệ với nhân viên phụ trách hoặc ${companyInfo?.name || 'Công ty'};\nChân thành cám ơn Quý khách!`,
+      signatoryTitle: companyInfo?.name || 'ĐẠI DIỆN DOANH NGHIỆP',
     }));
   };
 
-  // Handler: Apply Standard SalesFlow Template
+  // Handler: Apply Standard Modern Template (Auto-fills Tier 1 Company Profile)
   const handleApplyDefaultTemplate = () => {
     setHeaderFooterConfig((prev) => ({
       ...prev,
@@ -191,22 +193,23 @@ export const QuotationModal: React.FC<QuotationModalProps> = ({
       projectLocation: selectedCustomer?.address || 'Tại chân công trình',
       customerPhone: selectedCustomer?.phone || '',
       contactPerson: selectedCustomer?.name || '',
-      companyName: 'CÔNG TY CỔ PHẦN CÔNG NGHỆ & THIẾT BỊ SALESFLOW',
-      companyAddress: 'Tòa nhà Bitexco Financial Tower, Số 2 Hải Triều, Bến Nghé, Quận 1, TP.HCM',
-      companyHotline: '1900 6868 - (028) 3822 9999',
-      companyWebsite: 'www.salesflow.vn',
-      companyEmail: 'contact@salesflow.vn',
+      companyName: companyInfo?.name || 'CÔNG TY CỔ PHẦN CÔNG NGHỆ & THIẾT BỊ SALESFLOW',
+      companyAddress: companyInfo?.address || 'Tòa nhà Bitexco Financial Tower, Số 2 Hải Triều, Bến Nghé, Quận 1, TP.HCM',
+      companyHotline: companyInfo?.phone || companyInfo?.hotline || '1900 6868',
+      companyWebsite: companyInfo?.website || 'www.salesflow.vn',
+      companyEmail: companyInfo?.email || 'contact@salesflow.vn',
+      companyLogo: companyInfo?.logoUrl || companyInfo?.logo || '',
       salesRepName: currentUser?.name || 'Chuyên viên tư vấn dự án',
       salesRepPhone: currentUser?.phone || '1900 6868',
       salesRepEmail: currentUser?.email || 'sales@salesflow.vn',
-      openingGreeting: 'Thay mặt Công ty Cổ phần Công nghệ & Thiết bị SalesFlow, trân trọng gửi đến Quý khách bảng báo giá chi tiết như sau:',
+      openingGreeting: `Thay mặt ${companyInfo?.name || 'Công ty'}, trân trọng gửi đến Quý khách bảng báo giá chi tiết như sau:`,
       priceTerms: '- Đơn giá VNĐ, đã bao gồm thuế GTGT (VAT).\n- Báo giá có hiệu lực trong vòng 30 ngày kể từ ngày phát hành.',
       deliveryTerms: deliveryAddress || selectedCustomer?.address || 'Giao hàng tận nơi chân công trình',
-      shippingTerms: 'Miễn phí vận chuyển nội thành cho đơn hàng từ 20.000.000 VNĐ trở lên',
+      shippingTerms: 'Miễn phí vận chuyển nội thành cho đơn hàng đủ điều kiện',
       warrantyTerms: 'Bảo hành 24-36 tháng chính hãng theo tiêu chuẩn của nhà sản xuất',
       leadTimeTerms: 'Giao hàng trong vòng 03 - 07 ngày làm việc sau khi nhận tạm ứng',
-      closingNotes: 'Rất mong nhận được sự hợp tác và phản hồi từ Quý khách hàng;\nTrân trọng cảm ơn!',
-      signatoryTitle: 'CÔNG TY CP CÔNG NGHỆ & THIẾT BỊ SALESFLOW',
+      closingNotes: `Rất mong nhận được sự hợp tác và phản hồi từ Quý khách hàng;\nTrân trọng cảm ơn!`,
+      signatoryTitle: companyInfo?.name || 'ĐẠI DIỆN DOANH NGHIỆP',
     }));
   };
 
@@ -300,26 +303,27 @@ export const QuotationModal: React.FC<QuotationModalProps> = ({
           orderCode: quotationToEdit.orderCode || quotationToEdit.quoteNumber || '01/HHG',
           quoteDate: quotationToEdit.date || new Date().toISOString().split('T')[0],
           validUntilDate: quotationToEdit.validUntil || new Date(Date.now() + 30 * 86400000).toISOString().split('T')[0],
-          customerName: quotationToEdit.customerName || (cust?.name ? `CÔNG TRÌNH NHÀ ${cust.name.toUpperCase()}` : 'CÔNG TRÌNH NHÀ CHỊ HẠNH'),
-          projectLocation: quotationToEdit.projectLocation || quotationToEdit.customerAddress || cust?.address || 'STARLAKE',
-          customerPhone: quotationToEdit.customerPhone || cust?.phone || '0978 322 208',
-          contactPerson: quotationToEdit.contactPerson || cust?.name || 'CHỊ HUYỀN',
-          companyName: quotationToEdit.companyName || 'CÔNG TY TNHH HHG HOLDINGS',
-          companyAddress: quotationToEdit.companyAddress || 'Số 5-6-7 The Premier, Tôn Thất Thuyết, Cầu Giấy, Hà Nội',
-          companyHotline: quotationToEdit.companyHotline || '+84 243 821 6666',
-          companyWebsite: quotationToEdit.companyWebsite || 'www.hhg.vn',
-          companyEmail: quotationToEdit.companyEmail || 'info@hhg.vn',
+          customerName: quotationToEdit.customerName || (cust?.name ? `CÔNG TRÌNH NHÀ ${cust.name.toUpperCase()}` : 'CÔNG TRÌNH KHÁCH HÀNG'),
+          projectLocation: quotationToEdit.projectLocation || quotationToEdit.customerAddress || cust?.address || 'Tại chân công trình',
+          customerPhone: quotationToEdit.customerPhone || cust?.phone || '',
+          contactPerson: quotationToEdit.contactPerson || cust?.name || '',
+          companyName: quotationToEdit.companyName || companyInfo?.name || 'CÔNG TY TNHH HHG HOLDINGS',
+          companyAddress: quotationToEdit.companyAddress || companyInfo?.address || 'Số 5-6-7 The Premier, Tôn Thất Thuyết, Cầu Giấy, Hà Nội',
+          companyHotline: quotationToEdit.companyHotline || companyInfo?.phone || companyInfo?.hotline || '+84 243 821 6666',
+          companyWebsite: quotationToEdit.companyWebsite || companyInfo?.website || 'www.hhg.vn',
+          companyEmail: quotationToEdit.companyEmail || companyInfo?.email || 'info@hhg.vn',
+          companyLogo: quotationToEdit.companyLogo || quotationToEdit.companyLogoUrl || companyInfo?.logoUrl || companyInfo?.logo || '',
           salesRepName: quotationToEdit.salesRepName || currentUser.name,
-          salesRepPhone: quotationToEdit.salesRepPhone || currentUser.phone || '0978322208',
-          salesRepEmail: quotationToEdit.salesRepEmail || currentUser.email || 'huongnt@hhg.vn',
-          openingGreeting: quotationToEdit.openingGreeting || 'Thay mặt Công ty TNHH HHG HOLDINGS, xin hân hạnh gửi đến quý khách xác nhận đơn hàng gồm các hạng mục như sau:',
+          salesRepPhone: quotationToEdit.salesRepPhone || currentUser.phone || '',
+          salesRepEmail: quotationToEdit.salesRepEmail || currentUser.email || '',
+          openingGreeting: quotationToEdit.openingGreeting || `Thay mặt ${companyInfo?.name || 'Công ty'}, xin hân hạnh gửi đến quý khách xác nhận đơn hàng gồm các hạng mục như sau:`,
           priceTerms: quotationToEdit.priceTerms || '- VNĐ, đã bao gồm thuế VAT và chưa bao gồm chi phí lắp đặt.\n- Khối lượng là tạm tính, giá trị thanh toán là khối lượng giao nhận thực tế.',
-          deliveryTerms: quotationToEdit.deliveryTerms || quotationToEdit.customerAddress || cust?.address || 'Starlake',
-          shippingTerms: quotationToEdit.shippingTerms || 'Miễn phí giao hàng đến chân công trình vào các ngày thứ 3 và thứ 5 hàng tuần trong nội thành Hà Nội',
-          warrantyTerms: quotationToEdit.warrantyTerms || 'Bảo hành 24 tháng',
-          leadTimeTerms: quotationToEdit.leadTimeTerms || '180 ngày kể từ ngày nhận tạm ứng',
-          closingNotes: quotationToEdit.closingNotes || 'Mọi thông tin cần làm rõ, Quý khách vui lòng liên hệ với nhân viên phụ trách hoặc Công ty TNHH HHG Holdings;\nChân thành cám ơn Quý khách!',
-          signatoryTitle: quotationToEdit.signatoryTitle || quotationToEdit.companyName || 'CÔNG TY TNHH HHG HOLDINGS',
+          deliveryTerms: quotationToEdit.deliveryTerms || quotationToEdit.customerAddress || cust?.address || 'Tại chân công trình',
+          shippingTerms: quotationToEdit.shippingTerms || 'Miễn phí giao hàng đến chân công trình theo thỏa thuận trong nội thành',
+          warrantyTerms: quotationToEdit.warrantyTerms || 'Bảo hành chính hãng 24 - 36 tháng',
+          leadTimeTerms: quotationToEdit.leadTimeTerms || 'Giao hàng theo tiến độ thỏa thuận kể từ ngày nhận tạm ứng',
+          closingNotes: quotationToEdit.closingNotes || `Mọi thông tin cần làm rõ, Quý khách vui lòng liên hệ với nhân viên phụ trách hoặc ${companyInfo?.name || 'Công ty'};\nChân thành cám ơn Quý khách!`,
+          signatoryTitle: quotationToEdit.signatoryTitle || quotationToEdit.companyName || companyInfo?.name || 'ĐẠI DIỆN DOANH NGHIỆP',
         });
 
         setCurrentStep('builder');
@@ -351,7 +355,7 @@ export const QuotationModal: React.FC<QuotationModalProps> = ({
 
     setQuoteNumber(newQuoteNum);
     setVersion(nextVersion);
-    setTitle(`BÁO GIÁ THIẾT BỊ VỆ SINH`);
+    setTitle(`BÁO GIÁ THIẾT BỊ VỆ SINH & HOÀN THIỆN`);
     setDate(new Date().toISOString().split('T')[0]);
     setValidUntil(new Date(Date.now() + 30 * 86400000).toISOString().split('T')[0]);
     setTaxRate(8);
@@ -361,15 +365,24 @@ export const QuotationModal: React.FC<QuotationModalProps> = ({
 
     setHeaderFooterConfig((prev) => ({
       ...prev,
-      quoteTitle: 'BÁO GIÁ THIẾT BỊ VỆ SINH',
-      orderCode: '01/HHG',
+      quoteTitle: 'BÁO GIÁ THIẾT BỊ VỆ SINH & HOÀN THIỆN',
+      orderCode: newQuoteNum,
       quoteDate: new Date().toISOString().split('T')[0],
       validUntilDate: new Date(Date.now() + 30 * 86400000).toISOString().split('T')[0],
       customerName: cust.company || `CÔNG TRÌNH NHÀ ${cust.name.toUpperCase()}`,
-      projectLocation: cust.address || 'STARLAKE',
-      customerPhone: cust.phone || '0978 322 208',
-      contactPerson: cust.name || 'CHỊ HUYỀN',
-      deliveryTerms: cust.address || 'Starlake',
+      projectLocation: cust.address || 'Tại chân công trình',
+      customerPhone: cust.phone || '',
+      contactPerson: cust.name || '',
+      deliveryTerms: cust.address || 'Tại chân công trình',
+      companyName: companyInfo?.name || prev.companyName,
+      companyAddress: companyInfo?.address || prev.companyAddress,
+      companyHotline: companyInfo?.phone || companyInfo?.hotline || prev.companyHotline,
+      companyWebsite: companyInfo?.website || prev.companyWebsite,
+      companyEmail: companyInfo?.email || prev.companyEmail,
+      companyLogo: companyInfo?.logoUrl || companyInfo?.logo || prev.companyLogo || '',
+      signatoryTitle: companyInfo?.name || prev.signatoryTitle,
+      openingGreeting: `Thay mặt ${companyInfo?.name || 'Công ty'}, xin hân hạnh gửi đến quý khách xác nhận đơn hàng gồm các hạng mục như sau:`,
+      closingNotes: `Mọi thông tin cần làm rõ, Quý khách vui lòng liên hệ với nhân viên phụ trách hoặc ${companyInfo?.name || 'Công ty'};\nChân thành cám ơn Quý khách!`,
     }));
 
     if (resetItems) {

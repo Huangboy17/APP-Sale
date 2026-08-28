@@ -34,6 +34,8 @@ import {
 import {
   COLLECTIONS,
   seedInitialDataIfEmpty,
+  setOnQuotaExceededListener,
+  handleFirestoreError,
   syncUserToCloud,
   syncCompanyInfoToCloud,
   deleteUserFromCloud,
@@ -42,8 +44,11 @@ import {
   syncProductToCloud,
   batchSyncProductsToCloud,
   deleteProductFromCloud,
+  clearCompanyProductsFromCloud,
   syncInventoryItemToCloud,
   batchSyncInventoryToCloud,
+  deleteInventoryItemFromCloud,
+  clearCompanyInventoryFromCloud,
   syncQuotationToCloud,
   deleteQuotationFromCloud,
   syncContractToCloud,
@@ -54,6 +59,28 @@ import {
   clearAllDataFromCloud,
   clearCollectionFromCloud,
 } from '../services/firestoreSync';
+
+// Helper function to resolve the company scope (C1 is company, C2 inherits C1's companyId)
+export const getCompanyScopeForUser = (user: User, userList: User[]): { companyId: string; companyName: string } => {
+  if (user.role === 'manager_c1') {
+    return {
+      companyId: user.id,
+      companyName: user.department || `Công ty của ${user.name}`,
+    };
+  }
+  if (user.role === 'sales_c2') {
+    const mgrId = user.managerId || user.createdBy;
+    const mgr = userList.find((u) => u.id === mgrId);
+    return {
+      companyId: mgrId || user.id,
+      companyName: mgr?.department || (mgr ? `Công ty của ${mgr.name}` : user.department || 'Công ty'),
+    };
+  }
+  return {
+    companyId: 'system_admin',
+    companyName: 'Quản trị hệ thống',
+  };
+};
 
 export type NavTabType =
   | 'dashboard'
@@ -80,8 +107,9 @@ interface AppContextType {
     email: string;
     phone: string;
     password?: string;
-    role: UserRole;
-    department: string;
+    department?: string;
+    position?: string;
+    role?: UserRole;
     managerId?: string;
   }) => { success: boolean; message: string; user?: User };
   logout: () => void;
@@ -118,15 +146,20 @@ interface AppContextType {
   assignCustomer: (customerId: string, salesId: string, salesName: string) => void;
   deleteCustomer: (customerId: string) => void;
 
-  // Products (Data Giá)
+  // Company Scope for active user (Tenant isolation)
+  companyScope: { companyId: string; companyName: string };
+
+  // Products (Data Giá theo từng công ty C1)
   products: ProductPriceItem[];
+  allProducts?: ProductPriceItem[];
   addProduct: (product: ProductPriceItem) => void;
   updateProduct: (product: ProductPriceItem) => void;
   deleteProduct: (sku: string) => void;
   importProducts: (newProducts: ProductPriceItem[]) => void;
 
-  // Inventory (Tồn kho)
+  // Inventory (Tồn kho theo từng công ty C1)
   inventory: InventoryItem[];
+  allInventory?: InventoryItem[];
   updateInventoryItem: (item: InventoryItem) => void;
   addInventoryItem: (item: Omit<InventoryItem, 'availableQuantity' | 'reservedQuantity' | 'updatedAt'>) => void;
   deleteInventoryItem: (sku: string) => void;
@@ -187,7 +220,7 @@ interface AppContextType {
   setPdfPreviewData: (data: { type: 'quote' | 'contract'; data: Quotation | Contract } | null) => void;
 
   // Google Cloud Firestore Sync State
-  cloudSyncStatus: 'connected' | 'syncing' | 'offline' | 'error';
+  cloudSyncStatus: 'connected' | 'syncing' | 'quota-exceeded' | 'offline' | 'error';
   lastCloudSyncTime: Date | null;
   syncAllToCloudNow: () => Promise<void>;
 
@@ -286,11 +319,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const saved = localStorage.getItem(STORAGE_KEYS.PRODUCTS);
     if (!saved) return INITIAL_PRODUCTS;
     try {
-      const parsed = JSON.parse(saved);
-      if (Array.isArray(parsed) && parsed.length < 50) {
-        return INITIAL_PRODUCTS;
-      }
-      return parsed;
+      return JSON.parse(saved);
     } catch {
       return INITIAL_PRODUCTS;
     }
@@ -300,11 +329,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const saved = localStorage.getItem(STORAGE_KEYS.INVENTORY);
     if (!saved) return INITIAL_INVENTORY;
     try {
-      const parsed = JSON.parse(saved);
-      if (Array.isArray(parsed) && parsed.length < 50) {
-        return INITIAL_INVENTORY;
-      }
-      return parsed;
+      return JSON.parse(saved);
     } catch {
       return INITIAL_INVENTORY;
     }
@@ -372,119 +397,227 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   useEffect(() => {
     let unsubs: (() => void)[] = [];
 
+    // Register quota exceeded callback
+    setOnQuotaExceededListener(() => {
+      setCloudSyncStatus('quota-exceeded');
+    });
+
     const initializeFirestoreRealtime = async () => {
       try {
         setCloudSyncStatus('syncing');
         await seedInitialDataIfEmpty();
 
         // 1. Users real-time listener
-        const unsubUsers = onSnapshot(collection(db, COLLECTIONS.USERS), (snap) => {
-          const list: User[] = [];
-          snap.forEach((d) => list.push(d.data() as User));
-          if (list.length > 0) {
+        const unsubUsers = onSnapshot(
+          collection(db, COLLECTIONS.USERS),
+          (snap) => {
+            const map = new Map<string, User>();
+            INITIAL_USERS.forEach((u) => map.set(u.id, u));
+            snap.forEach((d) => {
+              const u = d.data() as User;
+              if (u && u.id) {
+                map.set(u.id, u);
+              }
+            });
+            const list = Array.from(map.values());
             setUsers(list);
-          } else {
-            // Keep default super admin if users collection is emptied
-            setUsers(INITIAL_USERS);
+
+            // Keep current user updated with cloud data if logged in
+            const currentSavedId = localStorage.getItem(STORAGE_KEYS.CURRENT_USER_ID);
+            if (currentSavedId) {
+              const matched = list.find((u) => u.id === currentSavedId);
+              if (matched) {
+                setCurrentUser(matched);
+              }
+            }
+
+            setCloudSyncStatus((prev) => (prev === 'quota-exceeded' ? 'quota-exceeded' : 'connected'));
+            setLastCloudSyncTime(new Date());
+          },
+          (err) => {
+            handleFirestoreError(err, 'Users listener');
           }
-          setLastCloudSyncTime(new Date());
-        });
+        );
         unsubs.push(unsubUsers);
 
         // 2. Customers real-time listener
-        const unsubCustomers = onSnapshot(collection(db, COLLECTIONS.CUSTOMERS), (snap) => {
-          const list: Customer[] = [];
-          snap.forEach((d) => list.push(d.data() as Customer));
-          // Sort by creation date
-          list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-          setCustomers(list);
-          setLastCloudSyncTime(new Date());
-        });
+        const unsubCustomers = onSnapshot(
+          collection(db, COLLECTIONS.CUSTOMERS),
+          (snap) => {
+            const list: Customer[] = [];
+            snap.forEach((d) => {
+              const item = d.data() as Customer;
+              if (item && item.id) list.push(item);
+            });
+            if (list.length > 0) {
+              list.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+              setCustomers(list);
+            }
+            setCloudSyncStatus((prev) => (prev === 'quota-exceeded' ? 'quota-exceeded' : 'connected'));
+            setLastCloudSyncTime(new Date());
+          },
+          (err) => {
+            handleFirestoreError(err, 'Customers listener');
+          }
+        );
         unsubs.push(unsubCustomers);
 
         // 3. Products real-time listener
-        const unsubProducts = onSnapshot(collection(db, COLLECTIONS.PRODUCTS), (snap) => {
-          const list: ProductPriceItem[] = [];
-          snap.forEach((d) => list.push(d.data() as ProductPriceItem));
-          if (list.length > 0) {
-            setProducts(list);
-          } else {
-            setProducts(INITIAL_PRODUCTS);
-            batchSyncProductsToCloud(INITIAL_PRODUCTS);
+        const unsubProducts = onSnapshot(
+          collection(db, COLLECTIONS.PRODUCTS),
+          (snap) => {
+            const list: ProductPriceItem[] = [];
+            snap.forEach((d) => {
+              const item = d.data() as ProductPriceItem;
+              if (item && item.sku) list.push(item);
+            });
+            if (list.length > 0) {
+              setProducts(list);
+            }
+            setCloudSyncStatus((prev) => (prev === 'quota-exceeded' ? 'quota-exceeded' : 'connected'));
+            setLastCloudSyncTime(new Date());
+          },
+          (err) => {
+            handleFirestoreError(err, 'Products listener');
           }
-          setLastCloudSyncTime(new Date());
-        });
+        );
         unsubs.push(unsubProducts);
 
         // 4. Inventory real-time listener
-        const unsubInventory = onSnapshot(collection(db, COLLECTIONS.INVENTORY), (snap) => {
-          const list: InventoryItem[] = [];
-          snap.forEach((d) => list.push(d.data() as InventoryItem));
-          setInventory(list);
-          setLastCloudSyncTime(new Date());
-        });
+        const unsubInventory = onSnapshot(
+          collection(db, COLLECTIONS.INVENTORY),
+          (snap) => {
+            const list: InventoryItem[] = [];
+            snap.forEach((d) => {
+              const item = d.data() as InventoryItem;
+              if (item && item.sku) list.push(item);
+            });
+            if (list.length > 0) {
+              setInventory(list);
+            }
+            setCloudSyncStatus((prev) => (prev === 'quota-exceeded' ? 'quota-exceeded' : 'connected'));
+            setLastCloudSyncTime(new Date());
+          },
+          (err) => {
+            handleFirestoreError(err, 'Inventory listener');
+          }
+        );
         unsubs.push(unsubInventory);
 
         // 5. Quotations real-time listener
-        const unsubQuotes = onSnapshot(collection(db, COLLECTIONS.QUOTATIONS), (snap) => {
-          const list: Quotation[] = [];
-          snap.forEach((d) => list.push(d.data() as Quotation));
-          list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-          setQuotations(list);
-          setLastCloudSyncTime(new Date());
-        });
+        const unsubQuotes = onSnapshot(
+          collection(db, COLLECTIONS.QUOTATIONS),
+          (snap) => {
+            const list: Quotation[] = [];
+            snap.forEach((d) => {
+              const item = d.data() as Quotation;
+              if (item && item.id) list.push(item);
+            });
+            if (list.length > 0) {
+              list.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+              setQuotations(list);
+            }
+            setCloudSyncStatus((prev) => (prev === 'quota-exceeded' ? 'quota-exceeded' : 'connected'));
+            setLastCloudSyncTime(new Date());
+          },
+          (err) => {
+            handleFirestoreError(err, 'Quotations listener');
+          }
+        );
         unsubs.push(unsubQuotes);
 
         // 6. Contracts real-time listener
-        const unsubContracts = onSnapshot(collection(db, COLLECTIONS.CONTRACTS), (snap) => {
-          const list: Contract[] = [];
-          snap.forEach((d) => list.push(d.data() as Contract));
-          list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-          setContracts(list);
-          setLastCloudSyncTime(new Date());
-        });
+        const unsubContracts = onSnapshot(
+          collection(db, COLLECTIONS.CONTRACTS),
+          (snap) => {
+            const list: Contract[] = [];
+            snap.forEach((d) => {
+              const item = d.data() as Contract;
+              if (item && item.id) list.push(item);
+            });
+            if (list.length > 0) {
+              list.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+              setContracts(list);
+            }
+            setCloudSyncStatus((prev) => (prev === 'quota-exceeded' ? 'quota-exceeded' : 'connected'));
+            setLastCloudSyncTime(new Date());
+          },
+          (err) => {
+            handleFirestoreError(err, 'Contracts listener');
+          }
+        );
         unsubs.push(unsubContracts);
 
         // 7. Reserves real-time listener
-        const unsubReserves = onSnapshot(collection(db, COLLECTIONS.RESERVES), (snap) => {
-          const list: ReserveItem[] = [];
-          snap.forEach((d) => list.push(d.data() as ReserveItem));
-          setReserveItems(list);
-          setLastCloudSyncTime(new Date());
-        });
+        const unsubReserves = onSnapshot(
+          collection(db, COLLECTIONS.RESERVES),
+          (snap) => {
+            const list: ReserveItem[] = [];
+            snap.forEach((d) => {
+              const item = d.data() as ReserveItem;
+              if (item && item.id) list.push(item);
+            });
+            if (list.length > 0) {
+              setReserveItems(list);
+            }
+            setCloudSyncStatus((prev) => (prev === 'quota-exceeded' ? 'quota-exceeded' : 'connected'));
+            setLastCloudSyncTime(new Date());
+          },
+          (err) => {
+            handleFirestoreError(err, 'Reserves listener');
+          }
+        );
         unsubs.push(unsubReserves);
 
         // 8. Orders real-time listener
-        const unsubOrders = onSnapshot(collection(db, COLLECTIONS.ORDERS), (snap) => {
-          const list: OrderItem[] = [];
-          snap.forEach((d) => list.push(d.data() as OrderItem));
-          setOrderItems(list);
-          setLastCloudSyncTime(new Date());
-        });
+        const unsubOrders = onSnapshot(
+          collection(db, COLLECTIONS.ORDERS),
+          (snap) => {
+            const list: OrderItem[] = [];
+            snap.forEach((d) => {
+              const item = d.data() as OrderItem;
+              if (item && item.id) list.push(item);
+            });
+            if (list.length > 0) {
+              setOrderItems(list);
+            }
+            setCloudSyncStatus((prev) => (prev === 'quota-exceeded' ? 'quota-exceeded' : 'connected'));
+            setLastCloudSyncTime(new Date());
+          },
+          (err) => {
+            handleFirestoreError(err, 'Orders listener');
+          }
+        );
         unsubs.push(unsubOrders);
 
-        // 9. Master Company Info real-time listener (Propagates brand identity to all C1 & C2 users)
-        const unsubCompany = onSnapshot(collection(db, COLLECTIONS.COMPANY), (snap) => {
-          if (!snap.empty) {
-            const data = snap.docs[0].data() as CompanyInfo;
-            if (data && data.name) {
-              const normalizedData: CompanyInfo = {
-                ...data,
-                logoUrl: data.logoUrl || data.logo || '',
-                logo: data.logoUrl || data.logo || '',
-              };
-              setCompanyInfo(normalizedData);
-              localStorage.setItem(STORAGE_KEYS.COMPANY, JSON.stringify(normalizedData));
+        // 9. Master Company Info real-time listener
+        const unsubCompany = onSnapshot(
+          collection(db, COLLECTIONS.COMPANY),
+          (snap) => {
+            if (!snap.empty) {
+              const data = snap.docs[0].data() as CompanyInfo;
+              if (data && data.name) {
+                const normalizedData: CompanyInfo = {
+                  ...data,
+                  logoUrl: data.logoUrl || data.logo || '',
+                  logo: data.logoUrl || data.logo || '',
+                };
+                setCompanyInfo(normalizedData);
+                localStorage.setItem(STORAGE_KEYS.COMPANY, JSON.stringify(normalizedData));
+              }
             }
+            setCloudSyncStatus((prev) => (prev === 'quota-exceeded' ? 'quota-exceeded' : 'connected'));
+            setLastCloudSyncTime(new Date());
+          },
+          (err) => {
+            handleFirestoreError(err, 'Company listener');
           }
-          setLastCloudSyncTime(new Date());
-        });
+        );
         unsubs.push(unsubCompany);
 
-        setCloudSyncStatus('connected');
+        setCloudSyncStatus((prev) => (prev === 'quota-exceeded' ? 'quota-exceeded' : 'connected'));
       } catch (err) {
-        console.error('[Firestore] Initialization error:', err);
-        setCloudSyncStatus('error');
+        handleFirestoreError(err, 'Initialization error');
       }
     };
 
@@ -708,8 +841,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     email: string;
     phone: string;
     password?: string;
-    role: UserRole;
-    department: string;
+    department?: string;
+    position?: string;
+    role?: UserRole;
     managerId?: string;
   }) => {
     const cleanEmail = userData.email.trim().toLowerCase();
@@ -722,22 +856,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       };
     }
 
-    // Determine initial status:
-    // - Manager C1: 'pending_approval' (needs Super Admin approval)
-    // - Sales C2: 'active'
-    // - Super Admin: 'active'
-    const initialStatus = userData.role === 'manager_c1' ? 'pending_approval' : 'active';
-
+    // Đăng ký công khai luôn luôn là Cấp 1 (Chủ doanh nghiệp / Giám đốc C1)
+    // Và luôn luôn chờ Super Admin phê duyệt (status: 'pending_approval')
     const newUser: User = {
-      id: `user-${Date.now()}`,
+      id: `user-c1-${Date.now()}`,
       name: userData.name.trim(),
       email: userData.email.trim(),
       phone: userData.phone.trim() || '0901234567',
       password: userData.password || '123456',
-      role: userData.role,
-      department: userData.department || (userData.role === 'sales_c2' ? 'Phòng Kinh Doanh' : 'Ban Quản Lý'),
-      managerId: userData.role === 'sales_c2' ? userData.managerId : undefined,
-      status: initialStatus,
+      role: 'manager_c1', // Always Cấp 1
+      department: userData.department?.trim() || 'Ban Quản Lý & Doanh Nghiệp C1',
+      position: userData.position?.trim() || 'Giám Đốc / Chủ Doanh Nghiệp',
+      status: 'pending_approval', // Always pending Super Admin approval
       createdAt: new Date().toISOString().split('T')[0],
       avatar: `https://images.unsplash.com/photo-${1534528741775 + Math.floor(Math.random() * 50)}?w=120&auto=format&fit=crop&q=80`,
     };
@@ -750,17 +880,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     localStorage.setItem(STORAGE_KEYS.IS_AUTHENTICATED, 'true');
     localStorage.setItem(STORAGE_KEYS.CURRENT_USER_ID, newUser.id);
 
-    if (newUser.role === 'manager_c1') {
-      return {
-        success: true,
-        message: 'Đăng ký tài khoản Quản Lý / Giám Đốc (Cấp 1) thành công! Hồ sơ của bạn đang chờ Super Admin phê duyệt kích hoạt.',
-        user: newUser,
-      };
-    }
-
     return {
       success: true,
-      message: `Đăng ký thành công! Tài khoản Sales (Cấp 2) của bạn đã được kích hoạt.`,
+      message: 'Đăng ký tài khoản Doanh Nghiệp (Cấp 1) thành công! Hồ sơ của bạn đã được gửi tới Super Admin để xét duyệt kích hoạt.',
       user: newUser,
     };
   };
@@ -822,24 +944,28 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   // RBAC Filtered Users:
-  // - Super Admin: views all users in the system
-  // - Cấp 1 (Manager): views self and Cấp 2 accounts created/managed by this Cấp 1
-  // - Cấp 2 (Sales): views only self
+  // - Super Admin: views all users in the system (C1, C2, Admins)
+  // - Cấp 1 (Manager): views self and all Cấp 2 accounts created/managed by this Cấp 1
+  // - Cấp 2 (Sales): views self only
   const filteredUsers = users.filter((u) => {
     if (currentUser.role === 'super_admin') return true;
     if (currentUser.role === 'manager_c1') {
-      return u.id === currentUser.id || (u.role === 'sales_c2' && (u.managerId === currentUser.id || u.createdBy === currentUser.id));
+      return (
+        u.id === currentUser.id ||
+        u.managerId === currentUser.id ||
+        u.createdBy === currentUser.id
+      );
     }
     return u.id === currentUser.id;
   });
 
   // Customers Logic - RBAC Filter:
-  // - Super Admin: KHÔNG xem thông tin nội bộ của C1, C2 (returns empty list for operational customer data)
-  // - Cấp 1: xem khách hàng do chính C1 phụ trách hoặc do các tài khoản Cấp 2 thuộc C1 đó quản lý/tạo
-  // - Cấp 2: CHỈ xem khách hàng được phân công (assignedToId) hoặc do C2 đó tự tạo (createdBy)
+  // - Super Admin: returns [] (Super Admin chỉ quản trị hệ thống, dữ liệu kinh doanh thuộc C1 & C2)
+  // - Cấp 1: views customers assigned to or created by self OR any Cấp 2 managed by this Cấp 1
+  // - Cấp 2: ONLY views customers created by self OR assigned/authorized to this Cấp 2
   const filteredCustomers = customers.filter((cust) => {
     if (currentUser.role === 'super_admin') {
-      return false; // Super admin strictly has no access to internal operational customer lists
+      return false; // Super Admin chỉ quản trị hệ thống
     }
     if (currentUser.role === 'manager_c1') {
       const managedC2Ids = users
@@ -849,11 +975,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         cust.assignedToId === currentUser.id ||
         cust.createdBy === currentUser.id ||
         managedC2Ids.includes(cust.assignedToId) ||
-        managedC2Ids.includes(cust.createdBy)
+        (cust.createdBy ? managedC2Ids.includes(cust.createdBy) : false)
       );
     }
-    // Cấp 2 (Sales)
-    return cust.assignedToId === currentUser.id || cust.createdBy === currentUser.id;
+    // Cấp 2 (Sales): CHỈ hiển thị khách hàng do chính mình tạo hoặc được phân quyền / gán
+    return (
+      cust.createdBy === currentUser.id ||
+      cust.assignedToId === currentUser.id ||
+      cust.assignedToName === currentUser.name
+    );
   });
 
   const addCustomer = (customerData: Omit<Customer, 'id' | 'createdAt' | 'updatedAt' | 'code'>) => {
@@ -863,6 +993,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       ...customerData,
       id: `cust-${Date.now()}`,
       code,
+      createdBy: customerData.createdBy || currentUser.id,
+      assignedToId: customerData.assignedToId || currentUser.id,
+      assignedToName: customerData.assignedToName || currentUser.name,
       createdAt: now,
       updatedAt: now,
     };
@@ -922,14 +1055,59 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     deleteCustomerFromCloud(customerId);
   };
 
-  // Products Data Giá
-  const addProduct = (prod: ProductPriceItem) => {
-    setProducts((prev) => [prod, ...prev]);
-    syncProductToCloud(prod);
+  // Active Company Scope for the logged in user
+  const companyScope = useMemo(() => {
+    return getCompanyScopeForUser(currentUser, users);
+  }, [currentUser, users]);
 
-    // Also create corresponding inventory item if not exists
+  // Products Data Giá - Scoped by Company:
+  // - Super Admin: returns [] (Super Admin quản trị hệ thống tài khoản & công ty, không can thiệp bảng giá bán lẻ của các C1)
+  // - Cấp 1 (Công ty A): CHỈ xem & quản lý data giá của công ty A
+  // - Cấp 2 (Sales của C1): Xem và dùng chung data giá của công ty C1 quản lý
+  const filteredProducts = useMemo(() => {
+    if (currentUser.role === 'super_admin') {
+      return [];
+    }
+    const myCompanyId = companyScope.companyId;
+
+    return products.filter((p) => {
+      if (p.companyId) {
+        return p.companyId === myCompanyId;
+      }
+      // Backward compatibility nếu data cũ chưa gắn companyId
+      if (currentUser.role === 'manager_c1') {
+        return p.createdBy === currentUser.id;
+      }
+      if (currentUser.role === 'sales_c2') {
+        const mgrId = currentUser.managerId || currentUser.createdBy;
+        return p.createdBy === currentUser.id || (mgrId ? p.createdBy === mgrId : false);
+      }
+      return false;
+    });
+  }, [products, currentUser, companyScope]);
+
+  const addProduct = (prod: ProductPriceItem) => {
+    const myCompanyId = companyScope.companyId;
+    const stampedProd: ProductPriceItem = {
+      ...prod,
+      companyId: myCompanyId,
+      createdBy: currentUser.id,
+      createdByName: currentUser.name,
+    };
+
+    setProducts((prev) => {
+      // Remove any item with same SKU in THIS company
+      const otherItems = prev.filter(
+        (p) => !(p.sku.trim().toUpperCase() === prod.sku.trim().toUpperCase() && (p.companyId === myCompanyId || !p.companyId))
+      );
+      const updated = [stampedProd, ...otherItems];
+      return updated;
+    });
+    syncProductToCloud(stampedProd);
+
+    // Also create corresponding inventory item if not exists for this company
     setInventory((prev) => {
-      if (!prev.some((item) => item.sku === prod.sku)) {
+      if (!prev.some((item) => item.sku.trim().toUpperCase() === prod.sku.trim().toUpperCase() && item.companyId === myCompanyId)) {
         const newInv: InventoryItem = {
           sku: prod.sku,
           name: prod.name,
@@ -939,6 +1117,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           availableQuantity: 0,
           warehouseLocation: 'Kho Mới',
           updatedAt: new Date().toISOString().split('T')[0],
+          companyId: myCompanyId,
+          createdBy: currentUser.id,
+          createdByName: currentUser.name,
         };
         syncInventoryItemToCloud(newInv);
         return [...prev, newInv];
@@ -948,13 +1129,27 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const updateProduct = (updated: ProductPriceItem) => {
-    setProducts((prev) => prev.map((p) => (p.sku === updated.sku ? updated : p)));
-    syncProductToCloud(updated);
+    const myCompanyId = companyScope.companyId;
+    const stampedProd: ProductPriceItem = {
+      ...updated,
+      companyId: updated.companyId || myCompanyId,
+      createdBy: updated.createdBy || currentUser.id,
+      createdByName: updated.createdByName || currentUser.name,
+    };
+
+    setProducts((prev) =>
+      prev.map((p) =>
+        p.sku.trim().toUpperCase() === updated.sku.trim().toUpperCase() && (p.companyId === stampedProd.companyId || !p.companyId)
+          ? stampedProd
+          : p
+      )
+    );
+    syncProductToCloud(stampedProd);
 
     setInventory((prev) => {
       const updatedList = prev.map((inv) => {
-        if (inv.sku === updated.sku) {
-          const syncedInv = { ...inv, name: updated.name, unit: updated.unit };
+        if (inv.sku.trim().toUpperCase() === updated.sku.trim().toUpperCase() && (inv.companyId === stampedProd.companyId || !inv.companyId)) {
+          const syncedInv = { ...inv, name: updated.name, unit: updated.unit, companyId: stampedProd.companyId };
           syncInventoryItemToCloud(syncedInv);
           return syncedInv;
         }
@@ -965,28 +1160,57 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const deleteProduct = (sku: string) => {
-    setProducts((prev) => prev.filter((p) => p.sku !== sku));
-    deleteProductFromCloud(sku);
+    const myCompanyId = companyScope.companyId;
+    setProducts((prev) =>
+      prev.filter(
+        (p) => !(p.sku.trim().toUpperCase() === sku.trim().toUpperCase() && (p.companyId === myCompanyId || !p.companyId))
+      )
+    );
+    deleteProductFromCloud(sku, myCompanyId);
+
+    // Also delete inventory item for this company
+    setInventory((prev) =>
+      prev.filter(
+        (i) => !(i.sku.trim().toUpperCase() === sku.trim().toUpperCase() && (i.companyId === myCompanyId || !i.companyId))
+      )
+    );
+    deleteInventoryItemFromCloud(sku, myCompanyId);
   };
 
   const importProducts = (newProducts: ProductPriceItem[]) => {
+    const myCompanyId = companyScope.companyId;
+    const stampedProducts: ProductPriceItem[] = newProducts.map((p) => ({
+      ...p,
+      sku: p.sku.trim().toUpperCase(),
+      companyId: myCompanyId,
+      createdBy: currentUser.id,
+      createdByName: currentUser.name,
+    }));
+
     setProducts((prev) => {
-      const map = new Map<string, ProductPriceItem>();
-      prev.forEach((p) => map.set(p.sku, p));
-      newProducts.forEach((p) => map.set(p.sku, p));
-      const list = Array.from(map.values());
-      batchSyncProductsToCloud(list);
-      return list;
+      // Retain products of other companies
+      const otherCompaniesProducts = prev.filter((p) => p.companyId && p.companyId !== myCompanyId);
+
+      // Merge current company's products
+      const myMap = new Map<string, ProductPriceItem>();
+      prev.filter((p) => p.companyId === myCompanyId).forEach((p) => myMap.set(p.sku.toUpperCase(), p));
+      stampedProducts.forEach((p) => myMap.set(p.sku.toUpperCase(), p));
+
+      const updatedCompanyProducts = Array.from(myMap.values());
+      const combined = [...otherCompaniesProducts, ...updatedCompanyProducts];
+      batchSyncProductsToCloud(stampedProducts);
+      return combined;
     });
 
-    // Ensure inventory entries exist
+    // Ensure inventory entries exist for this company
     setInventory((prev) => {
-      const invMap = new Map<string, InventoryItem>();
-      prev.forEach((i) => invMap.set(i.sku, i));
-      const newlyAdded: InventoryItem[] = [];
+      const otherCompaniesInventory = prev.filter((i) => i.companyId && i.companyId !== myCompanyId);
+      const myInvMap = new Map<string, InventoryItem>();
+      prev.filter((i) => i.companyId === myCompanyId).forEach((i) => myInvMap.set(i.sku.toUpperCase(), i));
 
-      newProducts.forEach((p) => {
-        if (!invMap.has(p.sku)) {
+      const newlyAdded: InventoryItem[] = [];
+      stampedProducts.forEach((p) => {
+        if (!myInvMap.has(p.sku.toUpperCase())) {
           const item: InventoryItem = {
             sku: p.sku,
             name: p.name,
@@ -996,8 +1220,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             availableQuantity: 0,
             warehouseLocation: 'Kho Mới',
             updatedAt: new Date().toISOString().split('T')[0],
+            companyId: myCompanyId,
+            createdBy: currentUser.id,
+            createdByName: currentUser.name,
           };
-          invMap.set(p.sku, item);
+          myInvMap.set(p.sku.toUpperCase(), item);
           newlyAdded.push(item);
         }
       });
@@ -1006,46 +1233,127 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         batchSyncInventoryToCloud(newlyAdded);
       }
 
-      return Array.from(invMap.values());
+      return [...otherCompaniesInventory, ...Array.from(myInvMap.values())];
     });
   };
 
-  // Inventory
+  // Inventory Tồn kho - Scoped by Company & Synced with Holds:
+  const filteredInventory = useMemo(() => {
+    if (currentUser.role === 'super_admin') {
+      return [];
+    }
+    const myCompanyId = companyScope.companyId;
+
+    // Find all user names in this company (C1 manager + C2 team) to compute company-level reserve holding accurately
+    const companyUserNames = users
+      .filter((u) => {
+        if (currentUser.role === 'manager_c1') {
+          return u.id === currentUser.id || u.managerId === currentUser.id || u.createdBy === currentUser.id;
+        }
+        if (currentUser.role === 'sales_c2') {
+          const mgrId = currentUser.managerId || currentUser.createdBy;
+          return u.id === currentUser.id || u.id === mgrId || (mgrId ? u.managerId === mgrId || u.createdBy === mgrId : false);
+        }
+        return false;
+      })
+      .map((u) => u.name);
+
+    const reserveMap = new Map<string, number>();
+    reserveItems.forEach((r) => {
+      if (
+        r.status === 'holding' &&
+        (companyUserNames.includes(r.salesRepName) || r.salesRepName === currentUser.name)
+      ) {
+        const cleanSku = (r.sku || '').trim().toUpperCase();
+        reserveMap.set(cleanSku, (reserveMap.get(cleanSku) || 0) + (r.reservedQuantity || 0));
+      }
+    });
+
+    const companyInv = inventory.filter((item) => {
+      if (item.companyId) {
+        return item.companyId === myCompanyId;
+      }
+      if (currentUser.role === 'manager_c1') {
+        return item.createdBy === currentUser.id;
+      }
+      if (currentUser.role === 'sales_c2') {
+        const mgrId = currentUser.managerId || currentUser.createdBy;
+        return item.createdBy === currentUser.id || (mgrId ? item.createdBy === mgrId : false);
+      }
+      return false;
+    });
+
+    return companyInv.map((item) => {
+      const cleanSku = (item.sku || '').trim().toUpperCase();
+      const actualReserved = reserveMap.get(cleanSku) || 0;
+      const actualAvailable = Math.max(0, (item.totalQuantity || 0) - actualReserved);
+
+      return {
+        ...item,
+        reservedQuantity: actualReserved,
+        availableQuantity: actualAvailable,
+      };
+    });
+  }, [inventory, reserveItems, currentUser, companyScope]);
+
   const updateInventoryItem = (item: InventoryItem) => {
+    const myCompanyId = companyScope.companyId;
     const available = Math.max(0, item.totalQuantity - item.reservedQuantity);
-    const updated = {
+    const updated: InventoryItem = {
       ...item,
+      companyId: item.companyId || myCompanyId,
+      createdBy: item.createdBy || currentUser.id,
+      createdByName: item.createdByName || currentUser.name,
       availableQuantity: available,
       updatedAt: new Date().toISOString().split('T')[0],
     };
-    setInventory((prev) => prev.map((i) => (i.sku === item.sku ? updated : i)));
+    setInventory((prev) =>
+      prev.map((i) =>
+        i.sku.trim().toUpperCase() === item.sku.trim().toUpperCase() && (i.companyId === updated.companyId || !i.companyId)
+          ? updated
+          : i
+      )
+    );
     syncInventoryItemToCloud(updated);
   };
 
   const addInventoryItem = (newItem: Omit<InventoryItem, 'availableQuantity' | 'reservedQuantity' | 'updatedAt'>) => {
+    const myCompanyId = companyScope.companyId;
     const now = new Date().toISOString().split('T')[0];
     const created: InventoryItem = {
       ...newItem,
+      companyId: myCompanyId,
+      createdBy: currentUser.id,
+      createdByName: currentUser.name,
       reservedQuantity: 0,
       availableQuantity: newItem.totalQuantity,
       updatedAt: now,
     };
     setInventory((prev) => {
-      const filtered = prev.filter((i) => i.sku.trim().toLowerCase() !== newItem.sku.trim().toLowerCase());
+      const filtered = prev.filter(
+        (i) => !(i.sku.trim().toUpperCase() === newItem.sku.trim().toUpperCase() && (i.companyId === myCompanyId || !i.companyId))
+      );
       return [created, ...filtered];
     });
     syncInventoryItemToCloud(created);
   };
 
   const deleteInventoryItem = (sku: string) => {
-    setInventory((prev) => prev.filter((i) => i.sku.trim().toLowerCase() !== sku.trim().toLowerCase()));
+    const myCompanyId = companyScope.companyId;
+    setInventory((prev) =>
+      prev.filter(
+        (i) => !(i.sku.trim().toUpperCase() === sku.trim().toUpperCase() && (i.companyId === myCompanyId || !i.companyId))
+      )
+    );
+    deleteInventoryItemFromCloud(sku, myCompanyId);
   };
 
   const quickAdjustStock = (sku: string, deltaQty: number) => {
+    const myCompanyId = companyScope.companyId;
     setInventory((prev) => {
       let targetItem: InventoryItem | null = null;
       const updated = prev.map((item) => {
-        if (item.sku === sku) {
+        if (item.sku.trim().toUpperCase() === sku.trim().toUpperCase() && (item.companyId === myCompanyId || !item.companyId)) {
           const newTotal = Math.max(0, item.totalQuantity + deltaQty);
           const newAvailable = Math.max(0, newTotal - item.reservedQuantity);
           targetItem = {
@@ -1067,6 +1375,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const order = orderItems.find((o) => o.id === orderId);
     if (!order) return;
 
+    const myCompanyId = companyScope.companyId;
     const contract = contracts.find((c) => c.id === order.contractId);
     const loc = warehouseLocation || 'Kho Tổng TP.HCM (Kệ A1)';
     const now = new Date().toISOString().split('T')[0];
@@ -1080,19 +1389,26 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setOrderItems((prev) => prev.map((o) => (o.id === orderId ? updatedOrder : o)));
     syncOrderItemToCloud(updatedOrder);
 
-    // 2. Increase inventory totalQuantity
+    // 2. Increase inventory totalQuantity for this company
     setInventory((prev) => {
-      const existing = prev.find((i) => i.sku.trim().toLowerCase() === order.sku.trim().toLowerCase());
+      const existing = prev.find(
+        (i) => i.sku.trim().toUpperCase() === order.sku.trim().toUpperCase() && (i.companyId === myCompanyId || !i.companyId)
+      );
       let updatedInv: InventoryItem;
       if (existing) {
         updatedInv = {
           ...existing,
+          companyId: myCompanyId,
           totalQuantity: existing.totalQuantity + order.orderQuantity,
           warehouseLocation: existing.warehouseLocation || loc,
           updatedAt: now,
         };
         syncInventoryItemToCloud(updatedInv);
-        return prev.map((i) => (i.sku.trim().toLowerCase() === order.sku.trim().toLowerCase() ? updatedInv : i));
+        return prev.map((i) =>
+          i.sku.trim().toUpperCase() === order.sku.trim().toUpperCase() && (i.companyId === myCompanyId || !i.companyId)
+            ? updatedInv
+            : i
+        );
       } else {
         updatedInv = {
           sku: order.sku,
@@ -1103,6 +1419,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           availableQuantity: 0,
           warehouseLocation: loc,
           updatedAt: now,
+          companyId: myCompanyId,
+          createdBy: currentUser.id,
+          createdByName: currentUser.name,
         };
         syncInventoryItemToCloud(updatedInv);
         return [...prev, updatedInv];
@@ -1133,41 +1452,67 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const importInventory = (newInvList: InventoryItem[]) => {
+    const myCompanyId = companyScope.companyId;
+    const stampedList: InventoryItem[] = newInvList.map((item) => ({
+      ...item,
+      sku: item.sku.trim().toUpperCase(),
+      companyId: myCompanyId,
+      createdBy: currentUser.id,
+      createdByName: currentUser.name,
+    }));
+
     setInventory((prev) => {
-      const map = new Map<string, InventoryItem>();
-      prev.forEach((i) => map.set(i.sku, i));
-      newInvList.forEach((item) => {
-        const existing = map.get(item.sku);
+      const otherCompaniesInventory = prev.filter((i) => i.companyId && i.companyId !== myCompanyId);
+      const myMap = new Map<string, InventoryItem>();
+      prev.filter((i) => i.companyId === myCompanyId).forEach((i) => myMap.set(i.sku.toUpperCase(), i));
+
+      stampedList.forEach((item) => {
+        const existing = myMap.get(item.sku.toUpperCase());
         const reserved = existing ? existing.reservedQuantity : 0;
         const available = Math.max(0, item.totalQuantity - reserved);
-        map.set(item.sku, {
+        myMap.set(item.sku.toUpperCase(), {
           ...item,
           reservedQuantity: reserved,
           availableQuantity: available,
           updatedAt: new Date().toISOString().split('T')[0],
         });
       });
-      const list = Array.from(map.values());
-      batchSyncInventoryToCloud(list);
-      return list;
+
+      const updatedCompanyInv = Array.from(myMap.values());
+      batchSyncInventoryToCloud(updatedCompanyInv);
+      return [...otherCompaniesInventory, ...updatedCompanyInv];
     });
   };
 
   // Quotations - RBAC Filter:
-  // - Super Admin: returns [] (no access to internal operational quotes)
-  // - Cấp 1: views own quotes and quotes created by their managed C2 team
-  // - Cấp 2: views ONLY their own quotes (q.salesRepId === currentUser.id)
+  // - Super Admin: returns [] (Super Admin chỉ quản trị hệ thống, dữ liệu báo giá thuộc C1 & C2)
+  // - Cấp 1: views own quotes and all quotes created by their managed C2 sales team
+  // - Cấp 2: ONLY views quotes created by self or where salesRepId/salesRepName matches self
   const filteredQuotations = quotations.filter((q) => {
     if (currentUser.role === 'super_admin') {
-      return false;
+      return false; // Super Admin chỉ quản trị hệ thống
     }
     if (currentUser.role === 'manager_c1') {
-      const managedC2Ids = users
-        .filter((u) => u.managerId === currentUser.id || u.createdBy === currentUser.id)
-        .map((u) => u.id);
-      return q.salesRepId === currentUser.id || managedC2Ids.includes(q.salesRepId);
+      const managedC2 = users.filter(
+        (u) => u.managerId === currentUser.id || u.createdBy === currentUser.id
+      );
+      const managedC2Ids = managedC2.map((u) => u.id);
+      const managedC2Names = managedC2.map((u) => u.name);
+      return (
+        q.salesRepId === currentUser.id ||
+        q.salesRepName === currentUser.name ||
+        (q.createdBy && q.createdBy === currentUser.id) ||
+        managedC2Ids.includes(q.salesRepId) ||
+        managedC2Names.includes(q.salesRepName) ||
+        (q.createdBy ? managedC2Ids.includes(q.createdBy) : false)
+      );
     }
-    return q.salesRepId === currentUser.id;
+    // Cấp 2 (Sales): CHỈ hiển thị báo giá do chính mình tạo hoặc đứng tên
+    return (
+      q.salesRepId === currentUser.id ||
+      q.salesRepName === currentUser.name ||
+      (q.createdBy && q.createdBy === currentUser.id)
+    );
   });
 
   const getCustomerQuotations = (customerId: string) => {
@@ -1181,6 +1526,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const newQuote: Quotation = {
       ...quoteData,
       id: `quote-${Date.now()}`,
+      salesRepId: quoteData.salesRepId || currentUser.id,
+      salesRepName: quoteData.salesRepName || currentUser.name,
+      salesRepPhone: quoteData.salesRepPhone || currentUser.phone,
+      createdBy: currentUser.id,
       createdAt: now,
       updatedAt: now,
     };
@@ -1569,20 +1918,31 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   // Contracts - RBAC Filter:
-  // - Super Admin: returns []
-  // - Cấp 1: views own contracts and contracts of their managed C2 team
-  // - Cấp 2: views ONLY their own contracts
+  // - Super Admin: returns [] (Super Admin chỉ quản trị hệ thống)
+  // - Cấp 1: views own contracts and contracts of their managed C2 sales team
+  // - Cấp 2: ONLY views own contracts
   const filteredContracts = contracts.filter((c) => {
     if (currentUser.role === 'super_admin') {
-      return false;
+      return false; // Super Admin chỉ quản trị hệ thống
     }
     if (currentUser.role === 'manager_c1') {
-      const managedC2Ids = users
-        .filter((u) => u.managerId === currentUser.id || u.createdBy === currentUser.id)
-        .map((u) => u.id);
-      return c.salesRepId === currentUser.id || managedC2Ids.includes(c.salesRepId);
+      const managedC2 = users.filter(
+        (u) => u.managerId === currentUser.id || u.createdBy === currentUser.id
+      );
+      const managedC2Ids = managedC2.map((u) => u.id);
+      const managedC2Names = managedC2.map((u) => u.name);
+      return (
+        c.salesRepId === currentUser.id ||
+        c.salesRepName === currentUser.name ||
+        managedC2Ids.includes(c.salesRepId) ||
+        managedC2Names.includes(c.salesRepName)
+      );
     }
-    return c.salesRepId === currentUser.id;
+    // Cấp 2 (Sales): CHỈ hiển thị hợp đồng do chính mình tạo / đứng tên
+    return (
+      c.salesRepId === currentUser.id ||
+      c.salesRepName === currentUser.name
+    );
   });
 
   const updateContract = (updated: Contract) => {
@@ -1611,28 +1971,38 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   // Logistics Split tables (Reserve & Order) - RBAC Filter:
-  // - Super Admin: views all reserves and orders
-  // - Cấp 1: views items created by self or their managed C2 sales reps
-  // - Cấp 2: views ONLY items associated with their name
+  // - Super Admin: returns [] (Super Admin quản lý kho tổng, không xem danh sách giữ/đặt riêng lẻ của sale)
+  // - Cấp 1: views items created by self or their managed C2 sales team
+  // - Cấp 2: ONLY views items associated with their name or id
   const filteredReserveItems = reserveItems.filter((r) => {
-    if (currentUser.role === 'super_admin') return true;
+    if (currentUser.role === 'super_admin') return false;
     if (currentUser.role === 'manager_c1') {
-      const managedC2Names = users
-        .filter((u) => u.managerId === currentUser.id || u.createdBy === currentUser.id)
-        .map((u) => u.name);
-      return r.salesRepName === currentUser.name || managedC2Names.includes(r.salesRepName);
+      const managedC2 = users.filter(
+        (u) => u.managerId === currentUser.id || u.createdBy === currentUser.id
+      );
+      const managedNames = managedC2.map((u) => u.name);
+      return (
+        r.salesRepName === currentUser.name ||
+        managedNames.includes(r.salesRepName)
+      );
     }
+    // Cấp 2 (Sales): CHỈ hiển thị danh sách do chính mình phụ trách
     return r.salesRepName === currentUser.name;
   });
 
   const filteredOrderItems = orderItems.filter((o) => {
-    if (currentUser.role === 'super_admin') return true;
+    if (currentUser.role === 'super_admin') return false;
     if (currentUser.role === 'manager_c1') {
-      const managedC2Names = users
-        .filter((u) => u.managerId === currentUser.id || u.createdBy === currentUser.id)
-        .map((u) => u.name);
-      return o.salesRepName === currentUser.name || managedC2Names.includes(o.salesRepName);
+      const managedC2 = users.filter(
+        (u) => u.managerId === currentUser.id || u.createdBy === currentUser.id
+      );
+      const managedNames = managedC2.map((u) => u.name);
+      return (
+        o.salesRepName === currentUser.name ||
+        managedNames.includes(o.salesRepName)
+      );
     }
+    // Cấp 2 (Sales): CHỈ hiển thị danh sách do chính mình phụ trách
     return o.salesRepName === currentUser.name;
   });
 
@@ -1840,15 +2210,27 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
 
     if (options.clearProducts) {
-      setProducts([]);
-      localStorage.removeItem(STORAGE_KEYS.PRODUCTS);
-      await clearCollectionFromCloud(COLLECTIONS.PRODUCTS);
+      if (currentUser.role === 'super_admin') {
+        setProducts([]);
+        localStorage.removeItem(STORAGE_KEYS.PRODUCTS);
+        await clearCollectionFromCloud(COLLECTIONS.PRODUCTS);
+      } else {
+        const myCompanyId = companyScope.companyId;
+        setProducts((prev) => prev.filter((p) => p.companyId !== myCompanyId && p.createdBy !== currentUser.id));
+        await clearCompanyProductsFromCloud(myCompanyId);
+      }
     }
 
     if (options.clearInventory) {
-      setInventory([]);
-      localStorage.removeItem(STORAGE_KEYS.INVENTORY);
-      await clearCollectionFromCloud(COLLECTIONS.INVENTORY);
+      if (currentUser.role === 'super_admin') {
+        setInventory([]);
+        localStorage.removeItem(STORAGE_KEYS.INVENTORY);
+        await clearCollectionFromCloud(COLLECTIONS.INVENTORY);
+      } else {
+        const myCompanyId = companyScope.companyId;
+        setInventory((prev) => prev.filter((i) => i.companyId !== myCompanyId && i.createdBy !== currentUser.id));
+        await clearCompanyInventoryFromCloud(myCompanyId);
+      }
     }
 
     if (options.clearQuotesAndContracts) {
@@ -1927,6 +2309,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setIsProfileModalOpen,
         profileModalInitialTab,
         setProfileModalInitialTab,
+        companyScope,
         customers,
         filteredCustomers,
         addCustomer,
@@ -1934,12 +2317,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         updateCustomerStage,
         assignCustomer,
         deleteCustomer,
-        products,
+        products: filteredProducts,
+        allProducts: products,
         addProduct,
         updateProduct,
         deleteProduct,
         importProducts,
-        inventory: syncedInventory,
+        inventory: filteredInventory,
+        allInventory: inventory,
         updateInventoryItem,
         addInventoryItem,
         deleteInventoryItem,

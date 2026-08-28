@@ -20,6 +20,9 @@ import {
   CheckCircle2,
   AlertTriangle,
   XCircle,
+  Building2,
+  ShieldCheck,
+  Lock,
 } from 'lucide-react';
 
 export const ProductPriceMaster: React.FC = () => {
@@ -31,6 +34,7 @@ export const ProductPriceMaster: React.FC = () => {
     deleteProduct,
     clearSpecificData,
     currentUser,
+    companyScope,
   } = useApp();
 
   const [searchTerm, setSearchTerm] = useState('');
@@ -57,7 +61,8 @@ export const ProductPriceMaster: React.FC = () => {
   const [dpPrice, setDpPrice] = useState<number>(0);
   const [description, setDescription] = useState('');
 
-  const isManagerOrAdmin = currentUser.role === 'super_admin' || currentUser.role === 'manager_c1';
+  // Both C1 (Company Manager) and C2 (Sales in company) have full rights over their company price list
+  const canManageProducts = currentUser.role === 'manager_c1' || currentUser.role === 'sales_c2';
 
   // Fast inventory lookup map by normalized SKU
   const inventoryMap = useMemo(() => {
@@ -191,6 +196,38 @@ export const ProductPriceMaster: React.FC = () => {
 
   return (
     <div className="space-y-4">
+      {/* Company Tenant Scope Banner */}
+      <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-lg p-3 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5 text-xs">
+        <div className="flex items-center space-x-2.5">
+          <div className="p-2 bg-blue-600 text-white rounded-md shrink-0 shadow-xs">
+            <Building2 className="w-4 h-4" />
+          </div>
+          <div>
+            <div className="font-bold text-slate-900 flex items-center space-x-2">
+              <span>{companyScope.companyName}</span>
+              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-blue-800 border border-blue-300">
+                {currentUser.role === 'manager_c1'
+                  ? 'Quản lý Cấp 1 (Công ty)'
+                  : currentUser.role === 'sales_c2'
+                  ? 'Kinh doanh Cấp 2 (Thuộc công ty)'
+                  : 'Super Admin Quản trị'}
+              </span>
+            </div>
+            <p className="text-slate-600 text-[11px] mt-0.5">
+              {currentUser.role === 'super_admin'
+                ? 'Super Admin chỉ quản trị tài khoản hệ thống. Mỗi công ty Cấp 1 sở hữu và quản lý dữ liệu giá độc lập.'
+                : 'Bảng giá và tồn kho được cách ly hoàn toàn theo từng công ty. Cấp 1 và Cấp 2 thuộc cùng công ty dùng chung data giá này.'}
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center space-x-2 shrink-0 self-end sm:self-center">
+          <span className="inline-flex items-center space-x-1 px-2.5 py-1 bg-white/80 border border-blue-200 rounded-md font-medium text-slate-700 text-[11px]">
+            <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+            <span>Đã kết nối Cloud Firestore</span>
+          </span>
+        </div>
+      </div>
+
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-3.5 rounded-lg border border-slate-200 shadow-xs">
         <div>
@@ -223,39 +260,43 @@ export const ProductPriceMaster: React.FC = () => {
             <span>Xuất Excel ({products.length})</span>
           </button>
 
-          <button
-            onClick={() => setIsImportModalOpen(true)}
-            className="px-2.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border border-indigo-200 rounded-md text-xs font-bold flex items-center space-x-1 transition shadow-2xs cursor-pointer"
-            title="Import bảng giá sản phẩm mới hoặc cập nhật giá niêm yết/giá DP"
-          >
-            <Upload className="w-3.5 h-3.5" />
-            <span>Import Data Giá</span>
-          </button>
+          {canManageProducts && (
+            <>
+              <button
+                onClick={() => setIsImportModalOpen(true)}
+                className="px-2.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border border-indigo-200 rounded-md text-xs font-bold flex items-center space-x-1 transition shadow-2xs cursor-pointer"
+                title="Import bảng giá sản phẩm mới hoặc cập nhật giá niêm yết/giá DP cho công ty"
+              >
+                <Upload className="w-3.5 h-3.5" />
+                <span>Import Data Giá</span>
+              </button>
 
-          <button
-            onClick={() => {
-              if (products.length === 0) {
-                alert('Không có dữ liệu giá nào để xoá.');
-                return;
-              }
-              if (window.confirm(`Bạn có chắc chắn muốn xoá toàn bộ ${products.length} sản phẩm trong Data Giá không? Hành động này sẽ xoá trên cả máy và Cloud Firestore.`)) {
-                clearSpecificData({ clearProducts: true });
-              }
-            }}
-            className="px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-md text-xs font-bold flex items-center space-x-1 shadow-2xs transition cursor-pointer"
-            title="Xoá toàn bộ danh sách sản phẩm trong Data Giá"
-          >
-            <Trash2 className="w-3.5 h-3.5 text-rose-600" />
-            <span>Xoá Hết Data Giá</span>
-          </button>
+              <button
+                onClick={() => {
+                  if (products.length === 0) {
+                    alert('Không có dữ liệu giá nào để xoá.');
+                    return;
+                  }
+                  if (window.confirm(`Bạn có chắc chắn muốn xoá toàn bộ ${products.length} sản phẩm trong Data Giá của ${companyScope.companyName} không? Hành động này sẽ xoá trên cả máy và Cloud Firestore.`)) {
+                    clearSpecificData({ clearProducts: true });
+                  }
+                }}
+                className="px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-md text-xs font-bold flex items-center space-x-1 shadow-2xs transition cursor-pointer"
+                title="Xoá toàn bộ danh sách sản phẩm trong Data Giá của công ty"
+              >
+                <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+                <span>Xoá Hết Data Giá</span>
+              </button>
 
-          <button
-            onClick={handleOpenAddModal}
-            className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-xs font-bold flex items-center space-x-1 shadow-2xs transition active:scale-95 cursor-pointer"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span>+ Thêm Sản Phẩm</span>
-          </button>
+              <button
+                onClick={handleOpenAddModal}
+                className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-xs font-bold flex items-center space-x-1 shadow-2xs transition active:scale-95 cursor-pointer"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>+ Thêm Sản Phẩm</span>
+              </button>
+            </>
+          )}
         </div>
       </div>
 
@@ -395,14 +436,16 @@ export const ProductPriceMaster: React.FC = () => {
                   Giá DP (Sàn Bán)
                 </th>
                 <th className="px-3 py-2.5 text-right text-emerald-700 font-bold">Biên Độ Giảm</th>
-                {isManagerOrAdmin && <th className="px-3 py-2.5 text-center">Thao Tác</th>}
+                {canManageProducts && <th className="px-3 py-2.5 text-center">Thao Tác</th>}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-slate-700">
               {displayedProducts.length === 0 ? (
                 <tr>
-                  <td colSpan={isManagerOrAdmin ? 12 : 11} className="px-4 py-8 text-center text-slate-400">
-                    Không tìm thấy sản phẩm nào phù hợp
+                  <td colSpan={canManageProducts ? 12 : 11} className="px-4 py-8 text-center text-slate-400">
+                    {currentUser.role === 'super_admin'
+                      ? 'Tài khoản Super Admin không hiển thị data giá bán lẻ của các công ty. Vui lòng đăng nhập tài khoản Cấp 1 tương ứng để xem và quản lý.'
+                      : 'Chưa có sản phẩm nào trong Data Giá của công ty. Vui lòng bấm "Import Data Giá" hoặc "+ Thêm Sản Phẩm" để bắt đầu.'}
                   </td>
                 </tr>
               ) : (
@@ -491,7 +534,7 @@ export const ProductPriceMaster: React.FC = () => {
                       <td className="px-3 py-2 text-right font-bold text-emerald-700">
                         {maxDiscountPercent}%
                       </td>
-                      {isManagerOrAdmin && (
+                      {canManageProducts && (
                         <td className="px-3 py-2 text-center">
                           <div className="flex items-center justify-center space-x-1">
                             <button

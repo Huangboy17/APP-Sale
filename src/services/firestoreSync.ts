@@ -43,86 +43,94 @@ export const COLLECTIONS = {
   ORDERS: 'orderItems',
 };
 
-// Seed initial demo data to Firestore if collection is empty
+// Quota state and notification callback
+let isQuotaExceededState = false;
+let onQuotaExceededCallback: (() => void) | null = null;
+
+export function setOnQuotaExceededListener(cb: () => void) {
+  onQuotaExceededCallback = cb;
+  if (isQuotaExceededState) {
+    cb();
+  }
+}
+
+export function getIsQuotaExceeded(): boolean {
+  return isQuotaExceededState;
+}
+
+export function handleFirestoreError(err: unknown, actionName: string) {
+  const errStr = String(err);
+  const errorCode = (err as { code?: string })?.code;
+  const isQuota =
+    errorCode === 'resource-exhausted' ||
+    errStr.includes('resource-exhausted') ||
+    errStr.includes('Quota limit exceeded') ||
+    errStr.includes('Free daily write units');
+
+  if (isQuota) {
+    if (!isQuotaExceededState) {
+      isQuotaExceededState = true;
+      console.warn('[Firestore] Google Cloud Firestore Free daily write quota reached. Local persistence active.');
+    }
+    if (onQuotaExceededCallback) {
+      onQuotaExceededCallback();
+    }
+    return;
+  }
+  console.warn(`[Firestore] ${actionName} warning:`, err);
+}
+
+// Deep sanitize object to remove undefined values which cause Firestore setDoc/writeBatch to fail
+export function cleanForFirestore<T>(data: T): Record<string, unknown> {
+  if (data === null || data === undefined) {
+    return {};
+  }
+  const serialized = JSON.stringify(data, (_, value) => {
+    return value === undefined ? null : value;
+  });
+  return JSON.parse(serialized);
+}
+
+// Seed initial demo data to Firestore ONLY IF necessary, avoiding repeated write storms
 export async function seedInitialDataIfEmpty() {
+  const seedKey = 'salesflow_cloud_seed_completed_v3';
+  if (localStorage.getItem(seedKey) === 'true') {
+    return;
+  }
+
   try {
-    // Always guarantee Super Admin user is synchronized with buiviethoangktxd@gmail.com
-    const superAdminUser = INITIAL_USERS[0];
-    await setDoc(doc(db, COLLECTIONS.USERS, superAdminUser.id), superAdminUser, { merge: true });
-
-    // Seed master company info
-    const companyDoc = INITIAL_COMPANY_INFO;
-    await setDoc(doc(db, COLLECTIONS.COMPANY, companyDoc.id), companyDoc, { merge: true });
-
     const custSnapshot = await getDocs(collection(db, COLLECTIONS.CUSTOMERS));
     if (!custSnapshot.empty) {
-      return; // Already initialized in Google Cloud Firestore
+      localStorage.setItem(seedKey, 'true');
+      return; // Cloud already has live data
     }
 
-    console.log('[Firestore] Seeding initial data to Google Cloud Firestore...');
+    // Only seed minimal initial demo users and company info in a single batch
     const batch = writeBatch(db);
 
-    // 1. Users
     INITIAL_USERS.forEach((user) => {
-      const userRef = doc(db, COLLECTIONS.USERS, user.id);
-      batch.set(userRef, user);
+      batch.set(doc(db, COLLECTIONS.USERS, user.id), cleanForFirestore(user), { merge: true });
     });
 
-    // 2. Customers
-    INITIAL_CUSTOMERS.forEach((customer) => {
-      const custRef = doc(db, COLLECTIONS.CUSTOMERS, customer.id);
-      batch.set(custRef, customer);
-    });
-
-    // 3. Products
-    INITIAL_PRODUCTS.forEach((product) => {
-      const prodRef = doc(db, COLLECTIONS.PRODUCTS, product.sku);
-      batch.set(prodRef, product);
-    });
-
-    // 4. Inventory
-    INITIAL_INVENTORY.forEach((inv) => {
-      const invRef = doc(db, COLLECTIONS.INVENTORY, inv.sku);
-      batch.set(invRef, inv);
-    });
-
-    // 5. Quotations
-    INITIAL_QUOTATIONS.forEach((quote) => {
-      const quoteRef = doc(db, COLLECTIONS.QUOTATIONS, quote.id);
-      batch.set(quoteRef, quote);
-    });
-
-    // 6. Contracts
-    INITIAL_CONTRACTS.forEach((contract) => {
-      const contractRef = doc(db, COLLECTIONS.CONTRACTS, contract.id);
-      batch.set(contractRef, contract);
-    });
-
-    // 7. Reserve Items
-    INITIAL_RESERVE_ITEMS.forEach((res) => {
-      const resRef = doc(db, COLLECTIONS.RESERVES, res.id);
-      batch.set(resRef, res);
-    });
-
-    // 8. Order Items
-    INITIAL_ORDER_ITEMS.forEach((ord) => {
-      const ordRef = doc(db, COLLECTIONS.ORDERS, ord.id);
-      batch.set(ordRef, ord);
+    batch.set(doc(db, COLLECTIONS.COMPANY, INITIAL_COMPANY_INFO.id), cleanForFirestore(INITIAL_COMPANY_INFO), {
+      merge: true,
     });
 
     await batch.commit();
-    console.log('[Firestore] Seed initial data successfully committed to Google Cloud Firestore!');
+    localStorage.setItem(seedKey, 'true');
   } catch (error) {
-    console.warn('[Firestore] Error during Firestore initialization seeding:', error);
+    handleFirestoreError(error, 'Seed initial data');
+    // If quota is exhausted or seed fails, avoid repeating on every page load
+    localStorage.setItem(seedKey, 'true');
   }
 }
 
 // User Actions
 export async function syncUserToCloud(user: User) {
   try {
-    await setDoc(doc(db, COLLECTIONS.USERS, user.id), user, { merge: true });
+    await setDoc(doc(db, COLLECTIONS.USERS, user.id), cleanForFirestore(user), { merge: true });
   } catch (err) {
-    console.error('[Firestore] Error saving user:', err);
+    handleFirestoreError(err, 'Save user');
   }
 }
 
@@ -130,7 +138,7 @@ export async function deleteUserFromCloud(userId: string) {
   try {
     await deleteDoc(doc(db, COLLECTIONS.USERS, userId));
   } catch (err) {
-    console.error('[Firestore] Error deleting user:', err);
+    handleFirestoreError(err, 'Delete user');
   }
 }
 
@@ -138,18 +146,18 @@ export async function deleteUserFromCloud(userId: string) {
 export async function syncCompanyInfoToCloud(companyInfo: CompanyInfo) {
   try {
     const id = companyInfo.id || 'company-master';
-    await setDoc(doc(db, COLLECTIONS.COMPANY, id), companyInfo, { merge: true });
+    await setDoc(doc(db, COLLECTIONS.COMPANY, id), cleanForFirestore(companyInfo), { merge: true });
   } catch (err) {
-    console.error('[Firestore] Error saving company info:', err);
+    handleFirestoreError(err, 'Save company info');
   }
 }
 
 // Customer Actions
 export async function syncCustomerToCloud(customer: Customer) {
   try {
-    await setDoc(doc(db, COLLECTIONS.CUSTOMERS, customer.id), customer, { merge: true });
+    await setDoc(doc(db, COLLECTIONS.CUSTOMERS, customer.id), cleanForFirestore(customer), { merge: true });
   } catch (err) {
-    console.error('[Firestore] Error saving customer:', err);
+    handleFirestoreError(err, 'Save customer');
   }
 }
 
@@ -157,16 +165,31 @@ export async function deleteCustomerFromCloud(customerId: string) {
   try {
     await deleteDoc(doc(db, COLLECTIONS.CUSTOMERS, customerId));
   } catch (err) {
-    console.error('[Firestore] Error deleting customer:', err);
+    handleFirestoreError(err, 'Delete customer');
   }
 }
 
-// Product Actions
+// Product Actions (Scoped by companyId so different C1 companies never collide)
+export function getProductDocId(product: ProductPriceItem): string {
+  if (product.companyId) {
+    return `${product.companyId}_${product.sku}`;
+  }
+  return product.sku;
+}
+
+export function getInventoryDocId(item: InventoryItem): string {
+  if (item.companyId) {
+    return `${item.companyId}_${item.sku}`;
+  }
+  return item.sku;
+}
+
 export async function syncProductToCloud(product: ProductPriceItem) {
   try {
-    await setDoc(doc(db, COLLECTIONS.PRODUCTS, product.sku), product, { merge: true });
+    const docId = getProductDocId(product);
+    await setDoc(doc(db, COLLECTIONS.PRODUCTS, docId), cleanForFirestore(product), { merge: true });
   } catch (err) {
-    console.error('[Firestore] Error saving product:', err);
+    handleFirestoreError(err, 'Save product');
   }
 }
 
@@ -177,29 +200,57 @@ export async function batchSyncProductsToCloud(products: ProductPriceItem[]) {
       const chunk = products.slice(i, i + CHUNK_SIZE);
       const batch = writeBatch(db);
       chunk.forEach((p) => {
-        batch.set(doc(db, COLLECTIONS.PRODUCTS, p.sku), p, { merge: true });
+        const docId = getProductDocId(p);
+        batch.set(doc(db, COLLECTIONS.PRODUCTS, docId), cleanForFirestore(p), { merge: true });
       });
       await batch.commit();
     }
   } catch (err) {
-    console.error('[Firestore] Error batch saving products:', err);
+    handleFirestoreError(err, 'Batch save products');
   }
 }
 
-export async function deleteProductFromCloud(sku: string) {
+export async function deleteProductFromCloud(sku: string, companyId?: string) {
   try {
+    if (companyId) {
+      await deleteDoc(doc(db, COLLECTIONS.PRODUCTS, `${companyId}_${sku}`));
+    }
     await deleteDoc(doc(db, COLLECTIONS.PRODUCTS, sku));
   } catch (err) {
-    console.error('[Firestore] Error deleting product:', err);
+    handleFirestoreError(err, 'Delete product');
   }
 }
 
-// Inventory Actions
+// Clear all products belonging to a specific company
+export async function clearCompanyProductsFromCloud(companyId: string) {
+  try {
+    const snapshot = await getDocs(collection(db, COLLECTIONS.PRODUCTS));
+    if (snapshot.empty) return;
+
+    const batch = writeBatch(db);
+    let count = 0;
+    snapshot.docs.forEach((d) => {
+      const data = d.data() as ProductPriceItem;
+      if (data.companyId === companyId || d.id.startsWith(`${companyId}_`)) {
+        batch.delete(d.ref);
+        count++;
+      }
+    });
+    if (count > 0) {
+      await batch.commit();
+    }
+  } catch (err) {
+    handleFirestoreError(err, `Clear products for company ${companyId}`);
+  }
+}
+
+// Inventory Actions (Scoped by companyId)
 export async function syncInventoryItemToCloud(item: InventoryItem) {
   try {
-    await setDoc(doc(db, COLLECTIONS.INVENTORY, item.sku), item, { merge: true });
+    const docId = getInventoryDocId(item);
+    await setDoc(doc(db, COLLECTIONS.INVENTORY, docId), cleanForFirestore(item), { merge: true });
   } catch (err) {
-    console.error('[Firestore] Error saving inventory item:', err);
+    handleFirestoreError(err, 'Save inventory item');
   }
 }
 
@@ -207,20 +258,55 @@ export async function batchSyncInventoryToCloud(inventoryItems: InventoryItem[])
   try {
     const batch = writeBatch(db);
     inventoryItems.forEach((i) => {
-      batch.set(doc(db, COLLECTIONS.INVENTORY, i.sku), i, { merge: true });
+      const docId = getInventoryDocId(i);
+      batch.set(doc(db, COLLECTIONS.INVENTORY, docId), cleanForFirestore(i), { merge: true });
     });
     await batch.commit();
   } catch (err) {
-    console.error('[Firestore] Error batch saving inventory:', err);
+    handleFirestoreError(err, 'Batch save inventory');
+  }
+}
+
+export async function deleteInventoryItemFromCloud(sku: string, companyId?: string) {
+  try {
+    if (companyId) {
+      await deleteDoc(doc(db, COLLECTIONS.INVENTORY, `${companyId}_${sku}`));
+    }
+    await deleteDoc(doc(db, COLLECTIONS.INVENTORY, sku));
+  } catch (err) {
+    handleFirestoreError(err, 'Delete inventory item');
+  }
+}
+
+// Clear all inventory items belonging to a specific company
+export async function clearCompanyInventoryFromCloud(companyId: string) {
+  try {
+    const snapshot = await getDocs(collection(db, COLLECTIONS.INVENTORY));
+    if (snapshot.empty) return;
+
+    const batch = writeBatch(db);
+    let count = 0;
+    snapshot.docs.forEach((d) => {
+      const data = d.data() as InventoryItem;
+      if (data.companyId === companyId || d.id.startsWith(`${companyId}_`)) {
+        batch.delete(d.ref);
+        count++;
+      }
+    });
+    if (count > 0) {
+      await batch.commit();
+    }
+  } catch (err) {
+    handleFirestoreError(err, `Clear inventory for company ${companyId}`);
   }
 }
 
 // Quotation Actions
 export async function syncQuotationToCloud(quote: Quotation) {
   try {
-    await setDoc(doc(db, COLLECTIONS.QUOTATIONS, quote.id), quote, { merge: true });
+    await setDoc(doc(db, COLLECTIONS.QUOTATIONS, quote.id), cleanForFirestore(quote), { merge: true });
   } catch (err) {
-    console.error('[Firestore] Error saving quotation:', err);
+    handleFirestoreError(err, 'Save quotation');
   }
 }
 
@@ -228,25 +314,25 @@ export async function deleteQuotationFromCloud(quoteId: string) {
   try {
     await deleteDoc(doc(db, COLLECTIONS.QUOTATIONS, quoteId));
   } catch (err) {
-    console.error('[Firestore] Error deleting quotation:', err);
+    handleFirestoreError(err, 'Delete quotation');
   }
 }
 
 // Contract Actions
 export async function syncContractToCloud(contract: Contract) {
   try {
-    await setDoc(doc(db, COLLECTIONS.CONTRACTS, contract.id), contract, { merge: true });
+    await setDoc(doc(db, COLLECTIONS.CONTRACTS, contract.id), cleanForFirestore(contract), { merge: true });
   } catch (err) {
-    console.error('[Firestore] Error saving contract:', err);
+    handleFirestoreError(err, 'Save contract');
   }
 }
 
 // Logistics (Reserves & Orders) Actions
 export async function syncReserveItemToCloud(reserve: ReserveItem) {
   try {
-    await setDoc(doc(db, COLLECTIONS.RESERVES, reserve.id), reserve, { merge: true });
+    await setDoc(doc(db, COLLECTIONS.RESERVES, reserve.id), cleanForFirestore(reserve), { merge: true });
   } catch (err) {
-    console.error('[Firestore] Error saving reserve item:', err);
+    handleFirestoreError(err, 'Save reserve item');
   }
 }
 
@@ -254,19 +340,19 @@ export async function batchSyncReservesToCloud(reserves: ReserveItem[]) {
   try {
     const batch = writeBatch(db);
     reserves.forEach((r) => {
-      batch.set(doc(db, COLLECTIONS.RESERVES, r.id), r, { merge: true });
+      batch.set(doc(db, COLLECTIONS.RESERVES, r.id), cleanForFirestore(r), { merge: true });
     });
     await batch.commit();
   } catch (err) {
-    console.error('[Firestore] Error batch saving reserves:', err);
+    handleFirestoreError(err, 'Batch save reserves');
   }
 }
 
 export async function syncOrderItemToCloud(order: OrderItem) {
   try {
-    await setDoc(doc(db, COLLECTIONS.ORDERS, order.id), order, { merge: true });
+    await setDoc(doc(db, COLLECTIONS.ORDERS, order.id), cleanForFirestore(order), { merge: true });
   } catch (err) {
-    console.error('[Firestore] Error saving order item:', err);
+    handleFirestoreError(err, 'Save order item');
   }
 }
 
@@ -274,16 +360,12 @@ export async function batchSyncOrdersToCloud(orders: OrderItem[]) {
   try {
     const batch = writeBatch(db);
     orders.forEach((o) => {
-      batch.set(doc(db, COLLECTIONS.ORDERS, o.id), orderItemDoc(o), { merge: true });
+      batch.set(doc(db, COLLECTIONS.ORDERS, o.id), cleanForFirestore(o), { merge: true });
     });
     await batch.commit();
   } catch (err) {
-    console.error('[Firestore] Error batch saving orders:', err);
+    handleFirestoreError(err, 'Batch save orders');
   }
-}
-
-function orderItemDoc(o: OrderItem) {
-  return { ...o };
 }
 
 // Clear a specific collection completely from Firestore
@@ -304,14 +386,13 @@ export async function clearCollectionFromCloud(collectionName: string, exceptIds
       await batch.commit();
     }
   } catch (err) {
-    console.error(`[Firestore] Error clearing collection ${collectionName}:`, err);
+    handleFirestoreError(err, `Clear collection ${collectionName}`);
   }
 }
 
 // Clear all data from Google Cloud Firestore
 export async function clearAllDataFromCloud(keepSuperAdmin = true) {
   try {
-    console.log('[Firestore] Clearing all data collections...');
     const superAdminId = 'user-super-admin';
     const collectionsToClear = [
       COLLECTIONS.CUSTOMERS,
@@ -329,9 +410,7 @@ export async function clearAllDataFromCloud(keepSuperAdmin = true) {
 
     // Clear Users (keep Super Admin if requested)
     await clearCollectionFromCloud(COLLECTIONS.USERS, keepSuperAdmin ? [superAdminId] : []);
-
-    console.log('[Firestore] All collections cleared successfully!');
   } catch (err) {
-    console.error('[Firestore] Error clearing all data:', err);
+    handleFirestoreError(err, 'Clear all data');
   }
 }
