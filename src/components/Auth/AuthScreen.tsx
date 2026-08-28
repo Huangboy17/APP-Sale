@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
-import { UserRole } from '../../types';
 import {
   ShieldCheck,
   Briefcase,
@@ -17,8 +16,6 @@ import {
   AlertCircle,
   KeyRound,
   Sparkles,
-  Cloud,
-  ChevronRight,
   Shield,
   Layers,
 } from 'lucide-react';
@@ -28,8 +25,6 @@ export const AuthScreen: React.FC = () => {
     login,
     register,
     resetPassword,
-    quickDemoLogin,
-    users,
     authScreenMode,
     setAuthScreenMode,
   } = useApp();
@@ -66,6 +61,11 @@ export const AuthScreen: React.FC = () => {
 
     if (!loginEmail.trim()) {
       setAlert({ type: 'error', message: 'Vui lòng nhập địa chỉ Email hoặc Tên tài khoản.' });
+      return;
+    }
+
+    if (!loginPassword) {
+      setAlert({ type: 'error', message: 'Vui lòng nhập mật khẩu.' });
       return;
     }
 
@@ -164,16 +164,6 @@ export const AuthScreen: React.FC = () => {
     }, 300);
   };
 
-  const handleFillCredentials = (email: string, pass: string) => {
-    setLoginEmail(email);
-    setLoginPassword(pass);
-    setAlert({
-      type: 'info',
-      message: `Đã điền thông tin tài khoản: ${email}. Nhấn "Đăng Nhập Vào Hệ Thống" bên dưới để đăng nhập.`,
-    });
-    setAuthScreenMode('login');
-  };
-
   return (
     <div className="min-h-screen w-full bg-slate-900 text-slate-100 flex flex-col justify-between relative overflow-hidden select-none font-sans">
       {/* Background Decorative Gradient Orbs */}
@@ -213,7 +203,7 @@ export const AuthScreen: React.FC = () => {
       <main className="flex-1 flex items-center justify-center p-4 sm:p-6 md:p-8 z-10">
         <div className="w-full max-w-5xl grid grid-cols-1 lg:grid-cols-12 gap-8 items-center">
           
-          {/* Left Info Column (Brand story, 3-Tier explanation, Quick Login) */}
+          {/* Left Info Column (Brand story, 3-Tier architecture & Security) */}
           <div className="lg:col-span-5 space-y-6">
             <div>
               <div className="inline-flex items-center space-x-2 px-3 py-1 rounded-full bg-blue-500/10 border border-blue-400/30 text-blue-300 text-xs font-semibold mb-3">
@@ -243,7 +233,7 @@ export const AuthScreen: React.FC = () => {
                     <span className="text-[10px] text-purple-400 font-mono">L0 System</span>
                   </div>
                   <p className="text-slate-400 text-[11px] mt-0.5">
-                    Quản trị hệ thống, phê duyệt C1, kiểm soát Data Giá & Danh mục kho. Bảo mật danh sách khách hàng C1/C2.
+                    Quản trị nền tảng, xét duyệt tài khoản C1, phân quyền hệ thống.
                   </p>
                 </div>
               </div>
@@ -258,7 +248,7 @@ export const AuthScreen: React.FC = () => {
                     <span className="text-[10px] text-blue-400 font-mono">L1 Director</span>
                   </div>
                   <p className="text-slate-400 text-[11px] mt-0.5">
-                    Đăng ký tài khoản doanh nghiệp (chờ Super Admin duyệt). Trực tiếp tạo & cấp tài khoản cho nhân viên C2, quản lý toàn bộ khách hàng & doanh số phòng.
+                    Quản lý doanh nghiệp, tạo tài khoản Cấp 2, phê duyệt báo giá và quản trị danh sách khách hàng doanh nghiệp.
                   </p>
                 </div>
               </div>
@@ -273,73 +263,16 @@ export const AuthScreen: React.FC = () => {
                     <span className="text-[10px] text-emerald-400 font-mono">L2 Sales</span>
                   </div>
                   <p className="text-slate-400 text-[11px] mt-0.5">
-                    Do Giám đốc Cấp 1 tạo và cấp quyền (không cần tự đăng ký). Lập báo giá nhiều phiên bản, kiểm tra giá DP sàn, chốt HĐ tự động tách bảng Giữ/Đặt hàng.
+                    Tạo báo giá, quản lý hợp đồng khách hàng được phân công, theo dõi tiến độ giữ hàng và đặt hàng.
                   </p>
                 </div>
               </div>
             </div>
 
-            {/* Account Suggestions Guide */}
-            <div className="p-3.5 rounded-xl bg-blue-950/40 border border-blue-800/50">
-              <div className="text-xs font-bold text-blue-300 flex items-center justify-between mb-1">
-                <span>🔑 Tài khoản mẫu (Bấm để điền thông tin đăng nhập):</span>
-              </div>
-              <p className="text-[10px] text-slate-400 mb-2">
-                Hệ thống yêu cầu đăng nhập độc lập cho từng tài khoản với mật khẩu riêng biệt.
-              </p>
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={() => handleFillCredentials('buiviethoangktxd@gmail.com', 'admin')}
-                  className="px-2.5 py-1.5 rounded-lg bg-purple-900/40 hover:bg-purple-900/70 border border-purple-700/60 text-purple-200 text-xs font-semibold flex items-center justify-between transition cursor-pointer text-left"
-                  title="Điền tài khoản Super Admin (Mật khẩu: admin)"
-                >
-                  <div className="truncate">
-                    <div className="font-bold text-[11px]">Bùi Viết Hoàng</div>
-                    <div className="text-[9px] text-purple-300">Super Admin (L0) • pass: admin</div>
-                  </div>
-                  <ArrowRight className="w-3 h-3 text-purple-400 shrink-0 ml-1" />
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => handleFillCredentials('hung.nguyen@salesflow.vn', '123456')}
-                  className="px-2.5 py-1.5 rounded-lg bg-blue-900/40 hover:bg-blue-900/70 border border-blue-700/60 text-blue-200 text-xs font-semibold flex items-center justify-between transition cursor-pointer text-left"
-                  title="Điền tài khoản Giám Đốc C1 (Mật khẩu: 123456)"
-                >
-                  <div className="truncate">
-                    <div className="font-bold text-[11px]">Nguyễn Văn Hùng</div>
-                    <div className="text-[9px] text-blue-300">Giám Đốc (C1) • pass: 123456</div>
-                  </div>
-                  <ArrowRight className="w-3 h-3 text-blue-400 shrink-0 ml-1" />
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => handleFillCredentials('toan.tran@salesflow.vn', '123456')}
-                  className="px-2.5 py-1.5 rounded-lg bg-emerald-900/40 hover:bg-emerald-900/70 border border-emerald-700/60 text-emerald-200 text-xs font-semibold flex items-center justify-between transition cursor-pointer text-left"
-                  title="Điền tài khoản Sales C2 (Mật khẩu: 123456)"
-                >
-                  <div className="truncate">
-                    <div className="font-bold text-[11px]">Trần Đức Toàn</div>
-                    <div className="text-[9px] text-emerald-300">Sales Dự Án (C2) • pass: 123456</div>
-                  </div>
-                  <ArrowRight className="w-3 h-3 text-emerald-400 shrink-0 ml-1" />
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => handleFillCredentials('bao.dang@salesflow.vn', '123456')}
-                  className="px-2.5 py-1.5 rounded-lg bg-amber-900/40 hover:bg-amber-900/70 border border-amber-700/60 text-amber-200 text-xs font-semibold flex items-center justify-between transition cursor-pointer text-left"
-                  title="Điền tài khoản Sales C2 (Mật khẩu: 123456)"
-                >
-                  <div className="truncate">
-                    <div className="font-bold text-[11px]">Đặng Quốc Bảo</div>
-                    <div className="text-[9px] text-amber-300">Sales Bán Lẻ (C2) • pass: 123456</div>
-                  </div>
-                  <ArrowRight className="w-3 h-3 text-amber-400 shrink-0 ml-1" />
-                </button>
-              </div>
+            {/* Enterprise Security Badge */}
+            <div className="p-3 rounded-xl bg-slate-800/40 border border-slate-700/40 flex items-center space-x-2.5 text-xs text-slate-400">
+              <Shield className="w-4 h-4 text-blue-400 shrink-0" />
+              <span>Bảo mật đăng nhập Zero-Trust • Mã hóa phiên làm việc端到端</span>
             </div>
           </div>
 
@@ -355,7 +288,7 @@ export const AuthScreen: React.FC = () => {
                     setAlert(null);
                     setAuthScreenMode('login');
                   }}
-                  className={`pb-3 px-4 font-bold text-sm sm:text-base border-b-2 transition flex items-center space-x-2 ${
+                  className={`pb-3 px-4 font-bold text-sm sm:text-base border-b-2 transition flex items-center space-x-2 cursor-pointer ${
                     authScreenMode === 'login'
                       ? 'border-blue-500 text-blue-400'
                       : 'border-transparent text-slate-400 hover:text-slate-200'
@@ -371,7 +304,7 @@ export const AuthScreen: React.FC = () => {
                     setAlert(null);
                     setAuthScreenMode('register');
                   }}
-                  className={`pb-3 px-4 font-bold text-sm sm:text-base border-b-2 transition flex items-center space-x-2 ${
+                  className={`pb-3 px-4 font-bold text-sm sm:text-base border-b-2 transition flex items-center space-x-2 cursor-pointer ${
                     authScreenMode === 'register'
                       ? 'border-blue-500 text-blue-400'
                       : 'border-transparent text-slate-400 hover:text-slate-200'
@@ -387,7 +320,7 @@ export const AuthScreen: React.FC = () => {
                     setAlert(null);
                     setAuthScreenMode('forgot_password');
                   }}
-                  className={`pb-3 px-4 font-bold text-sm sm:text-base border-b-2 transition flex items-center space-x-2 ${
+                  className={`pb-3 px-4 font-bold text-sm sm:text-base border-b-2 transition flex items-center space-x-2 cursor-pointer ${
                     authScreenMode === 'forgot_password'
                       ? 'border-blue-500 text-blue-400'
                       : 'border-transparent text-slate-400 hover:text-slate-200'
@@ -424,16 +357,19 @@ export const AuthScreen: React.FC = () => {
               {authScreenMode === 'login' && (
                 <form onSubmit={handleLoginSubmit} className="space-y-4">
                   <div>
-                    <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+                    <label htmlFor="login-email" className="block text-xs font-semibold text-slate-300 mb-1.5">
                       Email đăng nhập / Tài khoản <span className="text-rose-400">*</span>
                     </label>
                     <div className="relative">
                       <Mail className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
                       <input
-                        type="text"
+                        id="login-email"
+                        name="email"
+                        type="email"
+                        autoComplete="username"
                         value={loginEmail}
                         onChange={(e) => setLoginEmail(e.target.value)}
-                        placeholder="buiviethoangktxd@gmail.com hoặc toan.tran@salesflow.vn"
+                        placeholder="name@company.com"
                         required
                         className="w-full pl-10 pr-3.5 py-2.5 bg-slate-900/80 border border-slate-700 rounded-xl text-sm text-white placeholder-slate-500 focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:border-transparent transition"
                       />
@@ -442,7 +378,7 @@ export const AuthScreen: React.FC = () => {
 
                   <div>
                     <div className="flex items-center justify-between mb-1.5">
-                      <label className="block text-xs font-semibold text-slate-300">
+                      <label htmlFor="login-password" className="block text-xs font-semibold text-slate-300">
                         Mật khẩu <span className="text-rose-400">*</span>
                       </label>
                       <button
@@ -460,17 +396,20 @@ export const AuthScreen: React.FC = () => {
                     <div className="relative">
                       <Lock className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
                       <input
+                        id="login-password"
+                        name="password"
                         type={showLoginPassword ? 'text' : 'password'}
+                        autoComplete="current-password"
                         value={loginPassword}
                         onChange={(e) => setLoginPassword(e.target.value)}
-                        placeholder="Nhập mật khẩu tài khoản (vd: 123456 hoặc admin)"
+                        placeholder="Nhập mật khẩu"
                         required
                         className="w-full pl-10 pr-10 py-2.5 bg-slate-900/80 border border-slate-700 rounded-xl text-sm text-white placeholder-slate-500 focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:border-transparent transition"
                       />
                       <button
                         type="button"
                         onClick={() => setShowLoginPassword(!showLoginPassword)}
-                        className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200"
+                        className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200 cursor-pointer"
                       >
                         {showLoginPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                       </button>
@@ -487,7 +426,6 @@ export const AuthScreen: React.FC = () => {
                       />
                       <span>Ghi nhớ phiên đăng nhập</span>
                     </label>
-                    <span className="text-[11px] text-slate-500">Mật khẩu mẫu: 123 hoặc admin</span>
                   </div>
 
                   <button
@@ -506,16 +444,16 @@ export const AuthScreen: React.FC = () => {
                   </button>
 
                   <div className="text-center pt-2 text-xs text-slate-400">
-                    Chưa có tài khoản nhân viên?{' '}
+                    Doanh nghiệp mới chưa có tài khoản?{' '}
                     <button
                       type="button"
                       onClick={() => {
                         setAlert(null);
                         setAuthScreenMode('register');
                       }}
-                      className="text-blue-400 hover:underline font-bold"
+                      className="text-blue-400 hover:underline font-bold cursor-pointer"
                     >
-                      Đăng ký tài khoản mới ngay
+                      Đăng ký Cấp 1 ngay
                     </button>
                   </div>
                 </form>
@@ -547,7 +485,7 @@ export const AuthScreen: React.FC = () => {
                           type="text"
                           value={regName}
                           onChange={(e) => setRegName(e.target.value)}
-                          placeholder="Ví dụ: Nguyễn Văn Hùng"
+                          placeholder="Họ và tên đại diện"
                           required
                           className="w-full pl-9 pr-3 py-2 bg-slate-900/80 border border-slate-700 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-hidden focus:ring-2 focus:ring-blue-500"
                         />
@@ -564,7 +502,7 @@ export const AuthScreen: React.FC = () => {
                           type="tel"
                           value={regPhone}
                           onChange={(e) => setRegPhone(e.target.value)}
-                          placeholder="0912 345 678"
+                          placeholder="09xx xxx xxx"
                           className="w-full pl-9 pr-3 py-2 bg-slate-900/80 border border-slate-700 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-hidden focus:ring-2 focus:ring-blue-500"
                         />
                       </div>
@@ -582,7 +520,7 @@ export const AuthScreen: React.FC = () => {
                           type="text"
                           value={regCompany}
                           onChange={(e) => setRegCompany(e.target.value)}
-                          placeholder="Công ty CP Thiết Bị & Thương Mại..."
+                          placeholder="Tên công ty / doanh nghiệp"
                           required
                           className="w-full pl-9 pr-3 py-2 bg-slate-900/80 border border-slate-700 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-hidden focus:ring-2 focus:ring-blue-500"
                         />
@@ -614,9 +552,10 @@ export const AuthScreen: React.FC = () => {
                       <Mail className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                       <input
                         type="email"
+                        autoComplete="username"
                         value={regEmail}
                         onChange={(e) => setRegEmail(e.target.value)}
-                        placeholder="giamdoc@congty.vn"
+                        placeholder="giamdoc@company.com"
                         required
                         className="w-full pl-9 pr-3 py-2 bg-slate-900/80 border border-slate-700 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-hidden focus:ring-2 focus:ring-blue-500"
                       />
@@ -633,6 +572,7 @@ export const AuthScreen: React.FC = () => {
                         <Lock className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                         <input
                           type={showRegPassword ? 'text' : 'password'}
+                          autoComplete="new-password"
                           value={regPassword}
                           onChange={(e) => setRegPassword(e.target.value)}
                           placeholder="Tối thiểu 3 ký tự"
@@ -657,6 +597,7 @@ export const AuthScreen: React.FC = () => {
                         <Lock className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                         <input
                           type={showRegPassword ? 'text' : 'password'}
+                          autoComplete="new-password"
                           value={regConfirmPassword}
                           onChange={(e) => setRegConfirmPassword(e.target.value)}
                           placeholder="Xác nhận lại mật khẩu"
@@ -713,9 +654,10 @@ export const AuthScreen: React.FC = () => {
                       <Mail className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
                       <input
                         type="email"
+                        autoComplete="username"
                         value={forgotEmail}
                         onChange={(e) => setForgotEmail(e.target.value)}
-                        placeholder="buiviethoangktxd@gmail.com hoặc toan.tran@salesflow.vn"
+                        placeholder="name@company.com"
                         required
                         className="w-full pl-10 pr-3.5 py-2.5 bg-slate-900/80 border border-slate-700 rounded-xl text-sm text-white placeholder-slate-500 focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:border-transparent transition"
                       />
@@ -731,6 +673,7 @@ export const AuthScreen: React.FC = () => {
                         <Lock className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                         <input
                           type={showNewPassword ? 'text' : 'password'}
+                          autoComplete="new-password"
                           value={newPassword}
                           onChange={(e) => setNewPassword(e.target.value)}
                           placeholder="Mật khẩu mới"
@@ -740,7 +683,7 @@ export const AuthScreen: React.FC = () => {
                         <button
                           type="button"
                           onClick={() => setShowNewPassword(!showNewPassword)}
-                          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200"
+                          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200 cursor-pointer"
                         >
                           {showNewPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
                         </button>
@@ -755,6 +698,7 @@ export const AuthScreen: React.FC = () => {
                         <Lock className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                         <input
                           type={showNewPassword ? 'text' : 'password'}
+                          autoComplete="new-password"
                           value={confirmNewPassword}
                           onChange={(e) => setConfirmNewPassword(e.target.value)}
                           placeholder="Nhập lại mật khẩu mới"
@@ -787,7 +731,7 @@ export const AuthScreen: React.FC = () => {
                         setAlert(null);
                         setAuthScreenMode('login');
                       }}
-                      className="text-blue-400 hover:underline font-bold"
+                      className="text-blue-400 hover:underline font-bold cursor-pointer"
                     >
                       ← Quay lại màn hình Đăng Nhập
                     </button>
@@ -807,7 +751,7 @@ export const AuthScreen: React.FC = () => {
           <span className="hidden sm:inline">Bảo mật đa cấp Zero-Trust</span>
         </div>
         <div className="text-[11px] text-slate-400 flex items-center space-x-2">
-          <span>Tài khoản hiện có: {users.length}</span>
+          <span>Hệ thống quản lý trực tuyến</span>
         </div>
       </footer>
     </div>
