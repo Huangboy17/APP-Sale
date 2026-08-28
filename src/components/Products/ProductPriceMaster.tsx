@@ -4,6 +4,7 @@ import { ProductPriceItem, InventoryItem } from '../../types';
 import { formatVND, exportProductsToExcel, downloadProductTemplateExcel } from '../../utils/formatters';
 import { ProductImportModal } from './ProductImportModal';
 import { ItemReservationsModal } from '../Inventory/ItemReservationsModal';
+import { ErrorBoundary } from '../Common/ErrorBoundary';
 import {
   Tag,
   Plus,
@@ -25,7 +26,7 @@ import {
   Lock,
 } from 'lucide-react';
 
-export const ProductPriceMaster: React.FC = () => {
+const ProductPriceMasterContent: React.FC = () => {
   const {
     products,
     inventory,
@@ -118,6 +119,8 @@ export const ProductPriceMaster: React.FC = () => {
       return matchSearch && matchCat && matchBrand && matchStock;
     });
   }, [products, searchTerm, categoryFilter, brandFilter, stockStatusFilter, inventoryMap]);
+
+  console.log('[PRICE_IMPORT] TABLE_RENDER displayed:', displayedProducts.length, 'total:', products.length);
 
   const totalPages = Math.ceil(displayedProducts.length / pageSize) || 1;
   const paginatedProducts = displayedProducts.slice((currentPage - 1) * pageSize, currentPage * pageSize);
@@ -817,3 +820,9 @@ export const ProductPriceMaster: React.FC = () => {
     </div>
   );
 };
+
+export const ProductPriceMaster: React.FC = () => (
+  <ErrorBoundary>
+    <ProductPriceMasterContent />
+  </ErrorBoundary>
+);

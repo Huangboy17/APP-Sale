@@ -26,6 +26,8 @@ import {
   isUserPending,
   isUserBlocked,
 } from '../types';
+import { safeSetLocalStorage, safeGetLocalStorage, loadFromIDB, IDB_STORES } from '../utils/localDB';
+import { normalizeProductPriceItem } from '../utils/priceImportEngine';
 import {
   INITIAL_USERS,
   INITIAL_COMPANY_INFO,
@@ -333,21 +335,37 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   });
 
   const [products, setProducts] = useState<ProductPriceItem[]>(() => {
-    const saved = localStorage.getItem(STORAGE_KEYS.PRODUCTS);
-    if (!saved) return INITIAL_PRODUCTS;
     try {
-      return JSON.parse(saved);
-    } catch {
+      const saved = safeGetLocalStorage<ProductPriceItem[]>(STORAGE_KEYS.PRODUCTS, INITIAL_PRODUCTS);
+      if (Array.isArray(saved) && saved.length > 0) {
+        return saved.map((p) => normalizeProductPriceItem(p));
+      }
+      return INITIAL_PRODUCTS;
+    } catch (err) {
+      console.warn('[AppContext] Failed to initialize products from storage:', err);
       return INITIAL_PRODUCTS;
     }
   });
 
   const [inventory, setInventory] = useState<InventoryItem[]>(() => {
-    const saved = localStorage.getItem(STORAGE_KEYS.INVENTORY);
-    if (!saved) return INITIAL_INVENTORY;
     try {
-      return JSON.parse(saved);
-    } catch {
+      const saved = safeGetLocalStorage<InventoryItem[]>(STORAGE_KEYS.INVENTORY, INITIAL_INVENTORY);
+      if (Array.isArray(saved) && saved.length > 0) {
+        return saved.map((i) => ({
+          ...i,
+          sku: (i.sku || '').trim().toUpperCase(),
+          name: (i.name || '').trim() || `Sản phẩm ${i.sku || 'N/A'}`,
+          unit: (i.unit || 'Bộ').trim(),
+          totalQuantity: typeof i.totalQuantity === 'number' && !isNaN(i.totalQuantity) ? i.totalQuantity : 0,
+          reservedQuantity: typeof i.reservedQuantity === 'number' && !isNaN(i.reservedQuantity) ? i.reservedQuantity : 0,
+          availableQuantity: typeof i.availableQuantity === 'number' && !isNaN(i.availableQuantity) ? i.availableQuantity : 0,
+          warehouseLocation: (i.warehouseLocation || 'Kho Tổng').trim(),
+          updatedAt: i.updatedAt || new Date().toISOString().split('T')[0],
+        }));
+      }
+      return INITIAL_INVENTORY;
+    } catch (err) {
+      console.warn('[AppContext] Failed to initialize inventory from storage:', err);
       return INITIAL_INVENTORY;
     }
   });
@@ -371,6 +389,38 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const saved = localStorage.getItem(STORAGE_KEYS.ORDERS);
     return saved ? JSON.parse(saved) : INITIAL_ORDER_ITEMS;
   });
+
+  // Async hydration fallback from IndexedDB for large datasets (9,380+ records)
+  useEffect(() => {
+    loadFromIDB<ProductPriceItem[]>(IDB_STORES.PRODUCTS, STORAGE_KEYS.PRODUCTS)
+      .then((idbProds) => {
+        if (idbProds && Array.isArray(idbProds) && idbProds.length > 0) {
+          const normalizedProds = idbProds.map((p) => normalizeProductPriceItem(p));
+          setProducts((prev) => {
+            if (prev.length < normalizedProds.length) {
+              console.log(`[LocalDB] Hydrated ${normalizedProds.length} products from IndexedDB fallback`);
+              return normalizedProds;
+            }
+            return prev;
+          });
+        }
+      })
+      .catch((err) => console.warn('[LocalDB] Products hydration error:', err));
+
+    loadFromIDB<InventoryItem[]>(IDB_STORES.INVENTORY, STORAGE_KEYS.INVENTORY)
+      .then((idbInv) => {
+        if (idbInv && Array.isArray(idbInv) && idbInv.length > 0) {
+          setInventory((prev) => {
+            if (prev.length < idbInv.length) {
+              console.log(`[LocalDB] Hydrated ${idbInv.length} inventory items from IndexedDB fallback`);
+              return idbInv;
+            }
+            return prev;
+          });
+        }
+      })
+      .catch((err) => console.warn('[LocalDB] Inventory hydration error:', err));
+  }, []);
 
   // Master Company Information (Synced to all C1 & C2 users)
   const [companyInfo, setCompanyInfo] = useState<CompanyInfo>(() => {
@@ -500,26 +550,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           (snap) => {
             const cloudList: ProductPriceItem[] = [];
             snap.forEach((d) => {
-              const item = d.data() as ProductPriceItem;
-              if (item && item.sku) {
-                cloudList.push({
-                  ...item,
-                  sku: (item.sku || '').trim().toUpperCase(),
-                  name: (item.name || '').trim() || `Sản phẩm ${item.sku}`,
-                  category: (item.category || '').trim() || 'Chung',
-                  brand: (item.brand || '').trim() || 'Khác',
-                  color: (item.color || '').trim() || 'Tiêu chuẩn',
-                  size: (item.size || '').trim() || 'Tiêu chuẩn',
-                  unit: (item.unit || '').trim() || 'Bộ',
-                  listPrice: typeof item.listPrice === 'number' && !isNaN(item.listPrice) ? item.listPrice : 0,
-                  dpPrice: typeof item.dpPrice === 'number' && !isNaN(item.dpPrice) ? item.dpPrice : 0,
-                  description: (item.description || '').trim(),
-                  status: item.status || 'active',
-                  organizationId: item.organizationId || item.companyId,
-                  companyId: item.companyId || item.organizationId,
-                  createdBy: item.createdBy,
-                  createdByName: item.createdByName,
-                });
+              const item = d.data();
+              if (item && (item.sku || item.product_code)) {
+                cloudList.push(normalizeProductPriceItem(item));
               }
             });
 
@@ -532,15 +565,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               
               // Layer 1: Preserve all existing local products
               prevLocal.forEach((p) => {
-                const skuKey = (p.sku || '').trim().toUpperCase();
-                const orgKey = p.organizationId || p.companyId || 'global';
-                map.set(`${orgKey}_${skuKey}`, p);
+                const normalized = normalizeProductPriceItem(p);
+                const orgKey = normalized.organizationId || normalized.companyId || 'global';
+                map.set(`${orgKey}_${normalized.sku}`, normalized);
               });
 
               // Layer 2: Overlay cloud data without losing tenant ownership
               cloudList.forEach((cloudItem) => {
-                const skuUpper = (cloudItem.sku || '').trim().toUpperCase();
-                // Check if we have a local item for this SKU
+                const skuUpper = cloudItem.sku;
                 let existingLocalKey = Array.from(map.keys()).find((k) => k.endsWith(`_${skuUpper}`));
                 let existingLocal = existingLocalKey ? map.get(existingLocalKey) : undefined;
 
@@ -564,8 +596,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               });
 
               const mergedResult = Array.from(map.values());
-              // Update localStorage with merged list
-              localStorage.setItem(STORAGE_KEYS.PRODUCTS, JSON.stringify(mergedResult));
+              // Update local persistence safely (localStorage + IndexedDB fallback)
+              safeSetLocalStorage(STORAGE_KEYS.PRODUCTS, mergedResult, IDB_STORES.PRODUCTS);
               return mergedResult;
             });
             setCloudSyncStatus((prev) => (prev === 'quota-exceeded' ? 'quota-exceeded' : 'connected'));
@@ -747,45 +779,45 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
   }, []);
 
-  // Sync to localStorage as local instant cache
+  // Sync to localStorage / IndexedDB as local instant cache
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(users));
+    safeSetLocalStorage(STORAGE_KEYS.USERS, users);
   }, [users]);
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.CURRENT_USER_ID, currentUser.id);
+    safeSetLocalStorage(STORAGE_KEYS.CURRENT_USER_ID, currentUser.id);
   }, [currentUser]);
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.CUSTOMERS, JSON.stringify(customers));
+    safeSetLocalStorage(STORAGE_KEYS.CUSTOMERS, customers);
   }, [customers]);
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.PRODUCTS, JSON.stringify(products));
+    safeSetLocalStorage(STORAGE_KEYS.PRODUCTS, products, IDB_STORES.PRODUCTS);
   }, [products]);
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.INVENTORY, JSON.stringify(inventory));
+    safeSetLocalStorage(STORAGE_KEYS.INVENTORY, inventory, IDB_STORES.INVENTORY);
   }, [inventory]);
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.QUOTATIONS, JSON.stringify(quotations));
+    safeSetLocalStorage(STORAGE_KEYS.QUOTATIONS, quotations);
   }, [quotations]);
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.CONTRACTS, JSON.stringify(contracts));
+    safeSetLocalStorage(STORAGE_KEYS.CONTRACTS, contracts);
   }, [contracts]);
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.RESERVES, JSON.stringify(reserveItems));
+    safeSetLocalStorage(STORAGE_KEYS.RESERVES, reserveItems);
   }, [reserveItems]);
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.ORDERS, JSON.stringify(orderItems));
+    safeSetLocalStorage(STORAGE_KEYS.ORDERS, orderItems);
   }, [orderItems]);
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.COMPANY, JSON.stringify(companyInfo));
+    safeSetLocalStorage(STORAGE_KEYS.COMPANY, companyInfo);
   }, [companyInfo]);
 
   // Sync all current state to Google Cloud Firestore on demand
@@ -1508,25 +1540,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const myOrgId = resolveOrganizationId(currentUser, users);
     const myCompanyId = companyScope.companyId || myOrgId;
 
-    const stampedProducts: ProductPriceItem[] = newProducts.map((p) => ({
-      ...p,
-      sku: (p.sku || '').trim().toUpperCase(),
-      name: (p.name || '').trim() || `Sản phẩm ${(p.sku || '').trim().toUpperCase()}`,
-      category: (p.category || '').trim() || 'Chung',
-      brand: (p.brand || '').trim() || 'Khác',
-      color: (p.color || '').trim() || 'Tiêu chuẩn',
-      size: (p.size || '').trim() || 'Tiêu chuẩn',
-      unit: (p.unit || '').trim() || 'Bộ',
-      listPrice: typeof p.listPrice === 'number' && !isNaN(p.listPrice) ? p.listPrice : 0,
-      dpPrice: typeof p.dpPrice === 'number' && !isNaN(p.dpPrice) ? p.dpPrice : 0,
-      description: (p.description || '').trim(),
-      status: p.status || 'active',
-      organizationId: myOrgId,
-      companyId: myCompanyId,
-      createdBy: currentUser.id || 'system',
-      createdByName: currentUser.name || 'System Manager',
-    }));
+    const stampedProducts: ProductPriceItem[] = newProducts.map((p) =>
+      normalizeProductPriceItem(p, myOrgId, currentUser.id, currentUser.name)
+    );
 
+    console.log('[PRICE_IMPORT] NORMALIZED count:', stampedProducts.length);
     console.log('[PRICE_IMPORT] STAMPED count:', stampedProducts.length, 'org:', myOrgId);
 
     setProducts((prev) => {
@@ -1542,30 +1560,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         const pOrg = p.organizationId || p.companyId;
         return !pOrg || pOrg === myOrgId || pOrg === myCompanyId;
       }).forEach((p) => {
-        const stampedExisting: ProductPriceItem = {
-          ...p,
-          organizationId: p.organizationId || myOrgId,
-          companyId: p.companyId || myCompanyId,
-          createdBy: p.createdBy || currentUser.id || 'system',
-          createdByName: p.createdByName || currentUser.name || 'System Manager',
-        };
-        myMap.set((p.sku || '').toUpperCase(), stampedExisting);
+        const stampedExisting = normalizeProductPriceItem(p, myOrgId, currentUser.id, currentUser.name);
+        myMap.set(stampedExisting.sku, stampedExisting);
       });
 
       // Overlay newly imported products
-      stampedProducts.forEach((p) => myMap.set((p.sku || '').toUpperCase(), p));
+      stampedProducts.forEach((p) => myMap.set(p.sku, p));
 
       const updatedCompanyProducts = Array.from(myMap.values());
       const fullList = [...otherOrgProducts, ...updatedCompanyProducts];
       
-      console.log('[PRICE_IMPORT] STATE_UPDATED full products count:', fullList.length);
+      console.log('[PRICE_IMPORT] STORE_UPDATED full products count:', fullList.length);
 
-      try {
-        localStorage.setItem(STORAGE_KEYS.PRODUCTS, JSON.stringify(fullList));
-        console.log('[PRICE_IMPORT] LOCAL_STORAGE_SAVED');
-      } catch (err) {
-        console.error('[PRICE_IMPORT] LOCAL_STORAGE_SAVE_ERROR:', err);
-      }
+      // Safe local persistence (LocalStorage + IndexedDB fallback)
+      safeSetLocalStorage(STORAGE_KEYS.PRODUCTS, fullList, IDB_STORES.PRODUCTS);
 
       return fullList;
     });
@@ -1620,18 +1628,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
 
       const fullInvList = [...otherOrgInventory, ...Array.from(myInvMap.values())];
-      try {
-        localStorage.setItem(STORAGE_KEYS.INVENTORY, JSON.stringify(fullInvList));
-      } catch (err) {
-        console.error('[PRICE_IMPORT] INVENTORY_LOCAL_STORAGE_SAVE_ERROR:', err);
-      }
+      safeSetLocalStorage(STORAGE_KEYS.INVENTORY, fullInvList, IDB_STORES.INVENTORY);
       return fullInvList;
     });
 
     // Trigger cloud sync outside state updater
     console.log('[PRICE_IMPORT] FIRESTORE_SYNC_START');
     batchSyncProductsToCloud(stampedProducts)
-      .then(() => console.log('[PRICE_IMPORT] FIRESTORE_SYNC_SUCCESS'))
+      .then(() => console.log('[PRICE_IMPORT] FIRESTORE_SAVED count:', stampedProducts.length))
       .catch((err) => console.error('[PRICE_IMPORT] FIRESTORE_SYNC_ERROR:', err));
   };
 

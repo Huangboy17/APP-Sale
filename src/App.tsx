@@ -91,9 +91,9 @@ const MainContent: React.FC = () => {
           <div className="text-[10px] text-slate-400 flex items-center space-x-2 sm:space-x-4">
             <span>Phiên bản 3.0.0 (Enterprise — Multi-Tenant)</span>
             <span>|</span>
-            <span>Tổng số Sales: {users.filter((u) => u.role === 'sales_c2').length} nhân viên</span>
+            <span>Tổng số Sales: {Array.isArray(users) ? users.filter((u) => u.role === 'sales_c2').length : 0} nhân viên</span>
             <span>|</span>
-            <span>Kho hàng: {inventory.length} mã sản phẩm</span>
+            <span>Kho hàng: {Array.isArray(inventory) ? inventory.length.toLocaleString('vi-VN') : 0} mã sản phẩm</span>
           </div>
           <div className="text-[10px] text-slate-400 hidden sm:block">
             © 2026 SalesFlow Management Systems
@@ -123,8 +123,10 @@ const MainContent: React.FC = () => {
 
 export default function App() {
   return (
-    <AppProvider>
-      <MainContent />
-    </AppProvider>
+    <ErrorBoundary fallbackTitle="Đã xảy ra sự cố khi tải ứng dụng. Vui lòng thử lại.">
+      <AppProvider>
+        <MainContent />
+      </AppProvider>
+    </ErrorBoundary>
   );
 }

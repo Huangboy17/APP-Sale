@@ -1,6 +1,78 @@
 import * as XLSX from 'xlsx';
-import { PriceImportRecord, ValidatedPriceRow, PriceImportValidationResult } from '../types';
+import { PriceImportRecord, ValidatedPriceRow, PriceImportValidationResult, ProductPriceItem } from '../types';
 import { parseExcelNumber, cleanExcelString } from './formatters';
+
+/**
+ * Single Unified Normalizer Function for ProductPriceItem (Requirement 7)
+ * Guarantees consistent schema from Excel, JSON, Firestore, and Local persistence.
+ */
+export function normalizeProductPriceItem(
+  raw: any,
+  defaultOrgId?: string,
+  defaultUserId?: string,
+  defaultUserName?: string
+): ProductPriceItem {
+  if (!raw || typeof raw !== 'object') {
+    const fallbackSku = 'PROD-UNKNOWN';
+    return {
+      sku: fallbackSku,
+      name: `Sản phẩm ${fallbackSku}`,
+      category: 'Chung',
+      brand: 'Khác',
+      color: 'Tiêu chuẩn',
+      size: 'Tiêu chuẩn',
+      unit: 'Bộ',
+      listPrice: 0,
+      dpPrice: 0,
+      description: '',
+      status: 'active',
+      organizationId: defaultOrgId || '',
+      companyId: defaultOrgId || '',
+      createdBy: defaultUserId || 'system',
+      createdByName: defaultUserName || 'System Manager',
+    };
+  }
+
+  const skuRaw = raw.product_code || raw.sku || raw.productCode || raw.code || '';
+  const nameRaw = raw.product_name || raw.name || raw.productName || '';
+  const sku = cleanExcelString(skuRaw).toUpperCase();
+  const name = cleanExcelString(nameRaw) || (sku ? `Sản phẩm ${sku}` : 'Sản phẩm chưa đặt tên');
+
+  const unit = cleanExcelString(raw.unit || raw.unit_name || raw.dvt, 'Bộ');
+  const category = cleanExcelString(raw.category, 'Chung');
+  const brand = cleanExcelString(raw.brand, 'Khác');
+  const color = cleanExcelString(raw.color, 'Tiêu chuẩn');
+  const size = cleanExcelString(raw.size, 'Tiêu chuẩn');
+  const description = cleanExcelString(raw.description, '');
+
+  const rawListPrice = raw.price ?? raw.listPrice ?? raw.list_price ?? 0;
+  const rawDpPrice = raw.dp_price ?? raw.dpPrice ?? 0;
+
+  const listPrice = typeof rawListPrice === 'number' && !isNaN(rawListPrice) ? rawListPrice : parseExcelNumber(rawListPrice, 0);
+  const dpPrice = typeof rawDpPrice === 'number' && !isNaN(rawDpPrice) ? rawDpPrice : parseExcelNumber(rawDpPrice, 0);
+
+  const orgId = raw.organizationId || raw.companyId || defaultOrgId || '';
+  const createdBy = raw.createdBy || defaultUserId || 'system';
+  const createdByName = raw.createdByName || defaultUserName || 'System Manager';
+
+  return {
+    sku,
+    name,
+    category,
+    brand,
+    color,
+    size,
+    unit,
+    listPrice: listPrice > 0 ? listPrice : 0,
+    dpPrice: dpPrice > 0 ? dpPrice : 0,
+    description,
+    status: raw.status === 'discontinued' ? 'discontinued' : 'active',
+    organizationId: orgId,
+    companyId: orgId,
+    createdBy,
+    createdByName,
+  };
+}
 
 /**
  * Gets sheet names from an Excel file

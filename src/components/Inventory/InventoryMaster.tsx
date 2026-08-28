@@ -11,6 +11,7 @@ import { ReorderAlertsTable } from './ReorderAlertsTable';
 import { DispatchConfirmModal } from './DispatchConfirmModal';
 import { ReceiveOrderModal } from './ReceiveOrderModal';
 import { AddEditInventoryModal } from './AddEditInventoryModal';
+import { ErrorBoundary } from '../Common/ErrorBoundary';
 import {
   Boxes,
   Layers,
@@ -31,9 +32,11 @@ import {
   CheckCircle2,
   RefreshCw,
   Building2,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 
-export const InventoryMaster: React.FC = () => {
+const InventoryMasterContent: React.FC = () => {
   const {
     inventory,
     reserveItems,
@@ -107,6 +110,12 @@ export const InventoryMaster: React.FC = () => {
 
     return matchSearch && matchStock && matchLocation;
   });
+
+  const [currentPage, setCurrentPage] = useState<number>(1);
+  const [pageSize, setPageSize] = useState<number>(50);
+
+  const totalPages = Math.ceil(displayedInventory.length / pageSize) || 1;
+  const paginatedInventory = displayedInventory.slice((currentPage - 1) * pageSize, currentPage * pageSize);
 
   // Action handlers
   const handleOpenAddModal = () => {
@@ -424,8 +433,8 @@ export const InventoryMaster: React.FC = () => {
                       </td>
                     </tr>
                   ) : (
-                    displayedInventory.map((item) => (
-                      <tr key={item.sku} className="hover:bg-slate-50/80 transition-colors">
+                    paginatedInventory.map((item, idx) => (
+                      <tr key={item.sku || `inv-${idx}`} className="hover:bg-slate-50/80 transition-colors">
                         <td className="px-3.5 py-2.5 font-mono font-bold text-blue-700">{item.sku}</td>
                         <td className="px-3.5 py-2.5 font-bold text-slate-900 line-clamp-1" title={item.name}>
                           {item.name}
@@ -448,52 +457,47 @@ export const InventoryMaster: React.FC = () => {
                             }`}
                           >
                             {item.reservedQuantity > 0 && (
-                              <Layers className="w-3 h-3 text-amber-600 group-hover:scale-110 transition-transform shrink-0" />
+                              <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
                             )}
                             <span>{item.reservedQuantity}</span>
-                            {item.reservedQuantity > 0 && (
-                              <Eye className="w-2.5 h-2.5 text-amber-600 opacity-0 group-hover:opacity-100 transition-opacity ml-0.5" />
-                            )}
                           </button>
                         </td>
 
-                        {/* AVAILABLE COLUMN */}
-                        <td className="px-3.5 py-2.5 text-center bg-emerald-50/20">
+                        {/* AVAILABLE QUANTITY */}
+                        <td className="px-3.5 py-2.5 text-center bg-emerald-50/40 font-mono">
                           <span
-                            className={`px-2 py-0.5 rounded-md font-bold text-xs inline-block font-mono ${
-                              item.availableQuantity === 0
-                                ? 'bg-rose-100 text-rose-800 border border-rose-200'
-                                : item.availableQuantity <= 5
-                                ? 'bg-amber-100 text-amber-800 border border-amber-200'
-                                : 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                            className={`px-2 py-0.5 rounded font-bold text-xs ${
+                              item.availableQuantity > 5
+                                ? 'text-emerald-700 bg-emerald-100'
+                                : item.availableQuantity > 0
+                                ? 'text-amber-700 bg-amber-100'
+                                : 'text-rose-700 bg-rose-100'
                             }`}
                           >
-                            {item.availableQuantity} {item.unit}
+                            {item.availableQuantity}
                           </span>
                         </td>
 
-                        {/* Location */}
-                        <td className="px-3.5 py-2.5 text-slate-700 font-medium">
-                          <span className="px-2 py-0.5 bg-slate-100 rounded text-[11px] font-semibold text-slate-800 border border-slate-200 inline-block">
-                            {item.warehouseLocation || 'Kho Tổng TP.HCM'}
-                          </span>
-                        </td>
+                        <td className="px-3.5 py-2.5 text-slate-600 font-medium">{item.warehouseLocation || 'Kho Tổng TP.HCM'}</td>
+                        <td className="px-3.5 py-2.5 text-center text-[11px] text-slate-400 font-mono">{formatDate(item.updatedAt)}</td>
 
-                        {/* Updated At */}
-                        <td className="px-3.5 py-2.5 text-slate-500 text-[11px] text-center whitespace-nowrap">
-                          {formatDate(item.updatedAt)}
-                        </td>
-
-                        {/* Management Actions */}
+                        {/* QUICK STOCK ADJUSTMENT */}
                         {canManageInventory && (
                           <td className="px-3.5 py-2.5 text-center">
                             <div className="flex items-center justify-center space-x-1">
                               <button
-                                onClick={() => quickAdjustStock(item.sku, -5)}
-                                className="px-1.5 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 text-[10px] font-bold cursor-pointer"
-                                title="Trừ 5 tồn thực tế"
+                                onClick={() => quickAdjustStock(item.sku, -1)}
+                                className="p-1 rounded bg-slate-100 hover:bg-rose-100 text-slate-600 hover:text-rose-700 transition cursor-pointer"
+                                title="Giảm 1 số lượng (Xuất kho nhanh)"
                               >
-                                -5
+                                <Minus className="w-3 h-3" />
+                              </button>
+                              <button
+                                onClick={() => quickAdjustStock(item.sku, 1)}
+                                className="p-1 rounded bg-slate-100 hover:bg-emerald-100 text-slate-600 hover:text-emerald-700 transition cursor-pointer"
+                                title="Tăng 1 số lượng (Nhập kho nhanh)"
+                              >
+                                <Plus className="w-3 h-3" />
                               </button>
                               <button
                                 onClick={() => quickAdjustStock(item.sku, 10)}
@@ -525,6 +529,55 @@ export const InventoryMaster: React.FC = () => {
                 </tbody>
               </table>
             </div>
+
+            {/* Pagination Controls */}
+            {displayedInventory.length > 0 && (
+              <div className="px-4 py-3 bg-slate-50 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-slate-600">
+                <div className="flex items-center space-x-2">
+                  <span>Hiển thị</span>
+                  <select
+                    value={pageSize}
+                    onChange={(e) => {
+                      setPageSize(Number(e.target.value));
+                      setCurrentPage(1);
+                    }}
+                    className="px-2 py-1 bg-white border border-slate-300 rounded font-semibold text-slate-700"
+                  >
+                    <option value={25}>25</option>
+                    <option value={50}>50</option>
+                    <option value={100}>100</option>
+                    <option value={200}>200</option>
+                  </select>
+                  <span>dòng / trang</span>
+                  <span className="text-slate-400">|</span>
+                  <span>Tổng cộng <strong>{displayedInventory.length.toLocaleString('vi-VN')}</strong> mã tồn kho</span>
+                </div>
+
+                <div className="flex items-center space-x-2">
+                  <button
+                    onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                    disabled={currentPage === 1}
+                    className="px-2.5 py-1 bg-white border border-slate-300 rounded hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed flex items-center space-x-1 font-semibold"
+                  >
+                    <ChevronLeft className="w-3.5 h-3.5" />
+                    <span>Trước</span>
+                  </button>
+
+                  <span className="font-bold px-2">
+                    Trang {currentPage} / {totalPages}
+                  </span>
+
+                  <button
+                    onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                    disabled={currentPage === totalPages}
+                    className="px-2.5 py-1 bg-white border border-slate-300 rounded hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed flex items-center space-x-1 font-semibold"
+                  >
+                    <span>Sau</span>
+                    <ChevronRight className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -596,3 +649,9 @@ export const InventoryMaster: React.FC = () => {
     </div>
   );
 };
+
+export const InventoryMaster: React.FC = () => (
+  <ErrorBoundary fallbackTitle="Đã xảy ra lỗi khi hiển thị Quản lý Kho Hàng">
+    <InventoryMasterContent />
+  </ErrorBoundary>
+);
