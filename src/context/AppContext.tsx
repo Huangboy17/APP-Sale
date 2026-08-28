@@ -2734,20 +2734,25 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
         if (deductQty > 0) {
           hasChanges = true;
-          const prevDispatched = r.dispatchedQuantity || 0;
+          const prevDispatched = r.deliveredQuantity || r.dispatchedQuantity || 0;
           const newDispatched = prevDispatched + deductQty;
           const isFullyDelivered = newDispatched >= r.reservedQuantity;
-          const newStatus: ReserveItemStatus = isFullyDelivered ? 'delivered' : 'shipped';
+          const newStatus: ReserveItemStatus = isFullyDelivered ? 'delivered' : 'partially_delivered';
 
           const updatedReserve: ReserveItem = {
             ...r,
             dispatchedQuantity: newDispatched,
+            deliveredQuantity: newDispatched,
             status: newStatus,
             expectedDeliveryDate: isFullyDelivered ? voucher.date : r.expectedDeliveryDate,
+            actualDeliveryDate: isFullyDelivered ? voucher.date : r.actualDeliveryDate,
+            completedAt: isFullyDelivered ? (r.completedAt || now.toISOString()) : undefined,
+            completedBy: isFullyDelivered ? (r.completedBy || currentUser.id) : undefined,
+            completedByName: isFullyDelivered ? (r.completedByName || currentUser.name) : undefined,
             timeline: [
               {
                 status: newStatus,
-                statusLabel: isFullyDelivered ? 'Đã giao đủ cho khách' : `Đã xuất giao đợt (${newDispatched}/${r.reservedQuantity})`,
+                statusLabel: isFullyDelivered ? 'Đã xuất giao đủ cho khách (Hoàn thành)' : `Đã xuất giao đợt (${newDispatched}/${r.reservedQuantity})`,
                 timestamp: now.toISOString(),
                 actorId: currentUser.id,
                 actorName: currentUser.name,
@@ -2778,20 +2783,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
         if (deductQty > 0) {
           hasChanges = true;
-          const prevDispatched = o.dispatchedQuantity || 0;
+          const prevDispatched = o.deliveredQuantity || o.dispatchedQuantity || 0;
           const newDispatched = prevDispatched + deductQty;
-          const targetNeeded = o.receivedQuantity || o.orderQuantity;
+          const targetNeeded = o.orderQuantity;
           const isFullyDelivered = newDispatched >= targetNeeded;
-          const newStatus: OrderItemStatus = isFullyDelivered ? 'delivered' : 'partial';
+          const newStatus: OrderItemStatus = isFullyDelivered ? 'delivered' : 'partially_delivered';
 
           const updatedOrder: OrderItem = {
             ...o,
             dispatchedQuantity: newDispatched,
+            deliveredQuantity: newDispatched,
             status: newStatus,
+            completedAt: isFullyDelivered ? (o.completedAt || now.toISOString()) : undefined,
+            completedBy: isFullyDelivered ? (o.completedBy || currentUser.id) : undefined,
+            completedByName: isFullyDelivered ? (o.completedByName || currentUser.name) : undefined,
             timeline: [
               {
                 status: newStatus,
-                statusLabel: isFullyDelivered ? 'Đã giao hàng thành công' : `Đã xuất kho giao đợt (${newDispatched}/${o.orderQuantity})`,
+                statusLabel: isFullyDelivered ? 'Đã xuất giao đủ cho khách (Hoàn thành)' : `Đã xuất kho giao đợt (${newDispatched}/${o.orderQuantity})`,
                 timestamp: now.toISOString(),
                 actorId: currentUser.id,
                 actorName: currentUser.name,
@@ -4045,10 +4054,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       const myOrgId = resolveOrganizationId(currentUser, users);
       const qtyToDispatch = dispatchData.dispatchQty || target.reservedQuantity;
+      const prevDispatched = target.deliveredQuantity || target.dispatchedQuantity || 0;
+      const newDispatched = prevDispatched + qtyToDispatch;
+      const isFullyDelivered = newDispatched >= target.reservedQuantity;
+      const newStatus: ReserveItemStatus = isFullyDelivered ? 'delivered' : 'partially_delivered';
 
       const timelineEvent: TimelineEvent = {
-        status: 'shipped',
-        statusLabel: 'Đã xuất kho giao khách',
+        status: newStatus,
+        statusLabel: isFullyDelivered ? 'Đã xuất giao đủ cho khách (Hoàn thành)' : `Đã xuất giao đợt (${newDispatched}/${target.reservedQuantity})`,
         timestamp: new Date().toISOString(),
         actorId: currentUser.id,
         actorName: currentUser.name,
@@ -4057,8 +4070,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       const updatedRes: ReserveItem = {
         ...target,
-        status: 'shipped',
-        dispatchedQuantity: qtyToDispatch,
+        status: newStatus,
+        dispatchedQuantity: newDispatched,
+        deliveredQuantity: newDispatched,
+        completedAt: isFullyDelivered ? (target.completedAt || new Date().toISOString()) : undefined,
+        completedBy: isFullyDelivered ? (target.completedBy || currentUser.id) : undefined,
+        completedByName: isFullyDelivered ? (target.completedByName || currentUser.name) : undefined,
         timeline: [timelineEvent, ...(target.timeline || [])],
       };
 
@@ -4117,7 +4134,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       const timelineEvent: TimelineEvent = {
         status: 'delivered',
-        statusLabel: 'Khách hàng đã nhận đủ',
+        statusLabel: 'Khách hàng đã nhận đủ (Hoàn thành)',
         timestamp: new Date().toISOString(),
         actorId: currentUser.id,
         actorName: currentUser.name,
@@ -4128,6 +4145,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         ...target,
         status: 'delivered',
         deliveredQuantity: target.reservedQuantity,
+        dispatchedQuantity: target.reservedQuantity,
+        actualDeliveryDate: deliveryData.deliveryDate,
+        completedAt: target.completedAt || new Date().toISOString(),
+        completedBy: target.completedBy || currentUser.id,
+        completedByName: target.completedByName || currentUser.name,
         timeline: [timelineEvent, ...(target.timeline || [])],
       };
 

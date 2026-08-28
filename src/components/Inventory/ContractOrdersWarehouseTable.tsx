@@ -6,6 +6,13 @@ import { EditOrderItemModal } from './EditOrderItemModal';
 import { ItemOrderRequirementsModal } from './ItemOrderRequirementsModal';
 import { CreatePurchaseOrderModal } from './CreatePurchaseOrderModal';
 import {
+  isOrderInWorkQueue,
+  isOrderCompleted,
+  isOrderPartiallyDelivered,
+  isOrderArrivedInStock,
+  getOrderDeliveredQuantity,
+} from '../../utils/orderLifecycle';
+import {
   ShoppingCart,
   Search,
   Download,
@@ -29,6 +36,8 @@ import {
   Plus,
   CheckSquare,
   Square,
+  History,
+  Clock,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
@@ -56,6 +65,7 @@ export const ContractOrdersWarehouseTable: React.FC<ContractOrdersWarehouseTable
     currentUser,
   } = useApp();
 
+  const [queueMode, setQueueMode] = useState<'work_queue' | 'history'>('work_queue');
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all_pending');
   const [viewMode, setViewMode] = useState<'sku_summary' | 'contract_list'>('sku_summary');
@@ -89,12 +99,17 @@ export const ContractOrdersWarehouseTable: React.FC<ContractOrdersWarehouseTable
     return cust?.name || o.customerName || 'ORPHAN CUSTOMER';
   };
 
-  const isPendingOrder = (status?: string) =>
-    !status || ['pending', 'pending_order', 'ordered', 'in_transit', 'arrived', 'partial'].includes(status);
+  // Base list separated by Work Queue vs History
+  const workQueueOrders = useMemo(() => orderItems.filter(isOrderInWorkQueue), [orderItems]);
+  const historyOrders = useMemo(() => orderItems.filter(isOrderCompleted), [orderItems]);
+
+  const baseOrders = useMemo(() => {
+    return queueMode === 'work_queue' ? workQueueOrders : historyOrders;
+  }, [queueMode, workQueueOrders, historyOrders]);
 
   // Filter individual orders
   const filteredOrders = useMemo(() => {
-    return orderItems.filter((o) => {
+    return baseOrders.filter((o) => {
       const resolvedSales = getAssignedSalesRepName(o);
       const resolvedCustomer = getCustomerDisplayName(o);
       const cust = customerMap.get(o.customerId);
@@ -105,15 +120,21 @@ export const ContractOrdersWarehouseTable: React.FC<ContractOrdersWarehouseTable
         resolvedCustomer.toLowerCase().includes(searchTerm.toLowerCase()) ||
         resolvedSales.toLowerCase().includes(searchTerm.toLowerCase()) ||
         (o.contractNumber || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-        (cust?.company && cust.company.toLowerCase().includes(searchTerm.toLowerCase()));
+        (cust?.company && cust.company.toLowerCase().includes(searchTerm.toLowerCase())) ||
+        (o.completedByName && o.completedByName.toLowerCase().includes(searchTerm.toLowerCase()));
 
       let matchStatus = true;
-      if (statusFilter === 'all_pending') matchStatus = isPendingOrder(o.status);
-      else if (statusFilter !== 'all') matchStatus = o.status === statusFilter;
+      if (queueMode === 'work_queue') {
+        if (statusFilter === 'all_pending') matchStatus = isOrderInWorkQueue(o);
+        else if (statusFilter !== 'all') matchStatus = o.status === statusFilter;
+      } else {
+        if (statusFilter === 'delivered') matchStatus = isOrderCompleted(o);
+        else if (statusFilter === 'cancelled') matchStatus = o.status === 'cancelled';
+      }
 
       return matchSearch && matchStatus;
     });
-  }, [orderItems, searchTerm, statusFilter, customerMap]);
+  }, [baseOrders, searchTerm, statusFilter, customerMap, queueMode]);
 
   const selectedRequestsForPO = useMemo(() => {
     if (selectedOrderIds.size > 0) {
@@ -259,10 +280,16 @@ export const ContractOrdersWarehouseTable: React.FC<ContractOrdersWarehouseTable
             🟢 4. Đã về kho
           </span>
         );
+      case 'partially_delivered':
+        return (
+          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-orange-100 text-orange-900 border border-orange-300">
+            🚚 Giao khách 1 phần
+          </span>
+        );
       case 'delivered':
         return (
-          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-800 border border-slate-300">
-            📦 5. Đã giao khách
+          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-teal-100 text-teal-800 border border-teal-300">
+            ✅ 5. Đã giao khách đủ
           </span>
         );
       default:
@@ -302,6 +329,59 @@ export const ContractOrdersWarehouseTable: React.FC<ContractOrdersWarehouseTable
 
   return (
     <div className="space-y-3">
+      {/* Top Work Queue vs History Mode Switch */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs">
+        <div className="flex items-center space-x-1.5 bg-slate-100 p-1 rounded-xl w-full sm:w-auto border border-slate-200">
+          <button
+            type="button"
+            onClick={() => {
+              setQueueMode('work_queue');
+              setStatusFilter('all_pending');
+            }}
+            className={`flex-1 sm:flex-none px-3.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center justify-center space-x-1.5 cursor-pointer ${
+              queueMode === 'work_queue'
+                ? 'bg-indigo-600 text-white shadow-2xs'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+            }`}
+          >
+            <Clock className="w-3.5 h-3.5" />
+            <span>Dang Xu Ly / Can Dat & Cho Giao (Work Queue)</span>
+            <span className={`px-2 py-0.2 text-[10px] rounded-full font-bold ${
+              queueMode === 'work_queue' ? 'bg-white/25 text-white' : 'bg-indigo-100 text-indigo-900'
+            }`}>
+              {workQueueOrders.length}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setQueueMode('history');
+              setStatusFilter('delivered');
+            }}
+            className={`flex-1 sm:flex-none px-3.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center justify-center space-x-1.5 cursor-pointer ${
+              queueMode === 'history'
+                ? 'bg-slate-800 text-white shadow-2xs'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+            }`}
+          >
+            <History className="w-3.5 h-3.5" />
+            <span>Lich Su Da Giao Khach Hoan Tat (History)</span>
+            <span className={`px-2 py-0.2 text-[10px] rounded-full font-bold ${
+              queueMode === 'history' ? 'bg-white/25 text-white' : 'bg-slate-200 text-slate-700'
+            }`}>
+              {historyOrders.length}
+            </span>
+          </button>
+        </div>
+
+        <span className="text-xs text-slate-500 hidden sm:inline">
+          {queueMode === 'work_queue'
+            ? 'Bao gom ca hang da ve kho cho xuat va giao mot phan'
+            : 'Luu tru toan bo cac don dat da giao khach du 100%'}
+        </span>
+      </div>
+
       {/* Search & Filter Header */}
       <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs flex flex-col md:flex-row items-center justify-between gap-2.5">
         <div className="relative w-full md:w-80">
@@ -347,8 +427,24 @@ export const ContractOrdersWarehouseTable: React.FC<ContractOrdersWarehouseTable
             onChange={(e) => setStatusFilter(e.target.value)}
             className="px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg bg-white focus:ring-2 focus:ring-indigo-500 outline-hidden cursor-pointer"
           >
-            <option value="all_pending">Đang Cần Kho Đáp Ứng ({pendingActiveCount})</option>
-            <option value="all">Tất cả ({orderItems.length})</option>
+            {queueMode === 'work_queue' ? (
+              <>
+                <option value="all_pending">Tat ca dang xu ly ({workQueueOrders.length})</option>
+                <option value="pending">1. Cho dat NCC</option>
+                <option value="ordered">2. Da dat NCC</option>
+                <option value="in_transit">3. Dang van chuyen</option>
+                <option value="partial">4. Da ve kho 1 phan</option>
+                <option value="ready_to_deliver">5. Da ve kho du (Cho giao)</option>
+                <option value="partially_delivered">6. Giao khach 1 phan</option>
+                <option value="all">Tat ca trang thai</option>
+              </>
+            ) : (
+              <>
+                <option value="delivered">Da giao khach du 100% ({historyOrders.filter((o) => o.status === 'delivered').length})</option>
+                <option value="cancelled">Da huy</option>
+                <option value="all">Tat ca lich su ({historyOrders.length})</option>
+              </>
+            )}
           </select>
 
           <button

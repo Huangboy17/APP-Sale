@@ -529,7 +529,8 @@ export type ReserveItemStatus =
   | 'picking' // Kho đang lấy/chuẩn bị hàng
   | 'ready_to_ship' // Hàng đã chuẩn bị xong, sẵn sàng xuất
   | 'shipped' // Kho đã xuất hàng khỏi kho (tương đương 'dispatched')
-  | 'delivered' // Khách đã nhận hàng thành công
+  | 'partially_delivered' // Giao một phần cho khách
+  | 'delivered' // Khách đã nhận hàng thành công (Hoàn tất)
   | 'released' // Hủy giữ hàng, giải phóng tồn khả dụng
   | 'cancelled' // Đã hủy
   | 'holding' // Tương thích ngược: đang giữ
@@ -566,6 +567,9 @@ export interface ReserveItem {
   status: ReserveItemStatus;
   expectedDeliveryDate: string;
   actualDeliveryDate?: string;
+  completedAt?: string; // Thời điểm hoàn thành phiếu (giao đủ 100%)
+  completedBy?: string; // ID người hoàn thành phiếu
+  completedByName?: string; // Tên người hoàn thành phiếu
   stockTransactionIds?: string[];
   timeline?: TimelineEvent[];
   releasedReason?: string;
@@ -654,8 +658,9 @@ export type OrderItemStatus =
   | 'arrived' // Hàng đã về tới kho nhưng đang chờ kiểm nhận
   | 'partial' // Đã về một phần (ví dụ 40/100)
   | 'received' // Kho đã nhập đủ hàng (tương đương 'arrived_in_stock')
-  | 'ready_to_deliver' // Đã đủ hàng, sẵn sàng giao khách
-  | 'delivered' // Đã giao hàng thành công cho khách
+  | 'ready_to_deliver' // Đã đủ hàng trong kho, sẵn sàng giao khách
+  | 'partially_delivered' // Đã xuất giao một phần cho khách
+  | 'delivered' // Đã giao hàng thành công cho khách (Hoàn tất)
   | 'cancelled' // Đã hủy đơn đặt hàng
   | 'pending_order' // Tương thích ngược
   | 'arrived_in_stock'; // Tương thích ngược
@@ -697,6 +702,9 @@ export interface OrderItem {
   orderDate: string;
   status: OrderItemStatus;
   supplierETA?: string;
+  completedAt?: string; // Thời điểm hoàn thành phiếu (giao khách đủ 100%)
+  completedBy?: string; // ID người hoàn thành phiếu
+  completedByName?: string; // Tên người hoàn thành phiếu
   notes?: string;
   stockTransactionIds?: string[];
   inboundReceipts?: InboundReceiptEntry[];

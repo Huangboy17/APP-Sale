@@ -4,6 +4,12 @@ import { formatDate } from '../../utils/formatters';
 import { useApp } from '../../context/AppContext';
 import { EditReserveItemModal } from './EditReserveItemModal';
 import {
+  isReserveInWorkQueue,
+  isReserveCompleted,
+  isReservePartiallyDelivered,
+  getReserveDeliveredQuantity,
+} from '../../utils/orderLifecycle';
+import {
   Layers,
   Search,
   Filter,
@@ -29,6 +35,7 @@ import {
   PackageCheck,
   ShieldCheck,
   Warehouse,
+  History,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
@@ -58,6 +65,7 @@ export const ReservedItemsWarehouseTable: React.FC<ReservedItemsWarehouseTablePr
     currentUser,
   } = useApp();
 
+  const [viewMode, setViewMode] = useState<'work_queue' | 'history'>('work_queue');
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all_active');
   const [selectedSalesRep, setSelectedSalesRep] = useState<string>('all');
@@ -89,7 +97,8 @@ export const ReservedItemsWarehouseTable: React.FC<ReservedItemsWarehouseTablePr
       status === 'active' ||
       status === 'allocated' ||
       status === 'picking' ||
-      status === 'ready_to_ship'
+      status === 'ready_to_ship' ||
+      status === 'partially_delivered'
     );
   };
 
@@ -128,6 +137,14 @@ export const ReservedItemsWarehouseTable: React.FC<ReservedItemsWarehouseTablePr
           progress: 80,
           stepText: '4/5 Sẵn sàng',
         };
+      case 'partially_delivered':
+        return {
+          label: 'Giao Một Phần',
+          bgColor: 'bg-orange-100 text-orange-900 border-orange-300',
+          dotColor: 'bg-orange-600',
+          progress: 85,
+          stepText: 'Giao 1 phần',
+        };
       case 'shipped':
       case 'dispatched':
         return {
@@ -139,7 +156,7 @@ export const ReservedItemsWarehouseTable: React.FC<ReservedItemsWarehouseTablePr
         };
       case 'delivered':
         return {
-          label: 'Đã Giao Khách',
+          label: 'Đã Giao Đủ',
           bgColor: 'bg-teal-100 text-teal-800 border-teal-300',
           dotColor: 'bg-teal-600',
           progress: 100,
@@ -169,7 +186,13 @@ export const ReservedItemsWarehouseTable: React.FC<ReservedItemsWarehouseTablePr
     new Set(reserveItems.map((r) => getAssignedSalesRepName(r)).filter(Boolean))
   );
 
-  const filteredReserves = reserveItems.filter((r) => {
+  // Work Queue count vs History count
+  const workQueueItems = reserveItems.filter(isReserveInWorkQueue);
+  const historyItems = reserveItems.filter(isReserveCompleted);
+
+  const baseItems = viewMode === 'work_queue' ? workQueueItems : historyItems;
+
+  const filteredReserves = baseItems.filter((r) => {
     const resolvedSales = getAssignedSalesRepName(r);
     const resolvedCustomer = getCustomerDisplayName(r);
     const cust = customerMap.get(r.customerId);
@@ -181,13 +204,22 @@ export const ReservedItemsWarehouseTable: React.FC<ReservedItemsWarehouseTablePr
       resolvedSales.toLowerCase().includes(searchTerm.toLowerCase()) ||
       r.contractNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
       (cust?.company && cust.company.toLowerCase().includes(searchTerm.toLowerCase())) ||
-      (r.warehouseLocation && r.warehouseLocation.toLowerCase().includes(searchTerm.toLowerCase()));
+      (r.warehouseLocation && r.warehouseLocation.toLowerCase().includes(searchTerm.toLowerCase())) ||
+      (r.completedByName && r.completedByName.toLowerCase().includes(searchTerm.toLowerCase()));
 
     let matchStatus = true;
-    if (statusFilter === 'all_active') {
-      matchStatus = isHoldingStatus(r.status);
-    } else if (statusFilter !== 'all') {
-      matchStatus = r.status === statusFilter;
+    if (viewMode === 'work_queue') {
+      if (statusFilter === 'all_active') {
+        matchStatus = isReserveInWorkQueue(r);
+      } else if (statusFilter !== 'all') {
+        matchStatus = r.status === statusFilter;
+      }
+    } else {
+      if (statusFilter === 'delivered') {
+        matchStatus = r.status === 'delivered' || isReserveCompleted(r);
+      } else if (statusFilter === 'released') {
+        matchStatus = r.status === 'released' || r.status === 'cancelled';
+      }
     }
 
     const matchSales = selectedSalesRep === 'all' || resolvedSales === selectedSalesRep;
@@ -195,10 +227,8 @@ export const ReservedItemsWarehouseTable: React.FC<ReservedItemsWarehouseTablePr
     return matchSearch && matchStatus && matchSales;
   });
 
-  const activeHoldingCount = reserveItems.filter((r) => isHoldingStatus(r.status)).length;
-  const totalHoldingUnits = reserveItems
-    .filter((r) => isHoldingStatus(r.status))
-    .reduce((sum, r) => sum + r.reservedQuantity, 0);
+  const activeHoldingCount = workQueueItems.length;
+  const totalHoldingUnits = workQueueItems.reduce((sum, r) => sum + r.reservedQuantity, 0);
 
   const handleExportExcel = () => {
     const data = filteredReserves.map((r, idx) => {
@@ -244,6 +274,59 @@ export const ReservedItemsWarehouseTable: React.FC<ReservedItemsWarehouseTablePr
 
   return (
     <div className="space-y-3">
+      {/* Work Queue vs History Mode Switch */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs">
+        <div className="flex items-center space-x-1.5 bg-slate-100 p-1 rounded-xl w-full sm:w-auto border border-slate-200">
+          <button
+            type="button"
+            onClick={() => {
+              setViewMode('work_queue');
+              setStatusFilter('all_active');
+            }}
+            className={`flex-1 sm:flex-none px-3.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center justify-center space-x-1.5 cursor-pointer ${
+              viewMode === 'work_queue'
+                ? 'bg-amber-600 text-white shadow-2xs'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+            }`}
+          >
+            <Clock className="w-3.5 h-3.5" />
+            <span>Can Xu Ly Xuat Kho (Work Queue)</span>
+            <span className={`px-2 py-0.2 text-[10px] rounded-full font-bold ${
+              viewMode === 'work_queue' ? 'bg-white/25 text-white' : 'bg-amber-100 text-amber-900'
+            }`}>
+              {workQueueItems.length}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setViewMode('history');
+              setStatusFilter('delivered');
+            }}
+            className={`flex-1 sm:flex-none px-3.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center justify-center space-x-1.5 cursor-pointer ${
+              viewMode === 'history'
+                ? 'bg-slate-800 text-white shadow-2xs'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+            }`}
+          >
+            <History className="w-3.5 h-3.5" />
+            <span>Lich Su Da Giao Du (History)</span>
+            <span className={`px-2 py-0.2 text-[10px] rounded-full font-bold ${
+              viewMode === 'history' ? 'bg-white/25 text-white' : 'bg-slate-200 text-slate-700'
+            }`}>
+              {historyItems.length}
+            </span>
+          </button>
+        </div>
+
+        <span className="text-xs text-slate-500 hidden sm:inline">
+          {viewMode === 'work_queue'
+            ? 'Danh sach cac ma giu dang can xuat kho hoac giao mot phan'
+            : 'Luu tru toan bo cac ma giu da giao khach du 100%'}
+        </span>
+      </div>
+
       <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs flex flex-col md:flex-row items-center justify-between gap-2.5">
         <div className="relative w-full md:w-80">
           <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
@@ -260,17 +343,25 @@ export const ReservedItemsWarehouseTable: React.FC<ReservedItemsWarehouseTablePr
           <select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
-            className="px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg bg-white focus:ring-2 focus:ring-amber-500 outline-hidden font-medium text-slate-700"
+            className="px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg bg-white focus:ring-2 focus:ring-amber-500 outline-hidden font-medium text-slate-700 cursor-pointer"
           >
-            <option value="all_active">Đang Giữ & Xử Lý ({activeHoldingCount} mã)</option>
-            <option value="active">1. Đã Giữ Hàng</option>
-            <option value="allocated">2. Đã Phân Bổ</option>
-            <option value="picking">3. Đang Chuẩn Bị</option>
-            <option value="ready_to_ship">4. Sẵn Sàng Xuất</option>
-            <option value="shipped">5. Đã Xuất Kho</option>
-            <option value="delivered">6. Đã Giao Khách</option>
-            <option value="released">Đã Giải Phóng / Hủy</option>
-            <option value="all">Tất cả ({reserveItems.length})</option>
+            {viewMode === 'work_queue' ? (
+              <>
+                <option value="all_active">Tat ca dang xu ly ({activeHoldingCount} ma)</option>
+                <option value="active">1. Da Giu Hang</option>
+                <option value="allocated">2. Da Phan Bo</option>
+                <option value="picking">3. Dang Chuan Bi</option>
+                <option value="ready_to_ship">4. San Sang Xuat</option>
+                <option value="partially_delivered">5. Giao Mot Phan</option>
+                <option value="all">Tat ca trang thai</option>
+              </>
+            ) : (
+              <>
+                <option value="delivered">Da Giao Du 100% ({historyItems.filter((r) => r.status === 'delivered').length})</option>
+                <option value="released">Da Giai Phong / Huy</option>
+                <option value="all">Tat ca lich su ({historyItems.length})</option>
+              </>
+            )}
           </select>
 
           <select
