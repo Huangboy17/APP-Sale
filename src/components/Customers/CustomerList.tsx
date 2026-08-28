@@ -368,7 +368,7 @@ export const CustomerList: React.FC = () => {
                               className="text-xs border border-slate-300 rounded px-2 py-1 bg-white font-medium focus:ring-1 focus:ring-blue-500 outline-hidden"
                             >
                               {users
-                                .filter((u) => u.role === 'sales_c2' || u.id === currentUser.id)
+                                .filter((u) => (u.role === 'sales_c2' || u.id === currentUser.id) && (u.managerId === currentUser.id || u.createdBy === currentUser.id || u.organizationId === currentUser.organizationId || u.id === currentUser.id))
                                 .map((u) => (
                                   <option key={u.id} value={u.id}>
                                     {u.name}

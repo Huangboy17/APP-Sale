@@ -66,7 +66,7 @@ export const QuotationModal: React.FC<QuotationModalProps> = ({
   const {
     currentUser,
     companyInfo,
-    customers,
+    filteredCustomers: customers, // PERMISSION-FILTERED: same data scope as Customer List
     products,
     inventory,
     quotations,

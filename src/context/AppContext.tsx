@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useMemo } from 'react';
+import React, { createContext, useContext, useState, useEffect, useMemo, useCallback } from 'react';
 import {
   User,
   UserRole,
@@ -14,6 +14,16 @@ import {
   OrderItem,
   QuoteProductRow,
   PaymentMilestone,
+  Organization,
+  CustomerMember,
+  resolveOrganizationId,
+  canLevel2AccessCustomer,
+  canLevel2AccessQuotation,
+  canLevel2AccessContract,
+  validateUserUpdate,
+  isUserActive,
+  isUserPending,
+  isUserBlocked,
 } from '../types';
 import {
   INITIAL_USERS,
@@ -58,6 +68,9 @@ import {
   batchSyncOrdersToCloud,
   clearAllDataFromCloud,
   clearCollectionFromCloud,
+  syncOrganizationToCloud,
+  syncCustomerMemberToCloud,
+  deleteCustomerMemberFromCloud,
 } from '../services/firestoreSync';
 
 // Helper function to resolve the company scope (C1 is company, C2 inherits C1's companyId)
@@ -145,6 +158,8 @@ interface AppContextType {
   updateCustomerStage: (customerId: string, stage: CustomerStage, rejectReason?: string) => void;
   assignCustomer: (customerId: string, salesId: string, salesName: string) => void;
   deleteCustomer: (customerId: string) => void;
+  grantCustomerAccess: (customerId: string, userId: string, userName: string) => void;
+  revokeCustomerAccess: (customerId: string, userId: string) => void;
 
   // Company Scope for active user (Tenant isolation)
   companyScope: { companyId: string; companyName: string };
@@ -724,7 +739,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // User management
   const approveManagerC1 = (userId: string) => {
     setUsers((prev) => {
-      const updated = prev.map((u) => (u.id === userId ? { ...u, status: 'active' as const } : u));
+      const updated = prev.map((u) => {
+        if (u.id === userId) {
+          // Ensure organizationId is set (create one if missing for backward compat)
+          const orgId = u.organizationId || `org-${u.id}`;
+          if (!u.organizationId) {
+            // Auto-create Organization for approved Level 1
+            syncOrganizationToCloud({
+              id: orgId,
+              ownerId: u.id,
+              ownerName: u.name,
+              name: u.department || `Doanh nghiệp của ${u.name}`,
+              createdAt: new Date().toISOString().split('T')[0],
+            });
+          }
+          return { ...u, status: 'active' as const, organizationId: orgId };
+        }
+        return u;
+      });
       const targetUser = updated.find((u) => u.id === userId);
       if (targetUser) syncUserToCloud(targetUser);
       return updated;
@@ -742,11 +774,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
   };
 
+
   const createSalesC2 = (userData: Omit<User, 'id' | 'createdAt' | 'status'>) => {
+    const myOrgId = resolveOrganizationId(currentUser, users);
     const newUser: User = {
       ...userData,
       id: `user-sales-${Date.now()}`,
       status: 'active',
+      role: 'sales_c2', // Always Level 2
+      organizationId: myOrgId, // AUTO-STAMP: inherit manager's organization
       managerId: currentUser.role === 'manager_c1' ? currentUser.id : userData.managerId,
       createdBy: currentUser.id,
       createdAt: new Date().toISOString().split('T')[0],
@@ -758,10 +794,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const addUser = (userData: Omit<User, 'id' | 'createdAt'>) => {
     const isC1 = currentUser.role === 'manager_c1';
+    const myOrgId = resolveOrganizationId(currentUser, users);
     const newUser: User = {
       ...userData,
       id: `user-${Date.now()}`,
-      role: isC1 ? 'sales_c2' : userData.role,
+      role: isC1 ? 'sales_c2' : userData.role, // Level 1 can only create Level 2
+      organizationId: myOrgId, // AUTO-STAMP: inherit manager's organization
       managerId: isC1 ? currentUser.id : userData.managerId,
       createdBy: currentUser.id,
       department: isC1 ? (currentUser.department || 'Phòng Kinh Doanh') : userData.department,
@@ -774,6 +812,25 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const updateUser = (updated: User) => {
+    // Validate protected fields
+    const targetUser = users.find(u => u.id === updated.id);
+    if (targetUser) {
+      const violations = validateUserUpdate(currentUser, targetUser, updated);
+      if (violations.length > 0) {
+        console.warn('[PERMISSION DENIED] updateUser violations:', violations);
+        // Strip protected field changes for non-Super Admin
+        if (currentUser.role !== 'super_admin') {
+          updated = {
+            ...updated,
+            role: targetUser.role,
+            organizationId: targetUser.organizationId,
+            managerId: targetUser.managerId,
+            parentId: targetUser.parentId,
+          };
+        }
+      }
+    }
+    
     setUsers((prev) => prev.map((u) => (u.id === updated.id ? updated : u)));
     if (currentUser.id === updated.id) {
       setCurrentUser(updated);
@@ -800,7 +857,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       };
     }
 
-    if (user.status === 'inactive') {
+    // Block completely disabled accounts
+    if (isUserBlocked(user.status)) {
       return {
         success: false,
         message: 'Tài khoản này đang bị khóa hoặc ngừng hoạt động. Vui lòng liên hệ Quản trị viên (Super Admin).',
@@ -809,22 +867,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     // Password verification
     const expectedPassword = user.password || (user.role === 'super_admin' ? 'admin' : '123456');
-    if (password && password !== expectedPassword && password !== '123456' && password !== 'admin' && password !== '123') {
+    if (password && password !== expectedPassword) {
       return {
         success: false,
         message: 'Mật khẩu không chính xác. Vui lòng kiểm tra lại hoặc bấm "Quên mật khẩu".',
       };
     }
 
+    // Set auth state — user is authenticated regardless of pending/active
+    // App.tsx auth guards will show appropriate screen based on status
     setCurrentUser(user);
     setIsAuthenticated(true);
     localStorage.setItem(STORAGE_KEYS.IS_AUTHENTICATED, 'true');
     localStorage.setItem(STORAGE_KEYS.CURRENT_USER_ID, user.id);
 
-    if (user.status === 'pending_approval') {
+    if (isUserPending(user.status)) {
       return {
         success: true,
-        message: `Đăng nhập thành công! Lưu ý: Tài khoản "${user.name}" đang ở trạng thái Chờ Super Admin phê duyệt kích hoạt quyền Giám Đốc (C1).`,
+        message: `Đăng nhập thành công! Lưu ý: Tài khoản "${user.name}" đang ở trạng thái Chờ Super Admin phê duyệt. Bạn sẽ không thể sử dụng các chức năng chính cho đến khi được duyệt.`,
         user,
       };
     }
@@ -856,24 +916,38 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       };
     }
 
-    // Đăng ký công khai luôn luôn là Cấp 1 (Chủ doanh nghiệp / Giám đốc C1)
-    // Và luôn luôn chờ Super Admin phê duyệt (status: 'pending_approval')
+    // Public registration is always Level 1 (Chủ doanh nghiệp / Giám đốc C1)
+    // Always pending Super Admin approval (status: 'pending')
+    const userId = `user-c1-${Date.now()}`;
+    const orgId = `org-${Date.now()}`;
+    
+    // Create Organization for this new Level 1
+    const newOrg: Organization = {
+      id: orgId,
+      ownerId: userId,
+      ownerName: userData.name.trim(),
+      name: userData.department?.trim() || `Doanh nghiệp của ${userData.name.trim()}`,
+      createdAt: new Date().toISOString().split('T')[0],
+    };
+
     const newUser: User = {
-      id: `user-c1-${Date.now()}`,
+      id: userId,
       name: userData.name.trim(),
       email: userData.email.trim(),
       phone: userData.phone.trim() || '0901234567',
       password: userData.password || '123456',
-      role: 'manager_c1', // Always Cấp 1
+      role: 'manager_c1', // Always Level 1
       department: userData.department?.trim() || 'Ban Quản Lý & Doanh Nghiệp C1',
       position: userData.position?.trim() || 'Giám Đốc / Chủ Doanh Nghiệp',
-      status: 'pending_approval', // Always pending Super Admin approval
+      status: 'pending', // Always pending Super Admin approval
+      organizationId: orgId, // Link to newly created Organization
       createdAt: new Date().toISOString().split('T')[0],
       avatar: `https://images.unsplash.com/photo-${1534528741775 + Math.floor(Math.random() * 50)}?w=120&auto=format&fit=crop&q=80`,
     };
 
     setUsers((prev) => [...prev, newUser]);
     syncUserToCloud(newUser);
+    syncOrganizationToCloud(newOrg);
 
     setCurrentUser(newUser);
     setIsAuthenticated(true);
@@ -882,7 +956,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     return {
       success: true,
-      message: 'Đăng ký tài khoản Doanh Nghiệp (Cấp 1) thành công! Hồ sơ của bạn đã được gửi tới Super Admin để xét duyệt kích hoạt.',
+      message: 'Đăng ký tài khoản Doanh Nghiệp (Level 1) thành công! Hồ sơ của bạn đã được gửi tới Super Admin để xét duyệt kích hoạt.',
       user: newUser,
     };
   };
@@ -947,11 +1021,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // - Super Admin: views all users in the system (C1, C2, Admins)
   // - Cấp 1 (Manager): views self and all Cấp 2 accounts created/managed by this Cấp 1
   // - Cấp 2 (Sales): views self only
+  // Users - RBAC Filter (organization-scoped):
+  // - Super Admin: views ALL users
+  // - Level 1: views self + all Level 2 in their organization
+  // - Level 2: views only self
   const filteredUsers = users.filter((u) => {
     if (currentUser.role === 'super_admin') return true;
     if (currentUser.role === 'manager_c1') {
+      const myOrgId = resolveOrganizationId(currentUser, users);
       return (
         u.id === currentUser.id ||
+        u.organizationId === myOrgId ||
         u.managerId === currentUser.id ||
         u.createdBy === currentUser.id
       );
@@ -960,42 +1040,51 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   });
 
   // Customers Logic - RBAC Filter:
-  // - Super Admin: returns [] (Super Admin chỉ quản trị hệ thống, dữ liệu kinh doanh thuộc C1 & C2)
-  // - Cấp 1: views customers assigned to or created by self OR any Cấp 2 managed by this Cấp 1
-  // - Cấp 2: ONLY views customers created by self OR assigned/authorized to this Cấp 2
-  const filteredCustomers = customers.filter((cust) => {
+  // - Super Admin: views ALL customers (system-wide monitoring)
+  // - Level 1: views ALL customers within their organization (organizationId match)
+  // - Level 2: ONLY views customers they have explicit permission for:
+  //   1. Created by this Level 2 (createdBy === userId)
+  //   2. Assigned to this Level 2 (assignedToId === userId)
+  //   3. Explicitly granted by Level 1 (userId in memberIds[])
+  const filteredCustomers = useMemo(() => {
     if (currentUser.role === 'super_admin') {
-      return false; // Super Admin chỉ quản trị hệ thống
+      return customers; // Super Admin sees all
     }
+    
+    const myOrgId = resolveOrganizationId(currentUser, users);
+    
+    // First: filter by organization (tenant isolation)
+    const orgCustomers = customers.filter((cust) => cust.organizationId === myOrgId);
+    
     if (currentUser.role === 'manager_c1') {
-      const managedC2Ids = users
-        .filter((u) => u.managerId === currentUser.id || u.createdBy === currentUser.id)
-        .map((u) => u.id);
-      return (
-        cust.assignedToId === currentUser.id ||
-        cust.createdBy === currentUser.id ||
-        managedC2Ids.includes(cust.assignedToId) ||
-        (cust.createdBy ? managedC2Ids.includes(cust.createdBy) : false)
-      );
+      // Level 1: sees all customers in their organization
+      return orgCustomers;
     }
-    // Cấp 2 (Sales): CHỈ hiển thị khách hàng do chính mình tạo hoặc được phân quyền / gán
-    return (
-      cust.createdBy === currentUser.id ||
-      cust.assignedToId === currentUser.id ||
-      cust.assignedToName === currentUser.name
-    );
-  });
+    
+    // Level 2: only sees customers they have permission for
+    return orgCustomers.filter((cust) => canLevel2AccessCustomer(currentUser.id, cust));
+  }, [customers, currentUser, users]);
 
   const addCustomer = (customerData: Omit<Customer, 'id' | 'createdAt' | 'updatedAt' | 'code'>) => {
     const now = new Date().toISOString().split('T')[0];
     const code = `KH-${new Date().getFullYear()}-${String(customers.length + 1).padStart(3, '0')}`;
+    const myOrgId = resolveOrganizationId(currentUser, users);
+    const creatorId = customerData.createdBy || currentUser.id;
+    const assigneeId = customerData.assignedToId || currentUser.id;
+    
+    // Auto-build memberIds: always include creator and assignee
+    const baseMemberIds = customerData.memberIds || [];
+    const memberIds = [...new Set([...baseMemberIds, creatorId, assigneeId])];
+    
     const newCust: Customer = {
       ...customerData,
       id: `cust-${Date.now()}`,
       code,
-      createdBy: customerData.createdBy || currentUser.id,
-      assignedToId: customerData.assignedToId || currentUser.id,
+      organizationId: myOrgId, // AUTO-STAMP: tenant isolation
+      createdBy: creatorId,
+      assignedToId: assigneeId,
       assignedToName: customerData.assignedToName || currentUser.name,
+      memberIds, // Include creator + assignee in permissions
       createdAt: now,
       updatedAt: now,
     };
@@ -1040,7 +1129,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       let targetCust: Customer | null = null;
       const updated = prev.map((c) => {
         if (c.id === customerId) {
-          targetCust = { ...c, assignedToId: salesId, assignedToName: salesName, updatedAt: now };
+          // Also add the new assignee to memberIds if not already there
+          const currentMemberIds = c.memberIds || [];
+          const newMemberIds = currentMemberIds.includes(salesId)
+            ? currentMemberIds
+            : [...currentMemberIds, salesId];
+          targetCust = { ...c, assignedToId: salesId, assignedToName: salesName, memberIds: newMemberIds, updatedAt: now };
           return targetCust;
         }
         return c;
@@ -1053,6 +1147,73 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const deleteCustomer = (customerId: string) => {
     setCustomers((prev) => prev.filter((c) => c.id !== customerId));
     deleteCustomerFromCloud(customerId);
+  };
+
+  // =========================================================================
+  // Customer Member Permission Management (Level 1 grants/revokes Level 2 access)
+  // =========================================================================
+  
+  /**
+   * Grant a Level 2 user access to a specific customer.
+   * Only Level 1 (of the same org) or Super Admin can call this.
+   */
+  const grantCustomerAccess = (customerId: string, userId: string, userName: string) => {
+    // Update memberIds on Customer document
+    setCustomers((prev) => {
+      let targetCust: Customer | null = null;
+      const updated = prev.map((c) => {
+        if (c.id === customerId) {
+          const currentMemberIds = c.memberIds || [];
+          if (!currentMemberIds.includes(userId)) {
+            targetCust = { ...c, memberIds: [...currentMemberIds, userId], updatedAt: new Date().toISOString().split('T')[0] };
+            return targetCust;
+          }
+          return c; // Already has access
+        }
+        return c;
+      });
+      if (targetCust) syncCustomerToCloud(targetCust);
+      return updated;
+    });
+
+    // Also create CustomerMember record in Firestore
+    const member: CustomerMember = {
+      id: `cm-${customerId}-${userId}`,
+      customerId,
+      userId,
+      userName,
+      organizationId: resolveOrganizationId(currentUser, users),
+      createdBy: currentUser.id,
+      createdAt: new Date().toISOString().split('T')[0],
+    };
+    syncCustomerMemberToCloud(member);
+  };
+
+  /**
+   * Revoke a Level 2 user's access to a specific customer.
+   * Only Level 1 (of the same org) or Super Admin can call this.
+   */
+  const revokeCustomerAccess = (customerId: string, userId: string) => {
+    // Remove from memberIds on Customer document
+    setCustomers((prev) => {
+      let targetCust: Customer | null = null;
+      const updated = prev.map((c) => {
+        if (c.id === customerId) {
+          const currentMemberIds = c.memberIds || [];
+          if (currentMemberIds.includes(userId)) {
+            targetCust = { ...c, memberIds: currentMemberIds.filter((id) => id !== userId), updatedAt: new Date().toISOString().split('T')[0] };
+            return targetCust;
+          }
+          return c;
+        }
+        return c;
+      });
+      if (targetCust) syncCustomerToCloud(targetCust);
+      return updated;
+    });
+
+    // Also delete CustomerMember record from Firestore
+    deleteCustomerMemberFromCloud(`cm-${customerId}-${userId}`);
   };
 
   // Active Company Scope for the logged in user
@@ -1485,35 +1646,26 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   // Quotations - RBAC Filter:
-  // - Super Admin: returns [] (Super Admin chỉ quản trị hệ thống, dữ liệu báo giá thuộc C1 & C2)
-  // - Cấp 1: views own quotes and all quotes created by their managed C2 sales team
-  // - Cấp 2: ONLY views quotes created by self or where salesRepId/salesRepName matches self
-  const filteredQuotations = quotations.filter((q) => {
+  // - Super Admin: views ALL quotations (system-wide monitoring)
+  // - Level 1: views ALL quotations within their organization
+  // - Level 2: ONLY views quotations linked to customers they have permission for
+  const filteredQuotations = useMemo(() => {
     if (currentUser.role === 'super_admin') {
-      return false; // Super Admin chỉ quản trị hệ thống
+      return quotations; // Super Admin sees all
     }
+    
+    const myOrgId = resolveOrganizationId(currentUser, users);
+    
+    // Filter by organization
+    const orgQuotations = quotations.filter((q) => q.organizationId === myOrgId);
+    
     if (currentUser.role === 'manager_c1') {
-      const managedC2 = users.filter(
-        (u) => u.managerId === currentUser.id || u.createdBy === currentUser.id
-      );
-      const managedC2Ids = managedC2.map((u) => u.id);
-      const managedC2Names = managedC2.map((u) => u.name);
-      return (
-        q.salesRepId === currentUser.id ||
-        q.salesRepName === currentUser.name ||
-        (q.createdBy && q.createdBy === currentUser.id) ||
-        managedC2Ids.includes(q.salesRepId) ||
-        managedC2Names.includes(q.salesRepName) ||
-        (q.createdBy ? managedC2Ids.includes(q.createdBy) : false)
-      );
+      return orgQuotations; // Level 1 sees all in org
     }
-    // Cấp 2 (Sales): CHỈ hiển thị báo giá do chính mình tạo hoặc đứng tên
-    return (
-      q.salesRepId === currentUser.id ||
-      q.salesRepName === currentUser.name ||
-      (q.createdBy && q.createdBy === currentUser.id)
-    );
-  });
+    
+    // Level 2: only quotations linked to permitted customers
+    return orgQuotations.filter((q) => canLevel2AccessQuotation(currentUser.id, q, customers));
+  }, [quotations, currentUser, users, customers]);
 
   const getCustomerQuotations = (customerId: string) => {
     return quotations
@@ -1523,9 +1675,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const createQuotation = (quoteData: Omit<Quotation, 'id' | 'createdAt' | 'updatedAt'>) => {
     const now = new Date().toISOString().split('T')[0];
+    const myOrgId = resolveOrganizationId(currentUser, users);
+
+    // PERMISSION GATE: Level 2 can only create quotations for customers they have access to
+    if (currentUser.role === 'sales_c2' && quoteData.customerId) {
+      const targetCustomer = customers.find(c => c.id === quoteData.customerId);
+      if (!targetCustomer || !canLevel2AccessCustomer(currentUser.id, targetCustomer)) {
+        console.error('[PERMISSION DENIED] createQuotation: Level 2 user', currentUser.id,
+          'attempted to create quotation for unauthorized customer', quoteData.customerId);
+        return null;
+      }
+    }
+
     const newQuote: Quotation = {
       ...quoteData,
       id: `quote-${Date.now()}`,
+      organizationId: myOrgId, // AUTO-STAMP: tenant isolation
       salesRepId: quoteData.salesRepId || currentUser.id,
       salesRepName: quoteData.salesRepName || currentUser.name,
       salesRepPhone: quoteData.salesRepPhone || currentUser.phone,
@@ -1748,8 +1913,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
 
     // 3. Create Contract with master company branding
+    const myOrgId = resolveOrganizationId(currentUser, users);
     const newContract: Contract = {
       id: contractId,
+      organizationId: myOrgId, // AUTO-STAMP: tenant isolation
       contractNumber,
       quotationId: quote.id,
       quoteNumber: quote.quoteNumber,
@@ -1798,6 +1965,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         // Toàn bộ có thể giữ hàng từ kho
         newReserveList.push({
           id: `res-${Date.now()}-${item.sku}`,
+          organizationId: myOrgId, // AUTO-STAMP: tenant isolation
           contractId,
           contractNumber,
           quoteNumber: quote.quoteNumber,
@@ -1827,6 +1995,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
         newReserveList.push({
           id: `res-${Date.now()}-${item.sku}`,
+          organizationId: myOrgId, // AUTO-STAMP: tenant isolation
           contractId,
           contractNumber,
           quoteNumber: quote.quoteNumber,
@@ -1845,6 +2014,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
         newOrderList.push({
           id: `ord-${Date.now()}-${item.sku}`,
+          organizationId: myOrgId, // AUTO-STAMP: tenant isolation
           contractId,
           contractNumber,
           quoteNumber: quote.quoteNumber,
@@ -1873,6 +2043,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         // Hết hàng / Tồn bằng 0 -> Đặt toàn bộ
         newOrderList.push({
           id: `ord-${Date.now()}-${item.sku}`,
+          organizationId: myOrgId, // AUTO-STAMP: tenant isolation
           contractId,
           contractNumber,
           quoteNumber: quote.quoteNumber,
@@ -1918,32 +2089,26 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   // Contracts - RBAC Filter:
-  // - Super Admin: returns [] (Super Admin chỉ quản trị hệ thống)
-  // - Cấp 1: views own contracts and contracts of their managed C2 sales team
-  // - Cấp 2: ONLY views own contracts
-  const filteredContracts = contracts.filter((c) => {
+  // - Super Admin: views ALL contracts (system-wide monitoring)
+  // - Level 1: views ALL contracts within their organization
+  // - Level 2: ONLY views contracts linked to customers they have permission for
+  const filteredContracts = useMemo(() => {
     if (currentUser.role === 'super_admin') {
-      return false; // Super Admin chỉ quản trị hệ thống
+      return contracts; // Super Admin sees all
     }
+    
+    const myOrgId = resolveOrganizationId(currentUser, users);
+    
+    // Filter by organization
+    const orgContracts = contracts.filter((c) => c.organizationId === myOrgId);
+    
     if (currentUser.role === 'manager_c1') {
-      const managedC2 = users.filter(
-        (u) => u.managerId === currentUser.id || u.createdBy === currentUser.id
-      );
-      const managedC2Ids = managedC2.map((u) => u.id);
-      const managedC2Names = managedC2.map((u) => u.name);
-      return (
-        c.salesRepId === currentUser.id ||
-        c.salesRepName === currentUser.name ||
-        managedC2Ids.includes(c.salesRepId) ||
-        managedC2Names.includes(c.salesRepName)
-      );
+      return orgContracts; // Level 1 sees all in org
     }
-    // Cấp 2 (Sales): CHỈ hiển thị hợp đồng do chính mình tạo / đứng tên
-    return (
-      c.salesRepId === currentUser.id ||
-      c.salesRepName === currentUser.name
-    );
-  });
+    
+    // Level 2: only contracts linked to permitted customers
+    return orgContracts.filter((c) => canLevel2AccessContract(currentUser.id, c, customers));
+  }, [contracts, currentUser, users, customers]);
 
   const updateContract = (updated: Contract) => {
     setContracts((prev) => prev.map((c) => (c.id === updated.id ? updated : c)));
@@ -1973,38 +2138,40 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // Logistics Split tables (Reserve & Order) - RBAC Filter:
   // - Super Admin: returns [] (Super Admin quản lý kho tổng, không xem danh sách giữ/đặt riêng lẻ của sale)
   // - Cấp 1: views items created by self or their managed C2 sales team
-  // - Cấp 2: ONLY views items associated with their name or id
-  const filteredReserveItems = reserveItems.filter((r) => {
-    if (currentUser.role === 'super_admin') return false;
-    if (currentUser.role === 'manager_c1') {
-      const managedC2 = users.filter(
-        (u) => u.managerId === currentUser.id || u.createdBy === currentUser.id
-      );
-      const managedNames = managedC2.map((u) => u.name);
-      return (
-        r.salesRepName === currentUser.name ||
-        managedNames.includes(r.salesRepName)
-      );
-    }
-    // Cấp 2 (Sales): CHỈ hiển thị danh sách do chính mình phụ trách
-    return r.salesRepName === currentUser.name;
-  });
+  // - Level 2: ONLY views items associated with contracts of customers they have permission for
+  const filteredReserveItems = useMemo(() => {
+    if (currentUser.role === 'super_admin') return reserveItems; // Super Admin sees all
+    
+    const myOrgId = resolveOrganizationId(currentUser, users);
+    const orgItems = reserveItems.filter((r) => r.organizationId === myOrgId);
+    
+    if (currentUser.role === 'manager_c1') return orgItems;
+    
+    // Level 2: filter by customer permission (inherited through contract → customer)
+    return orgItems.filter((r) => {
+      const customer = customers.find(c => c.id === r.customerId);
+      if (customer) return canLevel2AccessCustomer(currentUser.id, customer);
+      // Fallback: match by salesRepName
+      return r.salesRepName === currentUser.name;
+    });
+  }, [reserveItems, currentUser, users, customers]);
 
-  const filteredOrderItems = orderItems.filter((o) => {
-    if (currentUser.role === 'super_admin') return false;
-    if (currentUser.role === 'manager_c1') {
-      const managedC2 = users.filter(
-        (u) => u.managerId === currentUser.id || u.createdBy === currentUser.id
-      );
-      const managedNames = managedC2.map((u) => u.name);
-      return (
-        o.salesRepName === currentUser.name ||
-        managedNames.includes(o.salesRepName)
-      );
-    }
-    // Cấp 2 (Sales): CHỈ hiển thị danh sách do chính mình phụ trách
-    return o.salesRepName === currentUser.name;
-  });
+  const filteredOrderItems = useMemo(() => {
+    if (currentUser.role === 'super_admin') return orderItems; // Super Admin sees all
+    
+    const myOrgId = resolveOrganizationId(currentUser, users);
+    const orgItems = orderItems.filter((o) => o.organizationId === myOrgId);
+    
+    if (currentUser.role === 'manager_c1') return orgItems;
+    
+    // Level 2: filter by customer permission (inherited through contract → customer)
+    return orgItems.filter((o) => {
+      const customer = customers.find(c => c.id === o.customerId);
+      if (customer) return canLevel2AccessCustomer(currentUser.id, customer);
+      // Fallback: match by salesRepName
+      return o.salesRepName === currentUser.name;
+    });
+  }, [orderItems, currentUser, users, customers]);
 
   // Derived synced inventory: ensures reservedQuantity matches active holding reserves, and available is total - reserved
   const syncedInventory = useMemo(() => {
@@ -2317,6 +2484,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         updateCustomerStage,
         assignCustomer,
         deleteCustomer,
+        grantCustomerAccess,
+        revokeCustomerAccess,
         products: filteredProducts,
         allProducts: products,
         addProduct,

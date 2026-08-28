@@ -1,5 +1,56 @@
+// =============================================================================
+// ROLE & STATUS TYPES
+// =============================================================================
+
+// Backward-compatible role names: manager_c1 = Level 1, sales_c2 = Level 2
 export type UserRole = 'super_admin' | 'manager_c1' | 'sales_c2';
-export type UserStatus = 'active' | 'pending_approval' | 'blocked' | 'archived' | 'inactive';
+export type UserStatus = 'active' | 'pending' | 'pending_approval' | 'blocked' | 'archived' | 'inactive';
+
+// Role helper constants for clarity
+export const ROLE = {
+  SUPER_ADMIN: 'super_admin' as UserRole,
+  LEVEL_1: 'manager_c1' as UserRole,
+  LEVEL_2: 'sales_c2' as UserRole,
+} as const;
+
+// Normalized status (pending_approval & inactive map to pending/blocked for backward compat)
+export const STATUS = {
+  PENDING: 'pending' as UserStatus,
+  ACTIVE: 'active' as UserStatus,
+  BLOCKED: 'blocked' as UserStatus,
+  ARCHIVED: 'archived' as UserStatus,
+} as const;
+
+// Helper: check if user status allows app access
+export function isUserActive(status: UserStatus): boolean {
+  return status === 'active';
+}
+
+// Helper: check if user status is pending (both old and new format)
+export function isUserPending(status: UserStatus): boolean {
+  return status === 'pending' || status === 'pending_approval';
+}
+
+// Helper: check if user is blocked/archived/inactive
+export function isUserBlocked(status: UserStatus): boolean {
+  return status === 'blocked' || status === 'archived' || status === 'inactive';
+}
+
+// =============================================================================
+// ORGANIZATION (Tenant)
+// =============================================================================
+
+export interface Organization {
+  id: string;
+  ownerId: string; // Level 1 user ID who owns this organization
+  ownerName: string;
+  name: string; // Organization / Company name
+  createdAt: string;
+}
+
+// =============================================================================
+// USER
+// =============================================================================
 
 export interface User {
   id: string;
@@ -10,14 +61,18 @@ export interface User {
   password?: string; // Mật khẩu tài khoản
   avatar?: string;
   status: UserStatus;
-  organizationId?: string; // Tenant ID (Mỗi Level 1 là 1 organizationId độc lập)
+  organizationId: string; // REQUIRED — Tenant ID (Mỗi Level 1 là 1 organizationId độc lập)
   parentId?: string; // Level 1 user ID who manages this Level 2
-  managerId?: string; // Alias for parentId
+  managerId?: string; // Alias for parentId — Level 1 user ID who manages this Level 2
   department?: string;
   position?: string; // Chức danh/vị trí (VD: Giám đốc kinh doanh, Kỹ sư dự án...)
   createdBy?: string; // Which Cấp 1 or Super Admin created this user
   createdAt: string;
 }
+
+// =============================================================================
+// CUSTOMER MEMBER (Phân quyền khách hàng cho Level 2)
+// =============================================================================
 
 export interface CustomerMember {
   id: string;
@@ -28,6 +83,10 @@ export interface CustomerMember {
   createdBy: string;
   createdAt: string;
 }
+
+// =============================================================================
+// COMPANY INFO (Brand Identity per Organization)
+// =============================================================================
 
 export interface CompanyInfo {
   id: string;
@@ -52,6 +111,10 @@ export interface CompanyInfo {
   updatedAt?: string; // Thời gian cập nhật
 }
 
+// =============================================================================
+// CUSTOMER
+// =============================================================================
+
 export type CustomerStage = 'new' | 'contacted' | 'quoting' | 'contract_signed' | 'rejected';
 
 export interface Customer {
@@ -64,8 +127,8 @@ export interface Customer {
   address?: string;
   taxCode?: string;
   stage: CustomerStage;
-  organizationId: string; // Organization ID (Tenant Level 1)
-  assignedToId: string; // Cấp 2 user id phụ trách chính
+  organizationId: string; // REQUIRED — Organization ID (Tenant Level 1)
+  assignedToId: string; // Level 2 user id phụ trách chính
   assignedToName: string;
   memberIds?: string[]; // Danh sách ID các Level 2 được Level 1 phân quyền truy cập khách hàng này
   createdBy: string;
@@ -75,6 +138,10 @@ export interface Customer {
   createdAt: string;
   updatedAt: string;
 }
+
+// =============================================================================
+// PRODUCT PRICE ITEM
+// =============================================================================
 
 export interface ProductPriceItem {
   sku: string; // Mã hàng (khóa chính xuyên suốt)
@@ -89,10 +156,14 @@ export interface ProductPriceItem {
   description?: string;
   status: 'active' | 'discontinued';
   organizationId?: string; // Tenant Level 1 ID
-  companyId?: string; // ID của tài khoản Cấp 1 (Công ty sở hữu bảng giá này)
+  companyId?: string; // DEPRECATED — use organizationId. Kept for backward compatibility
   createdBy?: string; // ID của người tạo (C1 hoặc C2)
   createdByName?: string;
 }
+
+// =============================================================================
+// INVENTORY ITEM
+// =============================================================================
 
 export interface InventoryItem {
   sku: string; // Mã hàng
@@ -104,10 +175,14 @@ export interface InventoryItem {
   warehouseLocation?: string; // Vị trí kho (Kho A1, Kho B2, Tổng kho HCM, Kho Hà Nội...)
   updatedAt: string;
   organizationId?: string; // Tenant Level 1 ID
-  companyId?: string; // ID của tài khoản Cấp 1 (Công ty sở hữu kho hàng này)
+  companyId?: string; // DEPRECATED — use organizationId. Kept for backward compatibility
   createdBy?: string; // ID của người tạo/cập nhật (C1 hoặc C2)
   createdByName?: string;
 }
+
+// =============================================================================
+// QUOTE PRODUCT ROW
+// =============================================================================
 
 export interface QuoteProductRow {
   id: string;
@@ -129,6 +204,10 @@ export interface QuoteProductRow {
   notes?: string;
 }
 
+// =============================================================================
+// PAYMENT MILESTONE
+// =============================================================================
+
 export interface PaymentMilestone {
   id: string;
   milestoneName: string; // "Đợt 1: Tạm ứng khi ký HĐ", "Đợt 2: Thanh toán khi giao hàng", "Đợt 3: Quyết toán"
@@ -138,6 +217,10 @@ export interface PaymentMilestone {
   conditionDescription: string; // "Sau 03 ngày kể từ ngày ký HĐ", "Khi hàng tập kết tại công trình"
   status: 'pending' | 'completed' | 'overdue';
 }
+
+// =============================================================================
+// QUOTATION
+// =============================================================================
 
 export type QuotationStatus = 'draft' | 'sent' | 'negotiating' | 'approved_contract' | 'cancelled';
 
@@ -202,6 +285,10 @@ export interface Quotation {
   updatedAt: string;
 }
 
+// =============================================================================
+// CONTRACT
+// =============================================================================
+
 export interface Contract {
   id: string;
   organizationId?: string; // Tenant Level 1 ID
@@ -240,6 +327,10 @@ export interface Contract {
   createdAt: string;
 }
 
+// =============================================================================
+// RESERVE ITEM
+// =============================================================================
+
 export interface ReserveItem {
   id: string;
   organizationId?: string; // Tenant Level 1 ID
@@ -258,6 +349,10 @@ export interface ReserveItem {
   status: 'holding' | 'dispatched' | 'cancelled';
   expectedDeliveryDate: string;
 }
+
+// =============================================================================
+// ORDER ITEM
+// =============================================================================
 
 export interface OrderItem {
   id: string;
@@ -279,4 +374,118 @@ export interface OrderItem {
   status: 'pending_order' | 'ordered' | 'arrived_in_stock' | 'cancelled';
   supplierETA?: string;
   notes?: string;
+}
+
+// =============================================================================
+// PERMISSION HELPERS
+// =============================================================================
+
+/**
+ * Resolves the organizationId for a user.
+ * - Super Admin: 'system_admin'
+ * - Level 1: their own organizationId (or their user id as fallback)
+ * - Level 2: inherited from their Level 1 manager's organizationId
+ */
+export function resolveOrganizationId(user: User, allUsers?: User[]): string {
+  if (user.role === 'super_admin') return 'system_admin';
+  
+  // Use organizationId if set
+  if (user.organizationId && user.organizationId !== '') return user.organizationId;
+  
+  // Level 1: use own id as org id (backward compat)
+  if (user.role === 'manager_c1') return user.id;
+  
+  // Level 2: find manager's org id
+  if (user.role === 'sales_c2' && allUsers) {
+    const mgrId = user.managerId || user.parentId || user.createdBy;
+    if (mgrId) {
+      const mgr = allUsers.find(u => u.id === mgrId);
+      if (mgr) return resolveOrganizationId(mgr);
+    }
+  }
+  
+  return user.id; // Absolute fallback
+}
+
+/**
+ * Check if a Level 2 user has permission to access a specific customer.
+ * Level 2 can see a customer if:
+ * 1. They created the customer (createdBy === userId)
+ * 2. They are assigned to the customer (assignedToId === userId)
+ * 3. They are in the customer's memberIds array (explicitly granted by Level 1)
+ */
+export function canLevel2AccessCustomer(userId: string, customer: Customer): boolean {
+  return (
+    customer.createdBy === userId ||
+    customer.assignedToId === userId ||
+    (customer.memberIds?.includes(userId) ?? false)
+  );
+}
+
+/**
+ * Check if a Level 2 user has permission to access a specific quotation.
+ * Permission is inherited from the associated customer.
+ */
+export function canLevel2AccessQuotation(userId: string, quotation: Quotation, customers: Customer[]): boolean {
+  // Direct match: created by or sales rep
+  if (quotation.createdBy === userId || quotation.salesRepId === userId) return true;
+  
+  // Inherited from customer
+  const customer = customers.find(c => c.id === quotation.customerId);
+  if (customer) return canLevel2AccessCustomer(userId, customer);
+  
+  return false;
+}
+
+/**
+ * Check if a Level 2 user has permission to access a specific contract.
+ * Permission is inherited from the associated customer.
+ */
+export function canLevel2AccessContract(userId: string, contract: Contract, customers: Customer[]): boolean {
+  // Direct match: created by or sales rep
+  if (contract.createdBy === userId || contract.salesRepId === userId) return true;
+  
+  // Inherited from customer
+  const customer = customers.find(c => c.id === contract.customerId);
+  if (customer) return canLevel2AccessCustomer(userId, customer);
+  
+  return false;
+}
+
+/**
+ * Validate that a user update does not tamper with protected fields.
+ * Returns list of violations.
+ */
+export function validateUserUpdate(
+  currentUser: User,
+  targetUser: User,
+  updatedFields: Partial<User>
+): string[] {
+  const violations: string[] = [];
+  
+  // Only Super Admin can change roles
+  if (updatedFields.role !== undefined && updatedFields.role !== targetUser.role) {
+    if (currentUser.role !== 'super_admin') {
+      violations.push('Không được phép thay đổi vai trò (role)');
+    }
+  }
+  
+  // Nobody can change their own organizationId (except through proper flows)
+  if (updatedFields.organizationId !== undefined && updatedFields.organizationId !== targetUser.organizationId) {
+    if (currentUser.role !== 'super_admin') {
+      violations.push('Không được phép thay đổi tổ chức (organizationId)');
+    }
+  }
+  
+  // Level 2 cannot change their managerId/parentId
+  if (currentUser.role === 'sales_c2') {
+    if (updatedFields.managerId !== undefined && updatedFields.managerId !== targetUser.managerId) {
+      violations.push('Không được phép thay đổi quản lý (managerId)');
+    }
+    if (updatedFields.parentId !== undefined && updatedFields.parentId !== targetUser.parentId) {
+      violations.push('Không được phép thay đổi parentId');
+    }
+  }
+  
+  return violations;
 }

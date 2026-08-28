@@ -38,7 +38,7 @@ export const Sidebar: React.FC = () => {
   const isSalesC2 = currentUser.role === 'sales_c2';
 
   // Count badges
-  const pendingC1Count = users.filter((u) => u.role === 'manager_c1' && u.status === 'pending_approval').length;
+  const pendingC1Count = users.filter((u) => u.role === 'manager_c1' && (u.status === 'pending_approval' || u.status === 'pending')).length;
   const holdingCount = filteredReserveItems.filter((r) => r.status === 'holding').length;
   const pendingOrderCount = filteredOrderItems.filter((o) => o.status === 'pending_order').length;
 

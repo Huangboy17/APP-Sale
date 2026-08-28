@@ -14,11 +14,15 @@ import { InventoryMaster } from './components/Inventory/InventoryMaster';
 import { TeamManagement } from './components/Team/TeamManagement';
 import { PDFPreviewModal } from './components/PDF/PDFPreviewModal';
 import { AuthScreen } from './components/Auth/AuthScreen';
+import { PendingApprovalScreen } from './components/Auth/PendingApprovalScreen';
+import { BlockedScreen } from './components/Auth/BlockedScreen';
 import { ClearDataModal } from './components/Modals/ClearDataModal';
+import { isUserActive, isUserPending, isUserBlocked } from './types';
 
 const MainContent: React.FC = () => {
   const {
     isAuthenticated,
+    currentUser,
     activeTab,
     isCreateCustomerModalOpen,
     setIsCreateCustomerModalOpen,
@@ -31,9 +35,28 @@ const MainContent: React.FC = () => {
     inventory,
   } = useApp();
 
-  // If not logged in, show Auth Screen (Login / Register / Forgot Password)
+  // =========================================================================
+  // AUTH GUARDS — Enforce access control at the app shell level
+  // =========================================================================
+
+  // Guard 1: Not authenticated → show login/register screen
   if (!isAuthenticated) {
     return <AuthScreen />;
+  }
+
+  // Guard 2: Pending approval → show waiting screen (cannot use app)
+  if (isUserPending(currentUser.status)) {
+    return <PendingApprovalScreen />;
+  }
+
+  // Guard 3: Blocked or archived → show blocked screen (cannot use app)
+  if (isUserBlocked(currentUser.status)) {
+    return <BlockedScreen />;
+  }
+
+  // Guard 4: Only active users can access the main application
+  if (!isUserActive(currentUser.status)) {
+    return <BlockedScreen />;
   }
 
   return (
@@ -63,7 +86,7 @@ const MainContent: React.FC = () => {
         {/* High Density Footer */}
         <footer className="h-8 bg-slate-100 border-t border-slate-200 flex items-center justify-between px-4 sm:px-6 shrink-0 select-none">
           <div className="text-[10px] text-slate-400 flex items-center space-x-2 sm:space-x-4">
-            <span>Phiên bản 2.4.0 (Enterprise)</span>
+            <span>Phiên bản 3.0.0 (Enterprise — Multi-Tenant)</span>
             <span>|</span>
             <span>Tổng số Sales: {users.filter((u) => u.role === 'sales_c2').length} nhân viên</span>
             <span>|</span>

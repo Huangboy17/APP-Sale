@@ -164,7 +164,7 @@ export const Dashboard: React.FC = () => {
   // Super Admin view logic when in system_admin mode
   if (isSuperAdmin && adminViewMode === 'system_admin') {
     const managersC1 = users.filter((u) => u.role === 'manager_c1');
-    const pendingC1 = managersC1.filter((u) => u.status === 'pending_approval');
+    const pendingC1 = managersC1.filter((u) => u.status === 'pending_approval' || u.status === 'pending');
     const activeC1 = managersC1.filter((u) => u.status === 'active');
     const salesC2List = users.filter((u) => u.role === 'sales_c2');
 
@@ -306,7 +306,7 @@ export const Dashboard: React.FC = () => {
                 </div>
 
                 <div className="flex items-center space-x-2">
-                  {mgr.status === 'pending_approval' ? (
+                  {mgr.status === 'pending_approval' || mgr.status === 'pending' ? (
                     <button
                       onClick={() => approveUser(mgr.id)}
                       className="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-xs font-bold flex items-center space-x-1 shadow-2xs cursor-pointer"

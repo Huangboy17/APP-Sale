@@ -18,6 +18,7 @@ import {
   Contract,
   ReserveItem,
   OrderItem,
+  Organization,
 } from '../types';
 import {
   INITIAL_USERS,
@@ -41,6 +42,8 @@ export const COLLECTIONS = {
   CONTRACTS: 'contracts',
   RESERVES: 'reserveItems',
   ORDERS: 'orderItems',
+  ORGANIZATIONS: 'organizations',
+  CUSTOMER_MEMBERS: 'customerMembers',
 };
 
 // Quota state and notification callback
@@ -111,6 +114,15 @@ export async function seedInitialDataIfEmpty() {
     INITIAL_USERS.forEach((user) => {
       batch.set(doc(db, COLLECTIONS.USERS, user.id), cleanForFirestore(user), { merge: true });
     });
+
+    // Seed default system organization
+    batch.set(doc(db, COLLECTIONS.ORGANIZATIONS, 'org-system'), cleanForFirestore({
+      id: 'org-system',
+      ownerId: 'user-super-admin',
+      ownerName: 'Bùi Viết Hoàng (Super Admin)',
+      name: 'Quản trị hệ thống',
+      createdAt: '2026-01-01',
+    }), { merge: true });
 
     batch.set(doc(db, COLLECTIONS.COMPANY, INITIAL_COMPANY_INFO.id), cleanForFirestore(INITIAL_COMPANY_INFO), {
       merge: true,
@@ -368,6 +380,59 @@ export async function batchSyncOrdersToCloud(orders: OrderItem[]) {
   }
 }
 
+// Organization Actions
+export async function syncOrganizationToCloud(org: Organization) {
+  try {
+    await setDoc(doc(db, COLLECTIONS.ORGANIZATIONS, org.id), cleanForFirestore(org), { merge: true });
+  } catch (err) {
+    handleFirestoreError(err, 'Save organization');
+  }
+}
+
+export async function getOrganizationFromCloud(orgId: string): Promise<Organization | null> {
+  try {
+    const snapshot = await getDocs(collection(db, COLLECTIONS.ORGANIZATIONS));
+    const found = snapshot.docs.find(d => d.id === orgId);
+    if (found) return found.data() as Organization;
+    return null;
+  } catch (err) {
+    handleFirestoreError(err, 'Get organization');
+    return null;
+  }
+}
+
+// Customer Member Actions (Permission management)
+export async function syncCustomerMemberToCloud(member: { id: string; customerId: string; userId: string; userName: string; organizationId: string; createdBy: string; createdAt: string }) {
+  try {
+    await setDoc(doc(db, COLLECTIONS.CUSTOMER_MEMBERS, member.id), cleanForFirestore(member), { merge: true });
+  } catch (err) {
+    handleFirestoreError(err, 'Save customer member');
+  }
+}
+
+export async function deleteCustomerMemberFromCloud(memberId: string) {
+  try {
+    await deleteDoc(doc(db, COLLECTIONS.CUSTOMER_MEMBERS, memberId));
+  } catch (err) {
+    handleFirestoreError(err, 'Delete customer member');
+  }
+}
+
+export async function getCustomerMembersFromCloud(customerId: string): Promise<{ id: string; customerId: string; userId: string; userName: string; organizationId: string; createdBy: string; createdAt: string }[]> {
+  try {
+    const snapshot = await getDocs(collection(db, COLLECTIONS.CUSTOMER_MEMBERS));
+    const members: any[] = [];
+    snapshot.forEach(d => {
+      const data = d.data();
+      if (data.customerId === customerId) members.push(data);
+    });
+    return members;
+  } catch (err) {
+    handleFirestoreError(err, 'Get customer members');
+    return [];
+  }
+}
+
 // Clear a specific collection completely from Firestore
 export async function clearCollectionFromCloud(collectionName: string, exceptIds: string[] = []) {
   try {
@@ -402,6 +467,8 @@ export async function clearAllDataFromCloud(keepSuperAdmin = true) {
       COLLECTIONS.CONTRACTS,
       COLLECTIONS.RESERVES,
       COLLECTIONS.ORDERS,
+      COLLECTIONS.ORGANIZATIONS,
+      COLLECTIONS.CUSTOMER_MEMBERS,
     ];
 
     for (const colName of collectionsToClear) {

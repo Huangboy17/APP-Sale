@@ -258,7 +258,7 @@ export const TeamManagement: React.FC = () => {
                 </div>
 
                 <div className="flex items-center space-x-2">
-                  {mgr.status === 'pending_approval' ? (
+                  {mgr.status === 'pending_approval' || mgr.status === 'pending' ? (
                     <button
                       onClick={() => approveUser(mgr.id)}
                       className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-md text-xs font-bold transition flex items-center space-x-1 shadow-2xs"
