@@ -3743,15 +3743,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // - Cấp 1: views valid items within their organization belonging to existing customers
   // - Level 2: ONLY views valid items associated with contracts of customers they have permission for
   const filteredReserveItems = useMemo(() => {
-    const validCustomerIds = new Set(customers.map((c) => c.id));
-    
     if (currentUser.role === 'super_admin') {
-      return reserveItems.filter((r) => r.customerId && validCustomerIds.has(r.customerId));
+      return reserveItems;
     }
     
     const myOrgId = resolveOrganizationId(currentUser, users);
+    const validCustomerIds = new Set(customers.map((c) => c.id));
     const orgItems = reserveItems.filter((r) => {
-      if (!r.customerId || !validCustomerIds.has(r.customerId)) return false;
       return !r.organizationId || r.organizationId === myOrgId;
     });
     
@@ -3759,6 +3757,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     
     // Level 2: filter strictly by customer permission
     return orgItems.filter((r) => {
+      if (!r.customerId) return false;
       const customer = customers.find((c) => c.id === r.customerId);
       if (customer) return canLevel2AccessCustomer(currentUser.id, customer);
       return false;
@@ -3766,15 +3765,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, [reserveItems, currentUser, users, customers]);
 
   const filteredOrderItems = useMemo(() => {
-    const validCustomerIds = new Set(customers.map((c) => c.id));
-    
     if (currentUser.role === 'super_admin') {
-      return orderItems.filter((o) => o.customerId && validCustomerIds.has(o.customerId));
+      return orderItems;
     }
     
     const myOrgId = resolveOrganizationId(currentUser, users);
+    const validCustomerIds = new Set(customers.map((c) => c.id));
     const orgItems = orderItems.filter((o) => {
-      if (!o.customerId || !validCustomerIds.has(o.customerId)) return false;
       return !o.organizationId || o.organizationId === myOrgId;
     });
     
@@ -3782,6 +3779,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     
     // Level 2: filter strictly by customer permission
     return orgItems.filter((o) => {
+      if (!o.customerId) return false;
       const customer = customers.find((c) => c.id === o.customerId);
       if (customer) return canLevel2AccessCustomer(currentUser.id, customer);
       return false;

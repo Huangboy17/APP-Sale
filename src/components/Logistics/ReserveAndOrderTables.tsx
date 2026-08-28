@@ -54,11 +54,11 @@ export const ReserveAndOrderTables: React.FC = () => {
       const resolvedCustomer = getCustomerDisplayName(r.customerId, r.customerName);
 
       const matchSearch =
-        r.sku.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        r.productName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (r.sku || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (r.productName || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
         resolvedCustomer.toLowerCase().includes(searchTerm.toLowerCase()) ||
         resolvedSales.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        r.contractNumber.toLowerCase().includes(searchTerm.toLowerCase());
+        (r.contractNumber || '').toLowerCase().includes(searchTerm.toLowerCase());
       const matchContract = contractFilter === 'all' || r.contractId === contractFilter;
       return matchSearch && matchContract;
     });
@@ -71,11 +71,11 @@ export const ReserveAndOrderTables: React.FC = () => {
       const resolvedCustomer = getCustomerDisplayName(o.customerId, o.customerName);
 
       const matchSearch =
-        o.sku.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        o.productName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (o.sku || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (o.productName || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
         resolvedCustomer.toLowerCase().includes(searchTerm.toLowerCase()) ||
         resolvedSales.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        o.contractNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (o.contractNumber || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
         (o.brand && o.brand.toLowerCase().includes(searchTerm.toLowerCase()));
       const matchContract = contractFilter === 'all' || o.contractId === contractFilter;
       return matchSearch && matchContract;

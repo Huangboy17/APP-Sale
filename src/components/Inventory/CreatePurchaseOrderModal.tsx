@@ -1,4 +1,4 @@
-﻿import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   PurchaseOrder,
   PurchaseOrderItem,
@@ -64,6 +64,14 @@ export const CreatePurchaseOrderModal: React.FC<CreatePurchaseOrderModalProps> =
   const [items, setItems] = useState<PurchaseOrderItem[]>(() => {
     return groupSalesRequestsBySku(selectedSalesRequests, productMap, inventoryMap);
   });
+
+  // Re-sync items whenever modal is opened or selectedSalesRequests changes
+  useEffect(() => {
+    if (isOpen) {
+      setItems(groupSalesRequestsBySku(selectedSalesRequests, productMap, inventoryMap));
+      setErrorMessage(null);
+    }
+  }, [isOpen, selectedSalesRequests, productMap, inventoryMap]);
 
   // Product picker modal state (Thêm mặt hàng chủ động)
   const [isProductPickerOpen, setIsProductPickerOpen] = useState(false);

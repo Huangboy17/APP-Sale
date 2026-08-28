@@ -88,8 +88,8 @@ export const ContractOrdersWarehouseTable: React.FC<ContractOrdersWarehouseTable
     return cust?.name || o.customerName || 'ORPHAN CUSTOMER';
   };
 
-  const isPendingOrder = (status: string) =>
-    ['pending', 'pending_order', 'ordered', 'in_transit', 'arrived', 'partial'].includes(status);
+  const isPendingOrder = (status?: string) =>
+    !status || ['pending', 'pending_order', 'ordered', 'in_transit', 'arrived', 'partial'].includes(status);
 
   // Filter individual orders
   const filteredOrders = useMemo(() => {
@@ -99,11 +99,11 @@ export const ContractOrdersWarehouseTable: React.FC<ContractOrdersWarehouseTable
       const cust = customerMap.get(o.customerId);
 
       const matchSearch =
-        o.sku.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        o.productName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (o.sku || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (o.productName || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
         resolvedCustomer.toLowerCase().includes(searchTerm.toLowerCase()) ||
         resolvedSales.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        o.contractNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (o.contractNumber || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
         (cust?.company && cust.company.toLowerCase().includes(searchTerm.toLowerCase()));
 
       let matchStatus = true;
@@ -113,6 +113,13 @@ export const ContractOrdersWarehouseTable: React.FC<ContractOrdersWarehouseTable
       return matchSearch && matchStatus;
     });
   }, [orderItems, searchTerm, statusFilter, customerMap]);
+
+  const selectedRequestsForPO = useMemo(() => {
+    if (selectedOrderIds.size > 0) {
+      return orderItems.filter((o) => selectedOrderIds.has(o.id));
+    }
+    return filteredOrders.filter((o) => isPendingOrder(o.status));
+  }, [selectedOrderIds, orderItems, filteredOrders]);
 
   // Aggregate orders by SKU for the Warehouse Master SKU table
   const skuSummaries = useMemo(() => {
@@ -709,7 +716,7 @@ export const ContractOrdersWarehouseTable: React.FC<ContractOrdersWarehouseTable
       {isCreatePOModalOpen && (
         <CreatePurchaseOrderModal
           isOpen={isCreatePOModalOpen}
-          selectedSalesRequests={orderItems.filter((o) => selectedOrderIds.has(o.id))}
+          selectedSalesRequests={selectedRequestsForPO}
           onClose={() => setIsCreatePOModalOpen(false)}
           onSuccess={() => {
             setSelectedOrderIds(new Set());
