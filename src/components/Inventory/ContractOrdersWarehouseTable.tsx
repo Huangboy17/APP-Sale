@@ -136,11 +136,14 @@ export const ContractOrdersWarehouseTable: React.FC<ContractOrdersWarehouseTable
     });
   }, [baseOrders, searchTerm, statusFilter, customerMap, queueMode]);
 
+  const isPendingOrder = (status?: string) =>
+    !status || ['pending', 'pending_order', 'ordered', 'in_transit', 'arrived', 'partial', 'received', 'arrived_in_stock', 'ready_to_deliver', 'partially_delivered'].includes(status);
+
   const selectedRequestsForPO = useMemo(() => {
     if (selectedOrderIds.size > 0) {
       return orderItems.filter((o) => selectedOrderIds.has(o.id));
     }
-    return filteredOrders.filter((o) => isPendingOrder(o.status));
+    return filteredOrders.filter((o) => isOrderInWorkQueue(o));
   }, [selectedOrderIds, orderItems, filteredOrders]);
 
   // Aggregate orders by SKU for the Warehouse Master SKU table
@@ -208,10 +211,11 @@ export const ContractOrdersWarehouseTable: React.FC<ContractOrdersWarehouseTable
     return Array.from(map.values());
   }, [filteredOrders, inventoryMap, productMap, contractMap]);
 
-  const pendingActiveCount = orderItems.filter((o) => isPendingOrder(o.status)).length;
-  const totalShortageQty = orderItems
-    .filter((o) => isPendingOrder(o.status))
-    .reduce((sum, o) => sum + Math.max(0, o.remainingQuantity ?? (o.orderQuantity - (o.receivedQuantity || 0))), 0);
+  const pendingActiveCount = workQueueOrders.length;
+  const totalShortageQty = workQueueOrders.reduce(
+    (sum, o) => sum + Math.max(0, o.remainingQuantity ?? (o.orderQuantity - (o.receivedQuantity || 0))),
+    0
+  );
 
   // Multi-select handlers
   const handleToggleSelectOrder = (orderId: string) => {
@@ -609,6 +613,7 @@ export const ContractOrdersWarehouseTable: React.FC<ContractOrdersWarehouseTable
                         <td className="px-3.5 py-2.5 text-center">
                           <div className="flex items-center justify-center space-x-1.5">
                             <button
+                              type="button"
                               onClick={() =>
                                 setSelectedSkuForModal({
                                   sku: item.sku,
@@ -622,14 +627,17 @@ export const ContractOrdersWarehouseTable: React.FC<ContractOrdersWarehouseTable
                               <Eye className="w-3.5 h-3.5" />
                               <span>Chi Tiết</span>
                             </button>
-                            <button
-                              onClick={() => onOpenReceiveModal(firstOrder)}
-                              className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-md text-[11px] font-bold flex items-center space-x-1 shadow-2xs transition cursor-pointer"
-                              title="Nhập hàng thực tế vào kho & phân bổ tồn khả dụng"
-                            >
-                              <PackagePlus className="w-3.5 h-3.5" />
-                              <span>Nhập Kho</span>
-                            </button>
+                            {firstOrder && (
+                              <button
+                                type="button"
+                                onClick={() => onOpenReceiveModal(firstOrder)}
+                                className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-md text-[11px] font-bold flex items-center space-x-1 shadow-2xs transition cursor-pointer"
+                                title="Nhập hàng thực tế vào kho & phân bổ tồn khả dụng"
+                              >
+                                <PackagePlus className="w-3.5 h-3.5" />
+                                <span>Nhập Kho</span>
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -723,7 +731,7 @@ export const ContractOrdersWarehouseTable: React.FC<ContractOrdersWarehouseTable
                         <td className="px-3.5 py-2.5">
                           <div
                             className="font-bold text-blue-600 hover:underline cursor-pointer"
-                            onClick={() => onOpenContractPdf(order.contractId)}
+                            onClick={() => order.contractId && onOpenContractPdf(order.contractId)}
                           >
                             {order.contractNumber}
                           </div>
