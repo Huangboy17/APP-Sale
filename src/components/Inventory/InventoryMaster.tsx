@@ -41,6 +41,7 @@ import { StockAuditWarehouseView } from './StockAuditWarehouseView';
 import { StockLedgerWarehouseView } from './StockLedgerWarehouseView';
 import { DispatchConfirmModal } from './DispatchConfirmModal';
 import { ReceiveOrderModal } from './ReceiveOrderModal';
+import { ItemReservationsModal } from './ItemReservationsModal';
 import { ErrorBoundary } from '../Common/ErrorBoundary';
 
 type WarehouseTabType =
@@ -95,6 +96,7 @@ const InventoryMasterContent: React.FC = () => {
   // Dispatch & Receive Order modals
   const [dispatchModalItem, setDispatchModalItem] = useState<ReserveItem | null>(null);
   const [receiveModalOrder, setReceiveModalOrder] = useState<OrderItem | null>(null);
+  const [reserveDetailModalItem, setReserveDetailModalItem] = useState<InventoryItem | null>(null);
 
   // Cross-tab trigger state
   const [targetStockInSku, setTargetStockInSku] = useState<string | undefined>(undefined);
@@ -695,13 +697,21 @@ const InventoryMasterContent: React.FC = () => {
                           </td>
 
                           {/* RESERVED */}
-                          <td className="px-3.5 py-2.5 text-right bg-amber-50/40 border-x border-amber-100">
+                          <td
+                            className="px-3.5 py-2.5 text-right bg-amber-50/40 border-x border-amber-100 cursor-pointer hover:bg-amber-100 transition group/res"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setReserveDetailModalItem(item);
+                            }}
+                            title="Click để xem chi tiết Khách nào đang giữ"
+                          >
                             <span
-                              className={`font-mono font-bold ${
-                                reserved > 0 ? 'text-amber-800' : 'text-slate-300'
+                              className={`font-mono font-bold inline-flex items-center space-x-1 ${
+                                reserved > 0 ? 'text-amber-900 group-hover/res:underline' : 'text-slate-300'
                               }`}
                             >
-                              {reserved.toLocaleString()}
+                              <span>{reserved.toLocaleString()}</span>
+                              {reserved > 0 && <Eye className="w-3 h-3 text-amber-600 opacity-60 group-hover/res:opacity-100" />}
                             </span>
                           </td>
 
@@ -961,6 +971,13 @@ const InventoryMasterContent: React.FC = () => {
           onConfirm={(orderId, receiveQuantity, warehouseLocation, notes, receiptNumber) =>
             handleConfirmReceiveOrder(orderId, receiveQuantity, warehouseLocation, notes, receiptNumber)
           }
+        />
+      )}
+
+      {reserveDetailModalItem && (
+        <ItemReservationsModal
+          item={reserveDetailModalItem}
+          onClose={() => setReserveDetailModalItem(null)}
         />
       )}
     </div>

@@ -49,6 +49,7 @@ export const ReservedItemsWarehouseTable: React.FC<ReservedItemsWarehouseTablePr
 }) => {
   const {
     inventory,
+    products,
     updateReserveItem,
     updateReserveStatus,
     updateReserveWarehouseStatus,
@@ -67,6 +68,7 @@ export const ReservedItemsWarehouseTable: React.FC<ReservedItemsWarehouseTablePr
   const customerMap = React.useMemo(() => new Map(customers.map((c) => [c.id, c])), [customers]);
   const contractMap = React.useMemo(() => new Map(contracts.map((c) => [c.id, c])), [contracts]);
   const inventoryMap = React.useMemo(() => new Map(inventory.map((i) => [i.sku.toUpperCase(), i])), [inventory]);
+  const productMap = React.useMemo(() => new Map(products.map((p) => [p.sku.toUpperCase(), p])), [products]);
 
   const getAssignedSalesRepName = (r: ReserveItem): string => {
     const cust = customerMap.get(r.customerId);
@@ -311,28 +313,36 @@ export const ReservedItemsWarehouseTable: React.FC<ReservedItemsWarehouseTablePr
           <table className="w-full text-left text-xs">
             <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-bold uppercase tracking-wider text-[11px]">
               <tr>
-                <th className="px-3.5 py-3">Mã SKU & Sản Phẩm</th>
-                <th className="px-3 py-3 text-center bg-amber-50/80 text-amber-950 border-x border-amber-200">
-                  SL Đang Giữ
+                <th className="px-3.5 py-3">Mã Hàng</th>
+                <th className="px-3.5 py-3">Tên Hàng</th>
+                <th className="px-3.5 py-3">Hãng</th>
+                <th className="px-3.5 py-3 text-right bg-slate-50 border-x">Số Lượng Tồn Kho</th>
+                <th className="px-3.5 py-3 text-center bg-amber-50/80 text-amber-950 border-x border-amber-200">
+                  Số Lượng Giữ
                 </th>
-                <th className="px-3.5 py-3">Khách Hàng & Hợp Đồng</th>
-                <th className="px-3.5 py-3">Sales Phụ Trách</th>
-                <th className="px-3.5 py-3">Trạng Thái Kho & Tiến Trình</th>
+                <th className="px-3.5 py-3 text-right bg-emerald-50/40 text-emerald-950 border-x border-emerald-100">
+                  Số Lượng Khả Dụng
+                </th>
                 <th className="px-3.5 py-3">Hạn Giao Hàng</th>
-                <th className="px-3.5 py-3">Vị Trí Kệ Kho</th>
-                <th className="px-3.5 py-3 text-center">Hành Động Kho</th>
+                <th className="px-3.5 py-3 text-center">Trạng Thái</th>
+                <th className="px-3.5 py-3 text-center">Hành Động</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-slate-700">
               {filteredReserves.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="px-4 py-12 text-center text-slate-400">
+                  <td colSpan={9} className="px-4 py-12 text-center text-slate-400">
                     Không có dữ liệu giữ hàng nào phù hợp
                   </td>
                 </tr>
               ) : (
                 filteredReserves.map((reserve) => {
                   const cust = customerMap.get(reserve.customerId);
+                  const inv = inventoryMap.get(reserve.sku.toUpperCase());
+                  const prod = productMap.get(reserve.sku.toUpperCase());
+                  const brand = prod?.brand || 'Khác';
+                  const totalOnHand = inv?.totalQuantity || 0;
+                  const availableStock = inv?.availableQuantity !== undefined ? inv.availableQuantity : Math.max(0, totalOnHand - reserve.reservedQuantity);
                   const meta = getStatusMeta(reserve.status);
                   const isHolding = isHoldingStatus(reserve.status);
 
@@ -342,11 +352,17 @@ export const ReservedItemsWarehouseTable: React.FC<ReservedItemsWarehouseTablePr
                       className="hover:bg-amber-50/20 transition-colors cursor-pointer"
                       onClick={() => setDetailItem(reserve)}
                     >
-                      <td className="px-3.5 py-2.5">
-                        <div className="font-mono font-bold text-blue-700">{reserve.sku}</div>
-                        <div className="font-bold text-slate-900 line-clamp-1" title={reserve.productName}>
-                          {reserve.productName}
-                        </div>
+                      <td className="px-3.5 py-2.5 font-mono font-bold text-blue-700">
+                        {reserve.sku}
+                      </td>
+                      <td className="px-3.5 py-2.5 font-bold text-slate-900 line-clamp-1" title={reserve.productName}>
+                        {reserve.productName}
+                      </td>
+                      <td className="px-3.5 py-2.5 font-semibold text-slate-700">
+                        {brand}
+                      </td>
+                      <td className="px-3.5 py-2.5 text-right font-mono font-bold text-slate-800 bg-slate-50/50 border-x">
+                        {totalOnHand.toLocaleString()} <span className="text-[10px] font-normal text-slate-500">{reserve.unit}</span>
                       </td>
                       <td className="px-3 py-2.5 text-center bg-amber-50/40 border-x border-amber-100">
                         <span className="font-mono font-black text-sm text-amber-950 block">
@@ -354,76 +370,26 @@ export const ReservedItemsWarehouseTable: React.FC<ReservedItemsWarehouseTablePr
                         </span>
                         <span className="text-[10px] text-amber-800 font-semibold">{reserve.unit}</span>
                       </td>
-                      <td className="px-3.5 py-2.5">
-                        <div className="font-bold text-slate-900 flex items-center space-x-1">
-                          <Building className="w-3 h-3 text-slate-400 shrink-0" />
-                          <span>{getCustomerDisplayName(reserve)}</span>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onOpenContractPdf(reserve.contractId);
-                          }}
-                          className="font-mono text-[11px] font-bold text-blue-600 hover:text-blue-800 hover:underline flex items-center space-x-1 mt-0.5"
-                          title="Xem HĐ PDF"
-                        >
-                          <FileText className="w-3 h-3 text-blue-500 shrink-0" />
-                          <span>{reserve.contractNumber}</span>
-                        </button>
+                      <td className="px-3.5 py-2.5 text-right font-mono font-bold text-emerald-800 bg-emerald-50/20 border-x border-emerald-100">
+                        {availableStock.toLocaleString()} <span className="text-[10px] font-normal text-emerald-600">{reserve.unit}</span>
                       </td>
                       <td className="px-3.5 py-2.5">
-                        <div className="font-bold text-slate-900 flex items-center space-x-1">
-                          <User className="w-3 h-3 text-blue-600 shrink-0" />
-                          <span className={cust ? 'text-slate-900' : 'text-rose-600 italic'}>
-                            {getAssignedSalesRepName(reserve)}
-                          </span>
-                        </div>
-                        <div className="text-[10px] text-slate-500 mt-0.5">
-                          {cust ? 'Phụ trách khách hàng' : '⚠️ Khách hàng không tồn tại'}
-                        </div>
-                      </td>
-                      <td className="px-3.5 py-2.5 min-w-44">
-                        <div className="space-y-1">
-                          <div className="flex items-center justify-between">
-                            <span
-                              className={`px-2 py-0.5 rounded-full text-[10px] font-bold border inline-flex items-center space-x-1 ${meta.bgColor}`}
-                            >
-                              <span className={`w-1.5 h-1.5 rounded-full ${meta.dotColor}`} />
-                              <span>{meta.label}</span>
-                            </span>
-                            <span className="text-[10px] font-mono font-bold text-slate-500">
-                              {meta.progress}%
-                            </span>
-                          </div>
-                          <div className="w-full bg-slate-200 rounded-full h-1.5 overflow-hidden">
-                            <div
-                              className={`h-1.5 rounded-full transition-all duration-300 ${
-                                meta.progress === 100
-                                  ? 'bg-teal-500'
-                                  : meta.progress >= 80
-                                  ? 'bg-purple-500'
-                                  : meta.progress >= 40
-                                  ? 'bg-blue-500'
-                                  : 'bg-emerald-500'
-                              }`}
-                              style={{ width: `${meta.progress}%` }}
-                            />
-                          </div>
-                        </div>
-                      </td>
-                      <td className="px-3.5 py-2.5 whitespace-nowrap">
                         <div className="font-semibold text-slate-800 flex items-center space-x-1">
                           <Calendar className="w-3 h-3 text-slate-400 shrink-0" />
                           <span>{reserve.expectedDeliveryDate ? formatDate(reserve.expectedDeliveryDate) : 'Chưa định'}</span>
                         </div>
-                        <div className="text-[10px] text-slate-400 mt-0.5">
-                          Giữ: {formatDate(reserve.reservedDate)}
+                        <div className="text-[10px] text-blue-600 font-semibold mt-0.5 flex items-center space-x-1">
+                          <span>HĐ: {reserve.contractNumber}</span>
+                          <span>•</span>
+                          <span className="text-slate-500 truncate max-w-[120px]">{getCustomerDisplayName(reserve)}</span>
                         </div>
                       </td>
-                      <td className="px-3.5 py-2.5 font-medium text-slate-700">
-                        <span className="px-2 py-0.5 bg-slate-100 rounded text-[11px] font-semibold text-slate-800 border border-slate-200 inline-block">
-                          {reserve.warehouseLocation || 'Kho Tổng (Kệ A1)'}
+                      <td className="px-3.5 py-2.5 text-center">
+                        <span
+                          className={`px-2.5 py-1 rounded-full text-[10px] font-bold border inline-flex items-center space-x-1 ${meta.bgColor}`}
+                        >
+                          <span className={`w-1.5 h-1.5 rounded-full ${meta.dotColor}`} />
+                          <span>{meta.label}</span>
                         </span>
                       </td>
                       <td

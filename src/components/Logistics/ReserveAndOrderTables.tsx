@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useApp } from '../../context/AppContext';
 import { ReserveItem, OrderItem } from '../../types';
 import { formatDate } from '../../utils/formatters';
@@ -10,10 +10,11 @@ import {
   CheckCircle2,
   Clock,
   Truck,
-  Filter,
   Download,
   AlertTriangle,
   Building,
+  Info,
+  Calendar,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
@@ -21,18 +22,19 @@ export const ReserveAndOrderTables: React.FC = () => {
   const {
     filteredReserveItems,
     filteredOrderItems,
-    updateReserveStatus,
-    updateOrderStatus,
-    currentUser,
     filteredContracts,
     customers,
+    inventory,
+    currentUser,
   } = useApp();
 
   const [activeSubTab, setActiveSubTab] = useState<'reserve' | 'order'>('reserve');
   const [searchTerm, setSearchTerm] = useState('');
   const [contractFilter, setContractFilter] = useState<string>('all');
 
-  const customerMap = React.useMemo(() => new Map(customers.map((c) => [c.id, c])), [customers]);
+  const customerMap = useMemo(() => new Map(customers.map((c) => [c.id, c])), [customers]);
+  const contractMap = useMemo(() => new Map(filteredContracts.map((c) => [c.id, c])), [filteredContracts]);
+  const inventoryMap = useMemo(() => new Map(inventory.map((i) => [i.sku.trim().toUpperCase(), i])), [inventory]);
 
   const getAssignedSalesRepName = (customerId: string, fallbackSalesName: string): string => {
     const cust = customerMap.get(customerId);
@@ -46,161 +48,289 @@ export const ReserveAndOrderTables: React.FC = () => {
   };
 
   // Filter reserve items
-  const filteredReserves = filteredReserveItems.filter((r) => {
-    const resolvedSales = getAssignedSalesRepName(r.customerId, r.salesRepName);
-    const resolvedCustomer = getCustomerDisplayName(r.customerId, r.customerName);
+  const filteredReserves = useMemo(() => {
+    return filteredReserveItems.filter((r) => {
+      const resolvedSales = getAssignedSalesRepName(r.customerId, r.salesRepName);
+      const resolvedCustomer = getCustomerDisplayName(r.customerId, r.customerName);
 
-    const matchSearch =
-      r.sku.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      r.productName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      resolvedCustomer.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      resolvedSales.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      r.contractNumber.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchContract = contractFilter === 'all' || r.contractId === contractFilter;
-    return matchSearch && matchContract;
-  });
+      const matchSearch =
+        r.sku.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        r.productName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        resolvedCustomer.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        resolvedSales.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        r.contractNumber.toLowerCase().includes(searchTerm.toLowerCase());
+      const matchContract = contractFilter === 'all' || r.contractId === contractFilter;
+      return matchSearch && matchContract;
+    });
+  }, [filteredReserveItems, searchTerm, contractFilter, customerMap]);
 
   // Filter order items
-  const filteredOrders = filteredOrderItems.filter((o) => {
-    const resolvedSales = getAssignedSalesRepName(o.customerId, o.salesRepName);
-    const resolvedCustomer = getCustomerDisplayName(o.customerId, o.customerName);
+  const filteredOrders = useMemo(() => {
+    return filteredOrderItems.filter((o) => {
+      const resolvedSales = getAssignedSalesRepName(o.customerId, o.salesRepName);
+      const resolvedCustomer = getCustomerDisplayName(o.customerId, o.customerName);
 
-    const matchSearch =
-      o.sku.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      o.productName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      resolvedCustomer.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      resolvedSales.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      o.contractNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      o.brand.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchContract = contractFilter === 'all' || o.contractId === contractFilter;
-    return matchSearch && matchContract;
-  });
+      const matchSearch =
+        o.sku.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        o.productName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        resolvedCustomer.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        resolvedSales.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        o.contractNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (o.brand && o.brand.toLowerCase().includes(searchTerm.toLowerCase()));
+      const matchContract = contractFilter === 'all' || o.contractId === contractFilter;
+      return matchSearch && matchContract;
+    });
+  }, [filteredOrderItems, searchTerm, contractFilter, customerMap]);
+
+  // Status Badge for Reserve Items (Read-only for Sales)
+  const getReserveStatusBadge = (r: ReserveItem) => {
+    if (r.status === 'delivered') {
+      const dateStr =
+        r.actualDeliveryDate ||
+        r.timeline?.find((t) => t.status === 'delivered')?.timestamp?.split('T')[0] ||
+        r.timeline?.find((t) => t.status === 'shipped')?.timestamp?.split('T')[0];
+      return (
+        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
+          🟢 Đã giao {dateStr ? `(${formatDate(dateStr)})` : ''}
+        </span>
+      );
+    }
+    if (r.status === 'dispatched' || r.status === 'shipped') {
+      return (
+        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-blue-800 border border-blue-300">
+          🚚 Đã xuất kho
+        </span>
+      );
+    }
+    if (r.status === 'ready_to_ship') {
+      return (
+        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-100 text-purple-800 border border-purple-300">
+          🟣 Sẵn sàng xuất
+        </span>
+      );
+    }
+    if (r.status === 'picking') {
+      return (
+        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-300">
+          🟠 Đang gom hàng
+        </span>
+      );
+    }
+    if (r.status === 'allocated') {
+      return (
+        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-100 text-indigo-800 border border-indigo-300">
+          🔵 Đã phân bổ
+        </span>
+      );
+    }
+    if (r.status === 'holding' || r.status === 'active') {
+      return (
+        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-yellow-100 text-yellow-800 border border-yellow-300">
+          🟡 Đang giữ
+        </span>
+      );
+    }
+    return (
+      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-700 border border-slate-300">
+        ⚪ {r.status === 'released' || r.status === 'cancelled' ? 'Đã hủy' : r.status}
+      </span>
+    );
+  };
+
+  // Status Badge for Order Items (Read-only for Sales)
+  const getOrderStatusBadge = (o: OrderItem) => {
+    if (o.status === 'delivered') {
+      return (
+        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
+          📦 Đã giao khách
+        </span>
+      );
+    }
+    if (o.status === 'ready_to_deliver' || o.status === 'received' || o.status === 'arrived_in_stock') {
+      return (
+        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
+          🟢 Đã về kho
+        </span>
+      );
+    }
+    if (o.status === 'partial') {
+      return (
+        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-orange-100 text-orange-800 border border-orange-300">
+          🟠 Đã về kho ({o.receivedQuantity || 0}/{o.orderQuantity})
+        </span>
+      );
+    }
+    if (o.status === 'arrived') {
+      return (
+        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-blue-800 border border-blue-300">
+          🔵 Đã về tới kho
+        </span>
+      );
+    }
+    if (o.status === 'in_transit') {
+      return (
+        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-100 text-purple-800 border border-purple-300">
+          🚚 Đang vận chuyển
+        </span>
+      );
+    }
+    if (o.status === 'ordered') {
+      return (
+        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-blue-800 border border-blue-300">
+          🟡 Đã đặt NCC
+        </span>
+      );
+    }
+    if (o.status === 'pending' || o.status === 'pending_order') {
+      return (
+        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-100 text-rose-800 border border-rose-300">
+          🔴 Đã nhận yêu cầu
+        </span>
+      );
+    }
+    return (
+      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-700 border border-slate-300">
+        ⚪ {o.status === 'cancelled' ? 'Đã hủy' : o.status}
+      </span>
+    );
+  };
 
   // Export Excel Reserve
   const handleExportReserveExcel = () => {
-    const data = filteredReserves.map((r, idx) => ({
-      'STT': idx + 1,
-      'Số HĐ': r.contractNumber,
-      'Số Báo Giá': r.quoteNumber,
-      'Khách Hàng': getCustomerDisplayName(r.customerId, r.customerName),
-      'Sales Phụ Trách': getAssignedSalesRepName(r.customerId, r.salesRepName),
-      'Mã Hàng (SKU)': r.sku,
-      'Tên Sản Phẩm': r.productName,
-      'Số Lượng Giữ': r.reservedQuantity,
-      'ĐVT': r.unit,
-      'Vị Trí Kho': r.warehouseLocation,
-      'Ngày Giữ': r.reservedDate,
-      'Ngày Giao Dự Kiến': r.expectedDeliveryDate,
-      'Trạng Thái': r.status === 'holding' ? 'Đang giữ hàng' : r.status === 'dispatched' ? 'Đã xuất kho' : 'Đã hủy',
-    }));
+    const data = filteredReserves.map((r, idx) => {
+      const itemInv = inventoryMap.get(r.sku.trim().toUpperCase());
+      return {
+        'STT': idx + 1,
+        'Mã Hàng': r.sku,
+        'Tên Hàng': r.productName,
+        'Số Lượng Giữ': r.reservedQuantity,
+        'ĐVT': r.unit || 'Bộ',
+        'Giữ Cho Khách Nào': getCustomerDisplayName(r.customerId, r.customerName),
+        'Hợp Đồng': r.contractNumber,
+        'Tồn Kho Hiện Tại': itemInv ? itemInv.totalQuantity || 0 : 0,
+        'Ngày Cần Giao': formatDate(r.expectedDeliveryDate || r.reservedDate),
+        'Tình Trạng':
+          r.status === 'delivered'
+            ? 'Đã giao'
+            : r.status === 'shipped' || r.status === 'dispatched'
+            ? 'Đã xuất kho'
+            : r.status === 'ready_to_ship'
+            ? 'Sẵn sàng xuất'
+            : r.status === 'allocated'
+            ? 'Đã phân bổ'
+            : 'Đang giữ',
+      };
+    });
 
     const worksheet = XLSX.utils.json_to_sheet(data);
     const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, 'Bang_Giu_Hang');
-    XLSX.writeFile(workbook, `Bang_Giu_Hang_${new Date().toISOString().split('T')[0]}.xlsx`);
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Giu_Hang_Sale');
+    XLSX.writeFile(workbook, `Giu_Hang_Sale_${new Date().toISOString().split('T')[0]}.xlsx`);
   };
 
   // Export Excel Orders
   const handleExportOrderExcel = () => {
-    const data = filteredOrders.map((o, idx) => ({
-      'STT': idx + 1,
-      'Số HĐ': o.contractNumber,
-      'Số Báo Giá': o.quoteNumber,
-      'Khách Hàng': getCustomerDisplayName(o.customerId, o.customerName),
-      'Sales Phụ Trách': getAssignedSalesRepName(o.customerId, o.salesRepName),
-      'Mã Hàng (SKU)': o.sku,
-      'Tên Sản Phẩm': o.productName,
-      'Hãng': o.brand,
-      'Quy Cách / Kích Thước': o.size,
-      'Màu Sắc': o.color,
-      'Số Lượng Cần Đặt': o.orderQuantity,
-      'ĐVT': o.unit,
-      'Ngày Tạo Đơn': o.orderDate,
-      'Dự Kiến Hàng Về (ETA)': o.supplierETA || '',
-      'Ghi Chú PO': o.notes || '',
-      'Trạng Thái':
-        o.status === 'pending_order'
-          ? 'Chờ đặt hàng'
-          : o.status === 'ordered'
-          ? 'Đã đặt hàng'
-          : o.status === 'arrived_in_stock'
-          ? 'Đã về kho'
-          : 'Đã hủy',
-    }));
+    const data = filteredOrders.map((o, idx) => {
+      const contract = contractMap.get(o.contractId);
+      const reqDate = contract?.deliveryDate || o.supplierETA || o.orderDate;
+      return {
+        'STT': idx + 1,
+        'Mã Hàng': o.sku,
+        'Tên Hàng': o.productName,
+        'Hãng': o.brand || 'Khác',
+        'Số Lượng Cần Đặt': o.orderQuantity,
+        'ĐVT': o.unit || 'Bộ',
+        'Ngày Cần Nhận Hàng': formatDate(reqDate),
+        'Hợp Đồng': o.contractNumber,
+        'Khách Hàng': getCustomerDisplayName(o.customerId, o.customerName),
+        'Tình Trạng':
+          o.status === 'delivered'
+            ? 'Đã giao khách'
+            : o.status === 'ready_to_deliver'
+            ? 'Đã về kho'
+            : o.status === 'partial'
+            ? 'Đã về kho 1 phần'
+            : o.status === 'in_transit'
+            ? 'Đang vận chuyển'
+            : o.status === 'ordered'
+            ? 'Đã đặt NCC'
+            : 'Đã nhận yêu cầu',
+      };
+    });
 
     const worksheet = XLSX.utils.json_to_sheet(data);
     const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, 'Bang_Dat_Hang');
-    XLSX.writeFile(workbook, `Bang_Dat_Hang_${new Date().toISOString().split('T')[0]}.xlsx`);
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Dat_Hang_Sale');
+    XLSX.writeFile(workbook, `Dat_Hang_Sale_${new Date().toISOString().split('T')[0]}.xlsx`);
   };
 
   return (
     <div className="space-y-4">
       {/* Top Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-3.5 rounded-lg border border-slate-200 shadow-xs">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs">
         <div>
           <h1 className="text-base sm:text-lg font-bold text-slate-900 flex items-center space-x-2">
             <Layers className="w-5 h-5 text-blue-600" />
-            <span>Phân Tách Kho Tự Động: Bảng Giữ Hàng & Bảng Đặt Hàng</span>
+            <span>Theo Dõi Giữ Hàng & Đặt Hàng Của Sales</span>
           </h1>
           <p className="text-xs text-slate-500">
-            Khi 1 báo giá chốt ký HĐ: Sản phẩm có sẵn tồn kho được đưa vào <strong>Bảng Giữ Hàng</strong>; sản phẩm thiếu/hết tồn đưa vào <strong>Bảng Đặt Hàng</strong>.
+            Sales tạo nhu cầu và theo dõi tiến độ. Tồn kho và trạng thái được tự động cập nhật từ Kho hàng.
           </p>
         </div>
       </div>
 
       {/* Tabs & Filter Bar */}
-      <div className="bg-white p-3 rounded-lg border border-slate-200 shadow-xs flex flex-col md:flex-row items-center justify-between gap-2.5">
+      <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-2xs flex flex-col md:flex-row items-center justify-between gap-2.5">
         {/* Tab switch */}
-        <div className="flex items-center space-x-1.5 bg-slate-100 p-1 rounded-md w-full md:w-auto">
+        <div className="flex items-center space-x-1.5 bg-slate-100 p-1 rounded-lg w-full md:w-auto">
           <button
             onClick={() => setActiveSubTab('reserve')}
-            className={`flex-1 md:flex-none px-3 py-1.5 rounded text-xs font-bold transition flex items-center justify-center space-x-1.5 ${
+            className={`flex-1 md:flex-none px-3.5 py-1.5 rounded-md text-xs font-bold transition flex items-center justify-center space-x-1.5 cursor-pointer ${
               activeSubTab === 'reserve'
                 ? 'bg-emerald-600 text-white shadow-2xs'
                 : 'text-slate-600 hover:text-slate-900'
             }`}
           >
             <PackageCheck className="w-3.5 h-3.5" />
-            <span>1. Bảng Giữ Hàng (Còn Tồn Kho)</span>
+            <span>1. Bảng Giữ Hàng</span>
             <span className={`px-1.5 py-0.2 text-[10px] rounded-full ${activeSubTab === 'reserve' ? 'bg-white/20 text-white' : 'bg-slate-200 text-slate-700'}`}>
-              {filteredReserveItems.length}
+              {filteredReserves.length}
             </span>
           </button>
 
           <button
             onClick={() => setActiveSubTab('order')}
-            className={`flex-1 md:flex-none px-3 py-1.5 rounded text-xs font-bold transition flex items-center justify-center space-x-1.5 ${
+            className={`flex-1 md:flex-none px-3.5 py-1.5 rounded-md text-xs font-bold transition flex items-center justify-center space-x-1.5 cursor-pointer ${
               activeSubTab === 'order'
                 ? 'bg-amber-600 text-white shadow-2xs'
                 : 'text-slate-600 hover:text-slate-900'
             }`}
           >
             <ShoppingCart className="w-3.5 h-3.5" />
-            <span>2. Bảng Đặt Hàng (Thiếu/Hết Hàng)</span>
+            <span>2. Bảng Đặt Hàng</span>
             <span className={`px-1.5 py-0.2 text-[10px] rounded-full ${activeSubTab === 'order' ? 'bg-white/20 text-white' : 'bg-slate-200 text-slate-700'}`}>
-              {filteredOrderItems.length}
+              {filteredOrders.length}
             </span>
           </button>
         </div>
 
         {/* Search & Export Actions */}
         <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
-          <div className="relative flex-1 md:w-56">
+          <div className="relative flex-1 md:w-64">
             <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5" />
             <input
               type="text"
-              placeholder="Tìm theo SKU, tên, KH..."
+              placeholder="Tìm theo SKU, tên, khách hàng, HĐ..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-8 pr-3 py-1.5 text-xs border border-slate-300 rounded-md focus:ring-1 focus:ring-blue-500 outline-hidden bg-slate-50/50"
+              className="w-full pl-8 pr-3 py-1.5 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-hidden bg-slate-50/50"
             />
           </div>
 
           <select
             value={contractFilter}
             onChange={(e) => setContractFilter(e.target.value)}
-            className="px-2.5 py-1.5 text-xs border border-slate-300 rounded-md bg-white focus:ring-1 focus:ring-blue-500 outline-hidden"
+            className="px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg bg-white focus:ring-2 focus:ring-blue-500 outline-hidden cursor-pointer font-medium text-slate-700"
           >
             <option value="all">Tất cả hợp đồng ({filteredContracts.length})</option>
             {filteredContracts.map((c) => (
@@ -213,38 +343,34 @@ export const ReserveAndOrderTables: React.FC = () => {
           {activeSubTab === 'reserve' ? (
             <button
               onClick={handleExportReserveExcel}
-              className="px-2.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 rounded-md text-xs font-bold flex items-center space-x-1 transition"
+              className="px-2.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 rounded-lg text-xs font-bold flex items-center space-x-1 transition cursor-pointer"
             >
               <Download className="w-3.5 h-3.5" />
-              <span>Xuất Excel Giữ Kho</span>
+              <span>Xuất Excel</span>
             </button>
           ) : (
             <button
               onClick={handleExportOrderExcel}
-              className="px-2.5 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 rounded-md text-xs font-bold flex items-center space-x-1 transition"
+              className="px-2.5 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 rounded-lg text-xs font-bold flex items-center space-x-1 transition cursor-pointer"
             >
               <Download className="w-3.5 h-3.5" />
-              <span>Xuất Excel Đặt Hàng PO</span>
+              <span>Xuất Excel</span>
             </button>
           )}
         </div>
       </div>
 
-      {/* TABLE 1: BẢNG GIỮ HÀNG */}
+      {/* TABLE 1: BẢNG GIỮ HÀNG - SALE */}
       {activeSubTab === 'reserve' && (
-        <div className="bg-white rounded-lg border border-slate-200 overflow-hidden shadow-xs">
-          <div className="p-3 bg-emerald-50/50 border-b border-emerald-100 flex items-center justify-between">
-            <div className="flex items-center space-x-2 text-emerald-900">
+        <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-2xs">
+          <div className="p-3 bg-emerald-50/60 border-b border-emerald-200 flex items-center justify-between text-xs text-emerald-950">
+            <div className="flex items-center space-x-2">
               <PackageCheck className="w-4 h-4 text-emerald-600" />
-              <div>
-                <h3 className="font-bold text-xs">BẢNG GIỮ HÀNG TẠI KHO (RESERVED INVENTORY)</h3>
-                <p className="text-[10px] text-emerald-700">
-                  Tồn kho thực tế đã bị khóa cho các hợp đồng đã ký. Thủ kho chỉ xuất đúng số lượng cho đơn này.
-                </p>
-              </div>
+              <span className="font-bold">BẢNG GIỮ HÀNG - SALES</span>
+              <span className="text-slate-500 text-[11px] hidden sm:inline">(Tồn kho và tình trạng do Kho quản lý và cập nhật)</span>
             </div>
-            <span className="text-[11px] font-bold text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded-full">
-              {filteredReserves.length} mã đang giữ
+            <span className="text-[11px] font-bold text-emerald-800 bg-emerald-100 px-2.5 py-0.5 rounded-full">
+              {filteredReserves.length} yêu cầu giữ
             </span>
           </div>
 
@@ -252,56 +378,50 @@ export const ReserveAndOrderTables: React.FC = () => {
             <table className="w-full text-left text-xs">
               <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-bold uppercase tracking-wider text-[11px]">
                 <tr>
-                  <th className="px-3 py-2.5">Mã Hàng (SKU)</th>
-                  <th className="px-3 py-2.5">Tên Sản Phẩm</th>
-                  <th className="px-3 py-2.5 text-center">SL Giữ</th>
-                  <th className="px-3 py-2.5">Hợp Đồng & Khách Hàng</th>
-                  <th className="px-3 py-2.5">Vị Trí Kho</th>
-                  <th className="px-3 py-2.5">Ngày Giữ & Giao Hàng</th>
-                  <th className="px-3 py-2.5">Sales Phụ Trách</th>
-                  <th className="px-3 py-2.5 text-center">Trạng Thái</th>
+                  <th className="px-3.5 py-3">Mã Hàng</th>
+                  <th className="px-3.5 py-3">Tên Hàng</th>
+                  <th className="px-3 py-3 text-center bg-emerald-50/40 border-x border-emerald-100">Số Lượng Giữ</th>
+                  <th className="px-3.5 py-3">Giữ Cho Khách Nào</th>
+                  <th className="px-3.5 py-3">Hợp Đồng</th>
+                  <th className="px-3 py-3 text-right border-x bg-slate-50">Tồn Kho Hiện Tại</th>
+                  <th className="px-3.5 py-3">Ngày Cần Giao</th>
+                  <th className="px-3.5 py-3 text-center">Tình Trạng</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 text-slate-700">
                 {filteredReserves.length === 0 ? (
                   <tr>
                     <td colSpan={8} className="px-4 py-8 text-center text-slate-400">
-                      Chưa có mã hàng nào trong danh sách Giữ hàng
+                      Chưa có mã hàng nào trong danh sách Giữ hàng.
                     </td>
                   </tr>
                 ) : (
-                  filteredReserves.map((r) => (
-                    <tr key={r.id} className="hover:bg-slate-50 transition-colors">
-                      <td className="px-3 py-2 font-mono font-bold text-emerald-700">{r.sku}</td>
-                      <td className="px-3 py-2 font-bold text-slate-900">{r.productName}</td>
-                      <td className="px-3 py-2 text-center">
-                        <span className="font-bold text-xs text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 font-mono">
-                          {r.reservedQuantity} {r.unit}
-                        </span>
-                      </td>
-                      <td className="px-3 py-2">
-                        <div className="font-semibold text-blue-700">{r.contractNumber}</div>
-                        <div className="text-[10px] text-slate-500">{getCustomerDisplayName(r.customerId, r.customerName)}</div>
-                      </td>
-                      <td className="px-3 py-2 text-slate-600 font-medium">{r.warehouseLocation}</td>
-                      <td className="px-3 py-2 text-slate-600">
-                        <div>Ngày giữ: {formatDate(r.reservedDate)}</div>
-                        <div className="text-[10px] text-slate-400">Giao: {formatDate(r.expectedDeliveryDate)}</div>
-                      </td>
-                      <td className="px-3 py-2 font-medium text-slate-800">{getAssignedSalesRepName(r.customerId, r.salesRepName)}</td>
-                      <td className="px-3 py-2 text-center">
-                        <select
-                          value={r.status}
-                          onChange={(e) => updateReserveStatus(r.id, e.target.value as any)}
-                          className="px-2 py-0.5 text-[10px] font-bold border border-slate-300 rounded bg-white"
-                        >
-                          <option value="holding">Đang Giữ Hàng</option>
-                          <option value="dispatched">Đã Xuất Kho</option>
-                          <option value="cancelled">Đã Hủy</option>
-                        </select>
-                      </td>
-                    </tr>
-                  ))
+                  filteredReserves.map((r) => {
+                    const itemInv = inventoryMap.get(r.sku.trim().toUpperCase());
+                    const currentOnHand = itemInv ? itemInv.totalQuantity || 0 : 0;
+                    return (
+                      <tr key={r.id} className="hover:bg-emerald-50/20 transition-colors">
+                        <td className="px-3.5 py-2.5 font-mono font-bold text-blue-700">{r.sku}</td>
+                        <td className="px-3.5 py-2.5 font-bold text-slate-900">{r.productName}</td>
+                        <td className="px-3 py-2.5 text-center font-black text-emerald-800 bg-emerald-50/20 border-x border-emerald-100 font-mono">
+                          {r.reservedQuantity} {r.unit || 'Bộ'}
+                        </td>
+                        <td className="px-3.5 py-2.5 font-semibold text-slate-900">
+                          {getCustomerDisplayName(r.customerId, r.customerName)}
+                        </td>
+                        <td className="px-3.5 py-2.5 font-bold text-blue-600">{r.contractNumber}</td>
+                        <td className="px-3 py-2.5 text-right font-mono font-bold text-slate-700 border-x bg-slate-50/50">
+                          {currentOnHand.toLocaleString()}
+                        </td>
+                        <td className="px-3.5 py-2.5 text-slate-600 font-medium">
+                          {formatDate(r.expectedDeliveryDate || r.reservedDate)}
+                        </td>
+                        <td className="px-3.5 py-2.5 text-center">
+                          {getReserveStatusBadge(r)}
+                        </td>
+                      </tr>
+                    );
+                  })
                 )}
               </tbody>
             </table>
@@ -309,21 +429,17 @@ export const ReserveAndOrderTables: React.FC = () => {
         </div>
       )}
 
-      {/* TABLE 2: BẢNG ĐẶT HÀNG */}
+      {/* TABLE 2: BẢNG ĐẶT HÀNG - SALE */}
       {activeSubTab === 'order' && (
-        <div className="bg-white rounded-lg border border-slate-200 overflow-hidden shadow-xs">
-          <div className="p-3 bg-amber-50/50 border-b border-amber-100 flex items-center justify-between">
-            <div className="flex items-center space-x-2 text-amber-900">
+        <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-2xs">
+          <div className="p-3 bg-amber-50/60 border-b border-amber-200 flex items-center justify-between text-xs text-amber-950">
+            <div className="flex items-center space-x-2">
               <ShoppingCart className="w-4 h-4 text-amber-600" />
-              <div>
-                <h3 className="font-bold text-xs">BẢNG ĐẶT HÀNG NHÀ CUNG CẤP (PURCHASE BACKORDERS)</h3>
-                <p className="text-[10px] text-amber-700">
-                  Mã sản phẩm thiếu hoặc hết hàng khi chốt hợp đồng. Chuyển thông tin cho phòng Mua hàng / Cung ứng.
-                </p>
-              </div>
+              <span className="font-bold">BẢNG ĐẶT HÀNG - SALES</span>
+              <span className="text-slate-500 text-[11px] hidden sm:inline">(Tình trạng hàng về do Kho quản lý và đồng bộ)</span>
             </div>
-            <span className="text-[11px] font-bold text-amber-800 bg-amber-100 px-2 py-0.5 rounded-full">
-              {filteredOrders.length} mã cần đặt mua
+            <span className="text-[11px] font-bold text-amber-800 bg-amber-100 px-2.5 py-0.5 rounded-full">
+              {filteredOrders.length} yêu cầu đặt
             </span>
           </div>
 
@@ -331,81 +447,38 @@ export const ReserveAndOrderTables: React.FC = () => {
             <table className="w-full text-left text-xs">
               <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-bold uppercase tracking-wider text-[11px]">
                 <tr>
-                  <th className="px-3 py-2.5">Mã Hàng (SKU)</th>
-                  <th className="px-3 py-2.5">Tên & Thông Số Hàng Hóa</th>
-                  <th className="px-3 py-2.5">Hãng / NCC</th>
-                  <th className="px-3 py-2.5 text-center bg-indigo-50/40">Nhu Cầu Sales</th>
-                  <th className="px-3 py-2.5 text-center bg-emerald-50/40 text-emerald-900">Đã Đáp Ứng</th>
-                  <th className="px-3 py-2.5 text-center bg-amber-50/40 text-amber-900">Còn Thiếu</th>
-                  <th className="px-3 py-2.5">Hợp Đồng & Khách Hàng</th>
-                  <th className="px-3 py-2.5">Dự Kiến Hàng Về (ETA)</th>
-                  <th className="px-3 py-2.5">Ghi Chú PO</th>
-                  <th className="px-3 py-2.5 text-center">Trạng Thái Đặt Hàng</th>
+                  <th className="px-3.5 py-3">Mã Hàng</th>
+                  <th className="px-3.5 py-3">Tên Hàng</th>
+                  <th className="px-3.5 py-3">Hãng</th>
+                  <th className="px-3 py-3 text-center bg-amber-50/40 border-x border-amber-100">Số Lượng Cần Đặt</th>
+                  <th className="px-3.5 py-3">Ngày Cần Nhận Hàng</th>
+                  <th className="px-3.5 py-3 text-center">Tình Trạng</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 text-slate-700">
                 {filteredOrders.length === 0 ? (
                   <tr>
-                    <td colSpan={10} className="px-4 py-8 text-center text-slate-400">
-                      Không có mã hàng nào cần đặt thêm. Toàn bộ đơn hàng đã có đủ tồn kho!
+                    <td colSpan={6} className="px-4 py-8 text-center text-slate-400">
+                      Không có yêu cầu đặt hàng nào trong danh sách.
                     </td>
                   </tr>
                 ) : (
                   filteredOrders.map((o) => {
-                    const shortage = o.remainingQuantity !== undefined ? o.remainingQuantity : Math.max(0, o.orderQuantity - (o.receivedQuantity || 0));
+                    const contract = contractMap.get(o.contractId);
+                    const reqDate = contract?.deliveryDate || o.supplierETA || o.orderDate;
                     return (
-                      <tr key={o.id} className="hover:bg-slate-50 transition-colors">
-                        <td className="px-3 py-2 font-mono font-bold text-amber-700">{o.sku}</td>
-                        <td className="px-3 py-2">
-                          <div className="font-bold text-slate-900">{o.productName}</div>
-                          <div className="text-[10px] text-slate-500">
-                            {o.color} • {o.size}
-                          </div>
+                      <tr key={o.id} className="hover:bg-amber-50/20 transition-colors">
+                        <td className="px-3.5 py-2.5 font-mono font-bold text-blue-700">{o.sku}</td>
+                        <td className="px-3.5 py-2.5 font-bold text-slate-900">{o.productName}</td>
+                        <td className="px-3.5 py-2.5 font-semibold text-slate-700">{o.brand || 'Khác'}</td>
+                        <td className="px-3 py-2.5 text-center font-black text-amber-800 bg-amber-50/20 border-x border-amber-100 font-mono">
+                          {o.orderQuantity} {o.unit || 'Bộ'}
                         </td>
-                        <td className="px-3 py-2 font-semibold text-slate-700">{o.brand}</td>
-                        <td className="px-3 py-2 text-center font-bold text-indigo-950 bg-indigo-50/20">
-                          {o.orderQuantity} {o.unit}
+                        <td className="px-3.5 py-2.5 font-medium text-slate-700">
+                          {formatDate(reqDate)}
                         </td>
-                        <td className="px-3 py-2 text-center font-bold text-emerald-700 bg-emerald-50/20">
-                          {o.receivedQuantity || 0}
-                        </td>
-                        <td className="px-3 py-2 text-center font-bold text-amber-700 bg-amber-50/20">
-                          {shortage}
-                        </td>
-                        <td className="px-3 py-2">
-                          <div className="font-semibold text-blue-700">{o.contractNumber}</div>
-                          <div className="text-[10px] text-slate-500">{getCustomerDisplayName(o.customerId, o.customerName)}</div>
-                        </td>
-                        <td className="px-3 py-2">
-                          <input
-                            type="date"
-                            value={o.supplierETA || ''}
-                            onChange={(e) => updateOrderStatus(o.id, o.status, e.target.value)}
-                            className="px-1.5 py-0.5 border border-slate-300 rounded text-[11px]"
-                          />
-                        </td>
-                        <td className="px-3 py-2">
-                          <input
-                            type="text"
-                            placeholder="Ghi chú đơn hàng..."
-                            value={o.notes || ''}
-                            onChange={(e) => updateOrderStatus(o.id, o.status, e.target.value)}
-                            className="w-full px-1.5 py-0.5 border border-slate-300 rounded text-[11px]"
-                          />
-                        </td>
-                        <td className="px-3 py-2 text-center">
-                          <select
-                            value={o.status}
-                            onChange={(e) => updateOrderStatus(o.id, e.target.value as any)}
-                            className="px-2 py-0.5 text-[10px] font-bold border border-slate-300 rounded bg-white"
-                          >
-                            <option value="pending">Chờ Kho Đáp Ứng</option>
-                            <option value="ordered">Đã Đặt NCC</option>
-                            <option value="in_transit">Đang Vận Chuyển</option>
-                            <option value="partial">Về 1 Phần</option>
-                            <option value="ready_to_deliver">Đã Đủ Hàng</option>
-                            <option value="cancelled">Đã Hủy</option>
-                          </select>
+                        <td className="px-3.5 py-2.5 text-center">
+                          {getOrderStatusBadge(o)}
                         </td>
                       </tr>
                     );
