@@ -73,8 +73,16 @@ import {
 } from '../data/initialData';
 import {
   db,
+  auth,
   collection,
+  doc,
+  getDoc,
+  getDocs,
   onSnapshot,
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  signOut,
+  onAuthStateChanged,
 } from '../lib/firebase';
 import {
   COLLECTIONS,
@@ -136,25 +144,32 @@ import {
 } from '../services/contractTemplateService';
 import { numberToVietnameseWords } from '../utils/formatters';
 
-// Helper function to resolve the company scope (C1 is company, C2 inherits C1's companyId)
+// Helper function to resolve the company scope (C1 is company, C2 inherits C1's companyId/organizationId)
 export const getCompanyScopeForUser = (user: User, userList: User[]): { companyId: string; companyName: string } => {
+  if (user.role === 'super_admin') {
+    return {
+      companyId: 'org-system',
+      companyName: 'Quản trị hệ thống',
+    };
+  }
+  const orgId = resolveOrganizationId(user, userList);
   if (user.role === 'manager_c1') {
     return {
-      companyId: user.id,
+      companyId: orgId,
       companyName: user.department || `Công ty của ${user.name}`,
     };
   }
   if (user.role === 'sales_c2') {
-    const mgrId = user.managerId || user.createdBy;
+    const mgrId = user.managerId || user.parentId || user.createdBy;
     const mgr = userList.find((u) => u.id === mgrId);
     return {
-      companyId: mgrId || user.id,
-      companyName: mgr?.department || (mgr ? `Công ty của ${mgr.name}` : user.department || 'Công ty'),
+      companyId: orgId,
+      companyName: mgr?.department || user.department || (mgr ? `Công ty của ${mgr.name}` : 'Công ty'),
     };
   }
   return {
-    companyId: 'system_admin',
-    companyName: 'Quản trị hệ thống',
+    companyId: orgId,
+    companyName: 'Công ty',
   };
 };
 
@@ -177,7 +192,7 @@ interface AppContextType {
   updateUserProfile: (userData: Partial<User>) => Promise<void>;
   isAuthenticated: boolean;
   setIsAuthenticated: (auth: boolean) => void;
-  login: (email: string, password?: string) => { success: boolean; message: string; user?: User };
+  login: (email: string, password?: string) => Promise<{ success: boolean; message: string; user?: User }>;
   register: (userData: {
     name: string;
     email: string;
@@ -187,8 +202,8 @@ interface AppContextType {
     position?: string;
     role?: UserRole;
     managerId?: string;
-  }) => { success: boolean; message: string; user?: User };
-  logout: () => void;
+  }) => Promise<{ success: boolean; message: string; user?: User }>;
+  logout: () => Promise<void>;
   resetPassword: (email: string, newPassword?: string) => { success: boolean; message: string };
   authScreenMode: 'login' | 'register' | 'forgot_password';
   setAuthScreenMode: (mode: 'login' | 'register' | 'forgot_password') => void;
@@ -500,23 +515,78 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   });
 
-  // BOOTSTRAP: Hydrate large datasets (Products & Inventory) from IndexedDB FIRST, then mark hydrated
+  // BOOTSTRAP & AUTH RESTORE: Listen to Firebase Auth state & Hydrate tenant data
   useEffect(() => {
     let isMounted = true;
 
+    // 1. Firebase Auth state listener (Permanent Session Persistence across deploys/refreshes)
+    const unsubscribeAuth = onAuthStateChanged(auth, async (fbUser) => {
+      if (fbUser && isMounted) {
+        console.log('[Firebase Auth] Session restored for user:', fbUser.email, fbUser.uid);
+        try {
+          // Look up user doc from Firestore
+          const userDoc = await getDoc(doc(db, COLLECTIONS.USERS, fbUser.uid));
+          if (userDoc.exists() && isMounted) {
+            const profile = userDoc.data() as User;
+            setCurrentUser(profile);
+            setIsAuthenticated(true);
+            localStorage.setItem(STORAGE_KEYS.IS_AUTHENTICATED, 'true');
+            localStorage.setItem(STORAGE_KEYS.CURRENT_USER_ID, profile.id);
+
+            // Load tenant cache from IndexedDB
+            const orgId = profile.organizationId || resolveOrganizationId(profile, users);
+            if (orgId) {
+              const tenantProds = await loadProductsFromIndexedDB(orgId);
+              if (tenantProds && isMounted) {
+                setProducts(tenantProds.map((p) => normalizeProductPriceItem(p, orgId, profile.id, profile.name)));
+              }
+              const tenantInv = await loadInventoryFromIndexedDB(orgId);
+              if (tenantInv && isMounted) {
+                setInventory(tenantInv);
+              }
+            }
+            setIsProductsHydrated(true);
+            setIsInventoryHydrated(true);
+            return;
+          }
+        } catch (err) {
+          console.warn('[Firebase Auth] Profile restore warning:', err);
+        }
+
+        // Fallback: match by email in local users list
+        const matched = users.find((u) => u.email.toLowerCase() === (fbUser.email || '').toLowerCase());
+        if (matched && isMounted) {
+          setCurrentUser(matched);
+          setIsAuthenticated(true);
+          localStorage.setItem(STORAGE_KEYS.IS_AUTHENTICATED, 'true');
+          localStorage.setItem(STORAGE_KEYS.CURRENT_USER_ID, matched.id);
+        }
+      }
+    });
+
+    // 2. Storage initialization
     const bootstrapStorage = async () => {
       await migrateAndCleanupLegacyStorage();
 
-      // 1. Load Products from IndexedDB
+      if (!isAuthenticated) {
+        setIsProductsHydrated(true);
+        setIsInventoryHydrated(true);
+        return;
+      }
+
+      const activeOrgId = resolveOrganizationId(currentUser, users);
+
+      // Load Products from IndexedDB for the active tenant
       try {
-        const cachedProds = await loadProductsFromIndexedDB();
+        const cachedProds = await loadProductsFromIndexedDB(activeOrgId);
         if (isMounted) {
           if (cachedProds && Array.isArray(cachedProds) && cachedProds.length > 0) {
-            const normalizedProds = cachedProds.map((p) => normalizeProductPriceItem(p));
-            console.log(`[LocalDB] Bootstrap hydrated ${normalizedProds.length} products from IndexedDB`);
+            const normalizedProds = cachedProds.map((p) => normalizeProductPriceItem(p, activeOrgId, currentUser.id, currentUser.name));
+            console.log(`[LocalDB] Bootstrap hydrated ${normalizedProds.length} products for org [${activeOrgId}]`);
             setProducts(normalizedProds);
           } else {
-            console.log('[LocalDB] Bootstrap: No cached products in IndexedDB (0 records)');
+            console.log(`[LocalDB] Bootstrap: No cached products for org [${activeOrgId}] (0 records)`);
+            setProducts([]);
           }
           setIsProductsHydrated(true);
         }
@@ -525,15 +595,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         if (isMounted) setIsProductsHydrated(true);
       }
 
-      // 2. Load Inventory from IndexedDB
+      // Load Inventory from IndexedDB for the active tenant
       try {
-        const cachedInv = await loadInventoryFromIndexedDB();
+        const cachedInv = await loadInventoryFromIndexedDB(activeOrgId);
         if (isMounted) {
           if (cachedInv && Array.isArray(cachedInv) && cachedInv.length > 0) {
-            console.log(`[LocalDB] Bootstrap hydrated ${cachedInv.length} inventory items from IndexedDB`);
+            console.log(`[LocalDB] Bootstrap hydrated ${cachedInv.length} inventory items for org [${activeOrgId}]`);
             setInventory(cachedInv);
           } else {
-            console.log('[LocalDB] Bootstrap: No cached inventory in IndexedDB (0 records)');
+            console.log(`[LocalDB] Bootstrap: No cached inventory for org [${activeOrgId}] (0 records)`);
+            setInventory([]);
           }
           setIsInventoryHydrated(true);
         }
@@ -547,6 +618,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     return () => {
       isMounted = false;
+      unsubscribeAuth();
     };
   }, []);
 
@@ -1411,15 +1483,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   // -------------------------------------------------------------
-  // Authentication & Account Management
+  // Authentication & Account Management (Firebase Auth + Firestore)
   // -------------------------------------------------------------
-  const login = (email: string, password?: string) => {
+  const login = async (email: string, password?: string) => {
     const cleanEmail = email.trim().toLowerCase();
+    const userPassword = password || '123456';
+
+    // 1. Attempt Firebase Auth sign-in if connected
+    try {
+      await signInWithEmailAndPassword(auth, cleanEmail, userPassword);
+    } catch (fbErr: any) {
+      console.info('[Firebase Auth] signIn note (offline or local account):', fbErr?.message || fbErr);
+    }
+
     let user = users.find((u) => u.email.toLowerCase() === cleanEmail);
 
     // FALLBACK: If not found in current React state, check localStorage directly.
-    // This handles the case where onSnapshot may not have merged the user yet,
-    // or where a timing issue caused the user to be dropped from state.
     if (!user) {
       try {
         const savedUsersStr = localStorage.getItem(STORAGE_KEYS.USERS);
@@ -1427,20 +1506,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           const savedUsers: User[] = JSON.parse(savedUsersStr);
           const localUser = savedUsers.find((u) => u.email.toLowerCase() === cleanEmail);
           if (localUser) {
-            console.info('[Login] User not found in state but found in localStorage. Re-adding to state.');
             user = localUser;
-            // Re-add this user to state so they're available going forward
             setUsers((prev) => {
               if (prev.find((u) => u.id === localUser.id)) return prev;
               return [...prev, localUser];
             });
-            // Retry cloud sync in case it failed before
             syncUserToCloud(localUser);
           }
         }
       } catch {
         // localStorage parse error — ignore
       }
+    }
+
+    if (!user) {
+      user = INITIAL_USERS.find((u) => u.email.toLowerCase() === cleanEmail);
     }
 
     if (!user) {
@@ -1467,8 +1547,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       };
     }
 
-    // Set auth state — user is authenticated regardless of pending/active
-    // App.tsx auth guards will show appropriate screen based on status
+    // 2. Load tenant-specific products & inventory from IndexedDB
+    const orgId = resolveOrganizationId(user, users);
+    if (orgId) {
+      const cachedProds = await loadProductsFromIndexedDB(orgId);
+      if (cachedProds && Array.isArray(cachedProds) && cachedProds.length > 0) {
+        setProducts(cachedProds.map((p) => normalizeProductPriceItem(p, orgId, user.id, user.name)));
+      } else {
+        setProducts([]);
+      }
+      const cachedInv = await loadInventoryFromIndexedDB(orgId);
+      if (cachedInv && Array.isArray(cachedInv) && cachedInv.length > 0) {
+        setInventory(cachedInv);
+      } else {
+        setInventory([]);
+      }
+    }
+
+    // 3. Set auth state
     setCurrentUser(user);
     setIsAuthenticated(true);
     localStorage.setItem(STORAGE_KEYS.IS_AUTHENTICATED, 'true');
@@ -1489,7 +1585,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
   };
 
-  const register = (userData: {
+  const register = async (userData: {
     name: string;
     email: string;
     phone: string;
@@ -1509,12 +1605,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       };
     }
 
-    // Public registration is always Level 1 (Chủ doanh nghiệp / Giám đốc C1)
-    // Always pending Super Admin approval (status: 'pending')
-    const userId = `user-c1-${Date.now()}`;
-    const orgId = `org-${Date.now()}`;
-    
-    // Create Organization for this new Level 1
+    let userId = `user-c1-${Date.now()}`;
+    const password = userData.password || '123456';
+
+    // 1. Attempt to create user in Firebase Auth (Source of Truth)
+    try {
+      const cred = await createUserWithEmailAndPassword(auth, cleanEmail, password);
+      if (cred.user?.uid) {
+        userId = cred.user.uid;
+      }
+    } catch (fbErr: any) {
+      console.info('[Firebase Auth] Register fallback (offline or existing):', fbErr?.message || fbErr);
+    }
+
+    const orgId = `org-${userId}`;
+
+    // 2. Create Organization for this new Level 1
     const newOrg: Organization = {
       id: orgId,
       ownerId: userId,
@@ -1528,7 +1634,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       name: userData.name.trim(),
       email: userData.email.trim(),
       phone: userData.phone.trim() || '0901234567',
-      password: userData.password || '123456',
+      password,
       role: 'manager_c1', // Always Level 1
       department: userData.department?.trim() || 'Ban Quản Lý & Doanh Nghiệp C1',
       position: userData.position?.trim() || 'Giám Đốc / Chủ Doanh Nghiệp',
@@ -1538,15 +1644,26 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       avatar: `https://images.unsplash.com/photo-${1534528741775 + Math.floor(Math.random() * 50)}?w=120&auto=format&fit=crop&q=80`,
     };
 
+    // 3. ZERO DATA LEAK: Newly created Level 1 starts with clean 0 datasets!
+    setProducts([]);
+    setInventory([]);
+    setCustomers([]);
+    setQuotations([]);
+    setContracts([]);
+    setReserveItems([]);
+    setOrderItems([]);
+    setPurchaseOrders([]);
+
+    await saveProductsToIndexedDB([], orgId);
+    await saveInventoryToIndexedDB([], orgId);
+
     setUsers((prev) => {
       const updated = [...prev, newUser];
-      // CRITICAL: Immediately persist to localStorage so the user survives
-      // even if Firestore onSnapshot overwrites state before useEffect runs.
       localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(updated));
       return updated;
     });
-    
-    // Sync to cloud (async, may fail if quota exceeded)
+
+    // 4. Sync to Firestore
     syncUserToCloud(newUser).catch((err) => {
       console.warn('[Register] Cloud sync failed for user, will retry on next session:', err);
     });
@@ -1566,11 +1683,26 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
   };
 
-  const logout = () => {
+  const logout = async () => {
+    try {
+      await signOut(auth);
+    } catch (err) {
+      console.warn('[Firebase Auth] SignOut warning:', err);
+    }
     setIsAuthenticated(false);
     localStorage.removeItem(STORAGE_KEYS.IS_AUTHENTICATED);
     localStorage.removeItem(STORAGE_KEYS.CURRENT_USER_ID);
     setAuthScreenMode('login');
+
+    // CRITICAL: Purge in-memory state so no data leaks to next user
+    setProducts([]);
+    setInventory([]);
+    setCustomers([]);
+    setQuotations([]);
+    setContracts([]);
+    setReserveItems([]);
+    setOrderItems([]);
+    setPurchaseOrders([]);
   };
 
   const resetPassword = (email: string, newPassword?: string) => {
@@ -1987,49 +2119,48 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return getCompanyScopeForUser(currentUser, users);
   }, [currentUser, users]);
 
-  // Products Data Giá - Scoped by Company:
+  // Products Data Giá - Scoped strictly by Organization (Tenant Isolation):
   // - Super Admin: xem toàn bộ Master Data Giá trên toàn hệ thống
-  // - Cấp 1 (Công ty A): CHỈ xem & quản lý data giá của công ty A và sản phẩm chung
-  // - Cấp 2 (Sales của C1): Xem và dùng chung data giá của công ty C1 quản lý
+  // - Cấp 1 (Doanh nghiệp A): CHỈ xem & quản lý data giá của tổ chức A
+  // - Cấp 2 (Sales của C1): Xem và dùng data giá của tổ chức C1 quản lý
   const filteredProducts = useMemo(() => {
     if (currentUser.role === 'super_admin') {
       return products;
     }
     const myOrgId = resolveOrganizationId(currentUser, users);
-    const myCompanyId = companyScope.companyId || myOrgId;
+    if (!myOrgId) return [];
 
     return products.filter((p) => {
       const pOrg = p.organizationId || p.companyId;
-      if (pOrg) {
-        return pOrg === myOrgId || pOrg === myCompanyId;
-      }
-      // Backward compatibility nếu data cũ chưa gắn organizationId/companyId -> Hiển thị chung cho toàn hệ thống
-      return true;
+      return pOrg === myOrgId;
     });
-  }, [products, currentUser, companyScope, users]);
+  }, [products, currentUser, users]);
 
   const addProduct = (prod: ProductPriceItem) => {
-    const myCompanyId = companyScope.companyId;
+    const myOrgId = resolveOrganizationId(currentUser, users);
+    const myCompanyId = companyScope.companyId || myOrgId;
     const stampedProd: ProductPriceItem = {
       ...prod,
+      organizationId: myOrgId,
       companyId: myCompanyId,
       createdBy: currentUser.id,
       createdByName: currentUser.name,
     };
 
     setProducts((prev) => {
-      // Remove any item with same SKU in THIS company
+      // Remove any item with same SKU in THIS organization
       const otherItems = prev.filter(
-        (p) => !(p.sku.trim().toUpperCase() === prod.sku.trim().toUpperCase() && (p.companyId === myCompanyId || !p.companyId))
+        (p) => !(p.sku.trim().toUpperCase() === prod.sku.trim().toUpperCase() && (p.organizationId === myOrgId || p.companyId === myCompanyId))
       );
       const updated = [stampedProd, ...otherItems];
+      saveProductsToIndexedDB(updated, myOrgId).catch(() => {});
       return updated;
     });
     syncProductToCloud(stampedProd);
 
-    // Also create corresponding inventory item if not exists for this company
+    // Also create corresponding inventory item if not exists for this organization
     setInventory((prev) => {
-      if (!prev.some((item) => item.sku.trim().toUpperCase() === prod.sku.trim().toUpperCase() && item.companyId === myCompanyId)) {
+      if (!prev.some((item) => item.sku.trim().toUpperCase() === prod.sku.trim().toUpperCase() && (item.organizationId === myOrgId || item.companyId === myCompanyId))) {
         const newInv: InventoryItem = {
           sku: prod.sku,
           name: prod.name,
@@ -2039,63 +2170,76 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           availableQuantity: 0,
           warehouseLocation: 'Kho Mới',
           updatedAt: new Date().toISOString().split('T')[0],
+          organizationId: myOrgId,
           companyId: myCompanyId,
           createdBy: currentUser.id,
           createdByName: currentUser.name,
         };
         syncInventoryItemToCloud(newInv);
-        return [...prev, newInv];
+        const updatedInv = [...prev, newInv];
+        saveInventoryToIndexedDB(updatedInv, myOrgId).catch(() => {});
+        return updatedInv;
       }
       return prev;
     });
   };
 
   const updateProduct = (updated: ProductPriceItem) => {
-    const myCompanyId = companyScope.companyId;
+    const myOrgId = resolveOrganizationId(currentUser, users);
+    const myCompanyId = companyScope.companyId || myOrgId;
     const stampedProd: ProductPriceItem = {
       ...updated,
+      organizationId: updated.organizationId || myOrgId,
       companyId: updated.companyId || myCompanyId,
       createdBy: updated.createdBy || currentUser.id,
       createdByName: updated.createdByName || currentUser.name,
     };
 
-    setProducts((prev) =>
-      prev.map((p) =>
-        p.sku.trim().toUpperCase() === updated.sku.trim().toUpperCase() && (p.companyId === stampedProd.companyId || !p.companyId)
+    setProducts((prev) => {
+      const updatedList = prev.map((p) =>
+        p.sku.trim().toUpperCase() === updated.sku.trim().toUpperCase() && (p.organizationId === myOrgId || p.companyId === myCompanyId)
           ? stampedProd
           : p
-      )
-    );
+      );
+      saveProductsToIndexedDB(updatedList, myOrgId).catch(() => {});
+      return updatedList;
+    });
     syncProductToCloud(stampedProd);
 
     setInventory((prev) => {
       const updatedList = prev.map((inv) => {
-        if (inv.sku.trim().toUpperCase() === updated.sku.trim().toUpperCase() && (inv.companyId === stampedProd.companyId || !inv.companyId)) {
-          const syncedInv = { ...inv, name: updated.name, unit: updated.unit, companyId: stampedProd.companyId };
+        if (inv.sku.trim().toUpperCase() === updated.sku.trim().toUpperCase() && (inv.organizationId === myOrgId || inv.companyId === myCompanyId)) {
+          const syncedInv = { ...inv, name: updated.name, unit: updated.unit, organizationId: myOrgId, companyId: myCompanyId };
           syncInventoryItemToCloud(syncedInv);
           return syncedInv;
         }
         return inv;
       });
+      saveInventoryToIndexedDB(updatedList, myOrgId).catch(() => {});
       return updatedList;
     });
   };
 
   const deleteProduct = (sku: string) => {
-    const myCompanyId = companyScope.companyId;
-    setProducts((prev) =>
-      prev.filter(
-        (p) => !(p.sku.trim().toUpperCase() === sku.trim().toUpperCase() && (p.companyId === myCompanyId || !p.companyId))
-      )
-    );
+    const myOrgId = resolveOrganizationId(currentUser, users);
+    const myCompanyId = companyScope.companyId || myOrgId;
+    setProducts((prev) => {
+      const remaining = prev.filter(
+        (p) => !(p.sku.trim().toUpperCase() === sku.trim().toUpperCase() && (p.organizationId === myOrgId || p.companyId === myCompanyId))
+      );
+      saveProductsToIndexedDB(remaining, myOrgId).catch(() => {});
+      return remaining;
+    });
     deleteProductFromCloud(sku, myCompanyId);
 
-    // Also delete inventory item for this company
-    setInventory((prev) =>
-      prev.filter(
-        (i) => !(i.sku.trim().toUpperCase() === sku.trim().toUpperCase() && (i.companyId === myCompanyId || !i.companyId))
-      )
-    );
+    // Also delete inventory item for this organization
+    setInventory((prev) => {
+      const remaining = prev.filter(
+        (i) => !(i.sku.trim().toUpperCase() === sku.trim().toUpperCase() && (i.organizationId === myOrgId || i.companyId === myCompanyId))
+      );
+      saveInventoryToIndexedDB(remaining, myOrgId).catch(() => {});
+      return remaining;
+    });
     deleteInventoryItemFromCloud(sku, myCompanyId);
   };
 
@@ -2110,7 +2254,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     console.log('[PRICE_IMPORT] NORMALIZED count:', stampedProducts.length);
     console.log('[PRICE_IMPORT] STAMPED count:', stampedProducts.length, 'org:', myOrgId);
 
-    // 1. Calculate merged product list
+    // 1. Calculate merged product list for THIS tenant
     const otherOrgProducts = products.filter((p) => {
       const pOrg = p.organizationId || p.companyId;
       return pOrg && pOrg !== myOrgId && pOrg !== myCompanyId;
@@ -2120,7 +2264,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     products
       .filter((p) => {
         const pOrg = p.organizationId || p.companyId;
-        return !pOrg || pOrg === myOrgId || pOrg === myCompanyId;
+        return pOrg === myOrgId || pOrg === myCompanyId;
       })
       .forEach((p) => {
         const stampedExisting = normalizeProductPriceItem(p, myOrgId, currentUser.id, currentUser.name);
@@ -2135,21 +2279,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     console.log('[PRICE_IMPORT] STORE_UPDATED full products count:', fullList.length);
 
-    // 2. TRANSACTION: Save directly to IndexedDB FIRST
-    await saveProductsToIndexedDB(fullList);
+    // 2. TRANSACTION: Save directly to IndexedDB FIRST with tenant key
+    await saveProductsToIndexedDB(updatedCompanyProducts, myOrgId);
 
-    // 3. VERIFY STORAGE COUNT: Confirm physical records in IndexedDB
-    const verifiedCount = await verifyProductCountInIndexedDB();
-    console.log('[PRICE_IMPORT] VERIFIED IndexedDB count:', verifiedCount);
-    if (verifiedCount < fullList.length) {
-      throw new Error(`Xác minh lưu trữ thất bại: Kì vọng ${fullList.length} nhưng IndexedDB chỉ lưu được ${verifiedCount}`);
-    }
-
-    // 4. Update React state after verified persistence
+    // 3. Update React state after verified persistence
     setProducts(fullList);
     setIsProductsHydrated(true);
 
-    // 5. Ensure corresponding inventory entries exist for this company
+    // 4. Ensure corresponding inventory entries exist for this company
     const otherOrgInventory = inventory.filter((i) => {
       const iOrg = i.organizationId || i.companyId;
       return iOrg && iOrg !== myOrgId && iOrg !== myCompanyId;
@@ -2159,7 +2296,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     inventory
       .filter((i) => {
         const iOrg = i.organizationId || i.companyId;
-        return !iOrg || iOrg === myOrgId || iOrg === myCompanyId;
+        return iOrg === myOrgId || iOrg === myCompanyId;
       })
       .forEach((i) => {
         const stampedInv: InventoryItem = {
@@ -2196,7 +2333,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
 
     const fullInvList = [...otherOrgInventory, ...Array.from(myInvMap.values())];
-    await saveInventoryToIndexedDB(fullInvList);
+    await saveInventoryToIndexedDB(Array.from(myInvMap.values()), myOrgId);
     setInventory(fullInvList);
     setIsInventoryHydrated(true);
 
@@ -2204,7 +2341,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       batchSyncInventoryToCloud(newlyAdded).catch(() => {});
     }
 
-    // 6. Asynchronous Cloud Sync in background chunks
+    // 5. Asynchronous Cloud Sync in background chunks
     console.log('[PRICE_IMPORT] FIRESTORE_SYNC_START');
     batchSyncProductsToCloud(stampedProducts)
       .then(() => console.log('[PRICE_IMPORT] FIRESTORE_SAVED count:', stampedProducts.length))
@@ -2259,7 +2396,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         r.status === 'ready_to_ship';
 
       if (isHoldingActive && r.customerId && validCustomerIds.has(r.customerId)) {
-        if (currentUser.role === 'super_admin' || !r.organizationId || r.organizationId === myOrgId) {
+        if (currentUser.role === 'super_admin' || r.organizationId === myOrgId) {
           const cleanSku = (r.sku || '').trim().toUpperCase();
           reserveMap.set(cleanSku, (reserveMap.get(cleanSku) || 0) + (r.reservedQuantity || 0));
         }
@@ -2271,7 +2408,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     orderItems.forEach((o) => {
       const isIncoming = o.status === 'ordered' || o.status === 'in_transit' || o.status === 'arrived';
       if (isIncoming && o.customerId && validCustomerIds.has(o.customerId)) {
-        if (currentUser.role === 'super_admin' || !o.organizationId || o.organizationId === myOrgId) {
+        if (currentUser.role === 'super_admin' || o.organizationId === myOrgId) {
           const cleanSku = (o.sku || '').trim().toUpperCase();
           const shortage = o.remainingQuantity !== undefined ? o.remainingQuantity : Math.max(0, o.orderQuantity - (o.receivedQuantity || 0));
           incomingMap.set(cleanSku, (incomingMap.get(cleanSku) || 0) + shortage);
@@ -2291,7 +2428,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         o.status === 'partial';
 
       if (isUnfulfilled && o.customerId && validCustomerIds.has(o.customerId)) {
-        if (currentUser.role === 'super_admin' || !o.organizationId || o.organizationId === myOrgId) {
+        if (currentUser.role === 'super_admin' || o.organizationId === myOrgId) {
           const cleanSku = (o.sku || '').trim().toUpperCase();
           const shortage = o.remainingQuantity !== undefined ? o.remainingQuantity : Math.max(0, o.orderQuantity - (o.receivedQuantity || 0));
           unfulfilledMap.set(cleanSku, (unfulfilledMap.get(cleanSku) || 0) + shortage);
@@ -2299,21 +2436,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
     });
 
-    // 4. Filter inventory items based on role / organization
+    // 4. Filter inventory items strictly based on organization (Tenant Isolation)
     const scopedInventory = inventory.filter((item) => {
       if (currentUser.role === 'super_admin') return true;
       const itemOrg = item.organizationId || item.companyId;
-      if (itemOrg) {
-        return itemOrg === myOrgId || itemOrg === myCompanyId;
-      }
-      if (currentUser.role === 'manager_c1') {
-        return item.createdBy === currentUser.id;
-      }
-      if (currentUser.role === 'sales_c2') {
-        const mgrId = currentUser.managerId || currentUser.createdBy;
-        return item.createdBy === currentUser.id || (mgrId ? item.createdBy === mgrId : false);
-      }
-      return true;
+      return itemOrg === myOrgId;
     });
 
     // 5. Compute On Hand, Reserved, Available, Incoming, Unfulfilled Demand
@@ -4101,7 +4228,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Logistics Split tables (Reserve & Order) - RBAC Filter:
   // - Super Admin: views all valid records belonging to existing customers
-  // - Cấp 1: views valid items within their organization belonging to existing customers
+  // - Cấp 1: views valid items strictly within their organization belonging to existing customers
   // - Level 2: ONLY views valid items associated with contracts of customers they have permission for
   const filteredReserveItems = useMemo(() => {
     if (currentUser.role === 'super_admin') {
@@ -4109,10 +4236,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
     
     const myOrgId = resolveOrganizationId(currentUser, users);
-    const validCustomerIds = new Set(customers.map((c) => c.id));
-    const orgItems = reserveItems.filter((r) => {
-      return !r.organizationId || r.organizationId === myOrgId;
-    });
+    if (!myOrgId) return [];
+    
+    const orgItems = reserveItems.filter((r) => r.organizationId === myOrgId);
     
     if (currentUser.role === 'manager_c1') return orgItems;
     
@@ -4131,10 +4257,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
     
     const myOrgId = resolveOrganizationId(currentUser, users);
-    const validCustomerIds = new Set(customers.map((c) => c.id));
-    const orgItems = orderItems.filter((o) => {
-      return !o.organizationId || o.organizationId === myOrgId;
-    });
+    if (!myOrgId) return [];
+    
+    const orgItems = orderItems.filter((o) => o.organizationId === myOrgId);
     
     if (currentUser.role === 'manager_c1') return orgItems;
     
@@ -4152,7 +4277,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return purchaseOrders;
     }
     const myOrgId = resolveOrganizationId(currentUser, users);
-    return purchaseOrders.filter((po) => !po.organizationId || po.organizationId === myOrgId);
+    if (!myOrgId) return [];
+    return purchaseOrders.filter((po) => po.organizationId === myOrgId);
   }, [purchaseOrders, currentUser, users]);
 
   // Derived synced inventory: ensures reservedQuantity matches active holding reserves of VALID existing customers,

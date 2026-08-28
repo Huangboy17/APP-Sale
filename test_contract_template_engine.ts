@@ -170,8 +170,11 @@ function runTests() {
     phone: '0901234567',
     email: 'b@test.com',
     stage: 'contract_signed',
+    organizationId: 'org-c1-1',
     assignedToId: 'sales-1',
     assignedToName: 'Sales Rep',
+    createdBy: 'user-mgr-c1-1',
+    expectedValue: 1320000,
     createdAt: '2026-08-28',
     updatedAt: '2026-08-28',
   };

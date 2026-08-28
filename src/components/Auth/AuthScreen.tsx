@@ -55,7 +55,7 @@ export const AuthScreen: React.FC = () => {
   const [alert, setAlert] = useState<{ type: 'error' | 'success' | 'info'; message: string } | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
-  const handleLoginSubmit = (e: React.FormEvent) => {
+  const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setAlert(null);
 
@@ -70,16 +70,19 @@ export const AuthScreen: React.FC = () => {
     }
 
     setIsLoading(true);
-    setTimeout(() => {
-      const res = login(loginEmail, loginPassword);
+    try {
+      const res = await login(loginEmail, loginPassword);
       setIsLoading(false);
       if (!res.success) {
         setAlert({ type: 'error', message: res.message });
       }
-    }, 250);
+    } catch (err: any) {
+      setIsLoading(false);
+      setAlert({ type: 'error', message: err?.message || 'Đã có lỗi xảy ra khi đăng nhập.' });
+    }
   };
 
-  const handleRegisterSubmit = (e: React.FormEvent) => {
+  const handleRegisterSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setAlert(null);
 
@@ -104,9 +107,9 @@ export const AuthScreen: React.FC = () => {
     }
 
     setIsLoading(true);
-    setTimeout(() => {
+    try {
       // Đăng ký tài khoản công khai luôn luôn là Cấp 1 (Chờ Super Admin phê duyệt)
-      const res = register({
+      const res = await register({
         name: regName.trim(),
         email: regEmail.trim(),
         phone: regPhone.trim() || '0901234567',
@@ -125,7 +128,10 @@ export const AuthScreen: React.FC = () => {
           message: 'Đăng ký tài khoản Doanh Nghiệp (Cấp 1) thành công! Hồ sơ của bạn đã được chuyển tới Super Admin để xét duyệt kích hoạt.',
         });
       }
-    }, 300);
+    } catch (err: any) {
+      setIsLoading(false);
+      setAlert({ type: 'error', message: err?.message || 'Đã có lỗi xảy ra khi đăng ký.' });
+    }
   };
 
   const handleForgotPasswordSubmit = (e: React.FormEvent) => {

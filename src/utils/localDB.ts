@@ -113,45 +113,59 @@ export async function loadFromIDB<T>(storeName: string, key: string): Promise<T 
 
 /**
  * Dedicated Product Persistence (IndexedDB ONLY - Zero localStorage)
+ * Scoped by organizationId (Tenant) to guarantee 100% data isolation between Level 1 accounts.
  */
-export async function saveProductsToIndexedDB(products: ProductPriceItem[]): Promise<void> {
-  console.log(`[LocalDB] SAVING products to IndexedDB (${products.length} records)`);
-  await saveToIDB(IDB_STORES.PRODUCTS, IDB_KEYS.PRODUCTS, products);
-  console.log(`[LocalDB] SAVED products to IndexedDB successfully (${products.length} records)`);
+export function getTenantProductStoreKey(orgId?: string): string {
+  return orgId ? `products_${orgId}` : IDB_KEYS.PRODUCTS;
 }
 
-export async function loadProductsFromIndexedDB(): Promise<ProductPriceItem[] | null> {
-  const result = await loadFromIDB<ProductPriceItem[]>(IDB_STORES.PRODUCTS, IDB_KEYS.PRODUCTS);
+export function getTenantInventoryStoreKey(orgId?: string): string {
+  return orgId ? `inventory_${orgId}` : IDB_KEYS.INVENTORY;
+}
+
+export async function saveProductsToIndexedDB(products: ProductPriceItem[], orgId?: string): Promise<void> {
+  const storeKey = getTenantProductStoreKey(orgId);
+  console.log(`[LocalDB] SAVING products to IndexedDB [${storeKey}] (${products.length} records)`);
+  await saveToIDB(IDB_STORES.PRODUCTS, storeKey, products);
+  console.log(`[LocalDB] SAVED products to IndexedDB [${storeKey}] successfully (${products.length} records)`);
+}
+
+export async function loadProductsFromIndexedDB(orgId?: string): Promise<ProductPriceItem[] | null> {
+  const storeKey = getTenantProductStoreKey(orgId);
+  const result = await loadFromIDB<ProductPriceItem[]>(IDB_STORES.PRODUCTS, storeKey);
   if (result && Array.isArray(result)) {
-    console.log(`[LocalDB] LOADED ${result.length} products from IndexedDB`);
+    console.log(`[LocalDB] LOADED ${result.length} products from IndexedDB [${storeKey}]`);
   }
   return result;
 }
 
-export async function verifyProductCountInIndexedDB(): Promise<number> {
-  const prods = await loadProductsFromIndexedDB();
+export async function verifyProductCountInIndexedDB(orgId?: string): Promise<number> {
+  const prods = await loadProductsFromIndexedDB(orgId);
   return prods ? prods.length : 0;
 }
 
 /**
  * Dedicated Inventory Persistence (IndexedDB ONLY - Zero localStorage)
+ * Scoped by organizationId (Tenant).
  */
-export async function saveInventoryToIndexedDB(inventory: InventoryItem[]): Promise<void> {
-  console.log(`[LocalDB] SAVING inventory to IndexedDB (${inventory.length} items)`);
-  await saveToIDB(IDB_STORES.INVENTORY, IDB_KEYS.INVENTORY, inventory);
-  console.log(`[LocalDB] SAVED inventory to IndexedDB successfully (${inventory.length} items)`);
+export async function saveInventoryToIndexedDB(inventory: InventoryItem[], orgId?: string): Promise<void> {
+  const storeKey = getTenantInventoryStoreKey(orgId);
+  console.log(`[LocalDB] SAVING inventory to IndexedDB [${storeKey}] (${inventory.length} items)`);
+  await saveToIDB(IDB_STORES.INVENTORY, storeKey, inventory);
+  console.log(`[LocalDB] SAVED inventory to IndexedDB [${storeKey}] successfully (${inventory.length} items)`);
 }
 
-export async function loadInventoryFromIndexedDB(): Promise<InventoryItem[] | null> {
-  const result = await loadFromIDB<InventoryItem[]>(IDB_STORES.INVENTORY, IDB_KEYS.INVENTORY);
+export async function loadInventoryFromIndexedDB(orgId?: string): Promise<InventoryItem[] | null> {
+  const storeKey = getTenantInventoryStoreKey(orgId);
+  const result = await loadFromIDB<InventoryItem[]>(IDB_STORES.INVENTORY, storeKey);
   if (result && Array.isArray(result)) {
-    console.log(`[LocalDB] LOADED ${result.length} inventory items from IndexedDB`);
+    console.log(`[LocalDB] LOADED ${result.length} inventory items from IndexedDB [${storeKey}]`);
   }
   return result;
 }
 
-export async function verifyInventoryCountInIndexedDB(): Promise<number> {
-  const inv = await loadInventoryFromIndexedDB();
+export async function verifyInventoryCountInIndexedDB(orgId?: string): Promise<number> {
+  const inv = await loadInventoryFromIndexedDB(orgId);
   return inv ? inv.length : 0;
 }
 

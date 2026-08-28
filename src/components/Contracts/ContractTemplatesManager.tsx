@@ -18,6 +18,7 @@ import {
   HelpCircle,
   FileText,
   Building,
+  X,
 } from 'lucide-react';
 import { CONTRACT_PLACEHOLDERS, renderContractContent, ContractMappingInput } from '../../services/contractTemplateService';
 

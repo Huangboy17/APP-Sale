@@ -107,21 +107,23 @@ export function cleanForFirestore<T>(data: T): Record<string, unknown> {
   return JSON.parse(serialized);
 }
 
-// Seed initial demo data to Firestore ONLY IF necessary, avoiding repeated write storms
+// Seed initial demo data to Firestore ONLY IF the database is 100% empty (Initial project bootstrap)
+// Never overwrites existing accounts or business data
 export async function seedInitialDataIfEmpty() {
-  const seedKey = 'salesflow_cloud_seed_completed_v3';
+  const seedKey = 'salesflow_cloud_seed_completed_v4';
   if (localStorage.getItem(seedKey) === 'true') {
     return;
   }
 
   try {
-    const custSnapshot = await getDocs(collection(db, COLLECTIONS.CUSTOMERS));
-    if (!custSnapshot.empty) {
+    // Check if USERS or CUSTOMERS already exist in Firestore
+    const usersSnapshot = await getDocs(collection(db, COLLECTIONS.USERS));
+    if (!usersSnapshot.empty) {
       localStorage.setItem(seedKey, 'true');
-      return; // Cloud already has live data
+      return; // Cloud already has users/data — DO NOT OVERWRITE
     }
 
-    // Only seed minimal initial demo users and company info in a single batch
+    // Only seed minimal initial demo users and system org if database is totally empty
     const batch = writeBatch(db);
 
     INITIAL_USERS.forEach((user) => {
@@ -213,8 +215,14 @@ export function getInventoryDocId(item: InventoryItem): string {
 
 export async function syncProductToCloud(product: ProductPriceItem) {
   try {
-    const docId = getProductDocId(product);
-    await setDoc(doc(db, COLLECTIONS.PRODUCTS, docId), cleanForFirestore(product), { merge: true });
+    const orgId = product.organizationId || product.companyId || 'org-system';
+    const stampedProduct: ProductPriceItem = {
+      ...product,
+      organizationId: orgId,
+      companyId: orgId,
+    };
+    const docId = getProductDocId(stampedProduct);
+    await setDoc(doc(db, COLLECTIONS.PRODUCTS, docId), cleanForFirestore(stampedProduct), { merge: true });
   } catch (err) {
     handleFirestoreError(err, 'Save product');
   }
@@ -227,8 +235,14 @@ export async function batchSyncProductsToCloud(products: ProductPriceItem[]) {
       const chunk = products.slice(i, i + CHUNK_SIZE);
       const batch = writeBatch(db);
       chunk.forEach((p) => {
-        const docId = getProductDocId(p);
-        batch.set(doc(db, COLLECTIONS.PRODUCTS, docId), cleanForFirestore(p), { merge: true });
+        const orgId = p.organizationId || p.companyId || 'org-system';
+        const stampedProduct: ProductPriceItem = {
+          ...p,
+          organizationId: orgId,
+          companyId: orgId,
+        };
+        const docId = getProductDocId(stampedProduct);
+        batch.set(doc(db, COLLECTIONS.PRODUCTS, docId), cleanForFirestore(stampedProduct), { merge: true });
       });
       await batch.commit();
     }
@@ -275,8 +289,14 @@ export async function clearCompanyProductsFromCloud(companyId: string) {
 // Inventory Actions (Scoped by organizationId/companyId)
 export async function syncInventoryItemToCloud(item: InventoryItem) {
   try {
-    const docId = getInventoryDocId(item);
-    await setDoc(doc(db, COLLECTIONS.INVENTORY, docId), cleanForFirestore(item), { merge: true });
+    const orgId = item.organizationId || item.companyId || 'org-system';
+    const stampedItem: InventoryItem = {
+      ...item,
+      organizationId: orgId,
+      companyId: orgId,
+    };
+    const docId = getInventoryDocId(stampedItem);
+    await setDoc(doc(db, COLLECTIONS.INVENTORY, docId), cleanForFirestore(stampedItem), { merge: true });
   } catch (err) {
     handleFirestoreError(err, 'Save inventory item');
   }
@@ -289,8 +309,14 @@ export async function batchSyncInventoryToCloud(inventoryItems: InventoryItem[])
       const chunk = inventoryItems.slice(i, i + CHUNK_SIZE);
       const batch = writeBatch(db);
       chunk.forEach((iItem) => {
-        const docId = getInventoryDocId(iItem);
-        batch.set(doc(db, COLLECTIONS.INVENTORY, docId), cleanForFirestore(iItem), { merge: true });
+        const orgId = iItem.organizationId || iItem.companyId || 'org-system';
+        const stampedItem: InventoryItem = {
+          ...iItem,
+          organizationId: orgId,
+          companyId: orgId,
+        };
+        const docId = getInventoryDocId(stampedItem);
+        batch.set(doc(db, COLLECTIONS.INVENTORY, docId), cleanForFirestore(stampedItem), { merge: true });
       });
       await batch.commit();
     }

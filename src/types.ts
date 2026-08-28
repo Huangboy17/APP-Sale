@@ -104,6 +104,7 @@ export interface CompanyInfo {
   website: string; // Website
   bankName?: string; // Tên ngân hàng
   bankAccountNumber?: string; // Số tài khoản ngân hàng
+  bankAccount?: string; // Alias for bankAccountNumber
   bankAccountHolder?: string; // Tên chủ tài khoản
   directorName?: string; // Người đại diện pháp luật / Giám đốc
   directorTitle?: string; // Chức vụ người đại diện (VD: Tổng Giám Đốc)
@@ -129,6 +130,7 @@ export interface Customer {
   city?: string;
   taxCode?: string;
   contactPerson?: string;
+  representative?: string; // Alias for contactPerson / legal representative
   position?: string;
   stage: CustomerStage;
   organizationId: string; // REQUIRED — Organization ID (Tenant Level 1)
@@ -332,6 +334,8 @@ export interface StockOutVoucher {
   createdById: string;
   createdByName: string;
   confirmedAt?: string;
+  receiverName?: string;
+  receiverPhone?: string;
   organizationId: string;
   notes?: string;
   createdAt: string;
@@ -680,6 +684,7 @@ export interface ReserveItem {
 export type PurchaseOrderStatus =
   | 'draft' // Nháp
   | 'ordered' // Đã đặt NCC
+  | 'ORDERED' // Tương thích hoa/thường
   | 'in_transit' // Đang vận chuyển
   | 'partial_received' // Về một phần
   | 'completed' // Đã về đủ
@@ -703,35 +708,39 @@ export interface POLineSalesDemand {
 }
 
 export interface PurchaseOrderItem {
-  id: string;
+  id?: string;
   sku: string;
   productName: string;
-  brand: string;
+  brand?: string;
   unit: string;
   salesRequiredQuantity: number; // Tổng nhu cầu thực tế từ các Sales gom lại
   supplierOrderQuantity: number; // Số lượng Kho quyết định đặt NCC (>= salesRequiredQuantity)
   warehouseExtraQuantity: number; // Kho chủ động mua thêm = max(0, supplierOrderQuantity - salesRequiredQuantity)
-  receivedQuantity: number; // Số lượng thực tế đã nhập kho
-  remainingQuantity: number; // Số lượng còn chờ NCC giao = max(0, supplierOrderQuantity - receivedQuantity)
+  receivedQuantity?: number; // Số lượng thực tế đã nhập kho
+  remainingQuantity?: number; // Số lượng còn chờ NCC giao = max(0, supplierOrderQuantity - receivedQuantity)
   unitCost?: number; // Giá mua dự kiến
+  unitPrice?: number; // Alias for unitCost
+  totalAmount?: number; // Tổng giá trị dòng
   earliestRequiredDate?: string; // Ngày cần sớm nhất
   notes?: string;
-  sourceType: POLineSourceType;
+  sourceType?: POLineSourceType;
   salesDemands: POLineSalesDemand[]; // Danh sách phân rã từng Sales / HĐ
 }
 
 export interface PurchaseOrder {
   id: string;
   poNumber: string; // PO-YYYYMMDD-XXXX
+  supplierId?: string;
   supplierName: string;
   orderDate: string;
   expectedDeliveryDate?: string;
   warehouseLocation: string;
   status: PurchaseOrderStatus;
   items: PurchaseOrderItem[];
-  totalSalesDemand: number;
-  totalOrderQuantity: number;
-  totalReceivedQuantity: number;
+  totalSalesDemand?: number;
+  totalOrderQuantity?: number;
+  totalQuantity?: number; // Alias for totalOrderQuantity
+  totalReceivedQuantity?: number;
   totalAmount?: number;
   createdById: string;
   createdByName: string;
@@ -758,6 +767,7 @@ export type OrderItemStatus =
   | 'delivered' // Đã giao hàng thành công cho khách (Hoàn tất)
   | 'cancelled' // Đã hủy đơn đặt hàng
   | 'pending_order' // Tương thích ngược
+  | 'in_stock' // Tương thích ngược
   | 'arrived_in_stock'; // Tương thích ngược
 
 export interface InboundReceiptEntry {
@@ -769,7 +779,8 @@ export interface InboundReceiptEntry {
   note?: string;
   transactionId?: string;
   actorId?: string;
-  actorName: string;
+  actorName?: string;
+  receiverName?: string; // Alias for actorName
 }
 
 export interface OrderItem {
@@ -786,14 +797,15 @@ export interface OrderItem {
   sku: string;
   productName: string;
   unit: string;
+  warehouseLocation?: string;
   orderQuantity: number; // Tổng số lượng cần đặt mua
   receivedQuantity?: number; // Số lượng đã về kho thực tế (hỗ trợ nhập nhiều đợt)
   remainingQuantity?: number; // Số lượng còn thiếu (orderQuantity - receivedQuantity)
   dispatchedQuantity?: number; // Số lượng đã xuất kho giao khách
   deliveredQuantity?: number; // Số lượng khách đã nhận
-  brand: string;
-  size: string;
-  color: string;
+  brand?: string;
+  size?: string;
+  color?: string;
   orderDate: string;
   status: OrderItemStatus;
   supplierETA?: string;

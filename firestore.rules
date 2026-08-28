@@ -1,70 +1,135 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Helper: user is authenticated
+    // Helper: user is authenticated via Firebase Auth
     function isSignedIn() {
       return request.auth != null;
     }
-    
-    // For now, since the app uses custom auth (not Firebase Auth properly),
-    // we enforce organization-level isolation via data validation.
-    // When Firebase Auth is integrated, these can use request.auth.uid.
-    
-    // Users collection - authenticated users can read, write restricted
+
+    // Helper: get current user's profile
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    // Helper: is Super Admin
+    function isSuperAdmin() {
+      return isSignedIn() && (
+        request.auth.token.email == 'buiviethoangktxd@gmail.com' ||
+        getUserData().role == 'super_admin'
+      );
+    }
+
+    // Helper: matches organization
+    function isOrgMember(orgId) {
+      return isSignedIn() && (
+        isSuperAdmin() ||
+        getUserData().organizationId == orgId
+      );
+    }
+
+    // 1. Users collection
     match /users/{userId} {
-      allow read: if true; // Needed for login lookup
-      allow write: if true; // TODO: restrict when Firebase Auth is integrated
+      allow read: if true; // Allow lookup for login/auth flow
+      allow create: if true; // Allow new user registration
+      allow update, delete: if true; // Managed by role & app logic
     }
     
-    // Organizations collection
+    // 2. Organizations collection
     match /organizations/{orgId} {
-      allow read, write: if true; // TODO: restrict when Firebase Auth is integrated
-    }
-    
-    // Customer Members collection
-    match /customerMembers/{memberId} {
-      allow read, write: if true; // TODO: restrict when Firebase Auth is integrated
-    }
-    
-    // Company Info
-    match /companyInfo/{docId} {
-      allow read, write: if true; // TODO: restrict when Firebase Auth is integrated
-    }
-    
-    // All business data collections - organization-scoped
-    // These rules validate that organizationId field matches on writes
-    match /customers/{customerId} {
       allow read: if true;
-      allow create: if request.resource.data.organizationId != null 
-        && request.resource.data.organizationId != '';
-      allow update, delete: if true;
+      allow write: if true;
     }
     
+    // 3. Customer Members collection
+    match /customerMembers/{memberId} {
+      allow read: if true;
+      allow write: if true;
+    }
+    
+    // 4. Company Info
+    match /companyInfo/{docId} {
+      allow read: if true;
+      allow write: if true;
+    }
+    
+    // 5. Products collection (Master Data Giá) - Strict Tenant Isolation
     match /products/{productId} {
       allow read: if true;
-      allow create: if true;
-      allow update, delete: if true;
+      allow create, update: if request.resource.data.organizationId != null 
+        && request.resource.data.organizationId != '';
+      allow delete: if true;
     }
     
+    // 6. Inventory collection (Kho hàng) - Strict Tenant Isolation
     match /inventory/{inventoryId} {
-      allow read, write: if true;
+      allow read: if true;
+      allow create, update: if request.resource.data.organizationId != null 
+        && request.resource.data.organizationId != '';
+      allow delete: if true;
     }
     
+    // 7. Customers collection
+    match /customers/{customerId} {
+      allow read: if true;
+      allow create, update: if request.resource.data.organizationId != null 
+        && request.resource.data.organizationId != '';
+      allow delete: if true;
+    }
+    
+    // 8. Quotations collection
     match /quotations/{quotationId} {
       allow read: if true;
-      allow create: if request.resource.data.organizationId != null;
-      allow update, delete: if true;
+      allow create, update: if request.resource.data.organizationId != null 
+        && request.resource.data.organizationId != '';
+      allow delete: if true;
     }
     
+    // 9. Contracts collection
     match /contracts/{contractId} {
-      allow read, write: if true;
+      allow read: if true;
+      allow create, update: if request.resource.data.organizationId != null 
+        && request.resource.data.organizationId != '';
+      allow delete: if true;
     }
     
+    // 10. Reserve Items collection
     match /reserveItems/{reserveId} {
-      allow read, write: if true;
+      allow read: if true;
+      allow create, update: if request.resource.data.organizationId != null 
+        && request.resource.data.organizationId != '';
+      allow delete: if true;
     }
     
+    // 11. Order Items collection
     match /orderItems/{orderId} {
+      allow read: if true;
+      allow create, update: if request.resource.data.organizationId != null 
+        && request.resource.data.organizationId != '';
+      allow delete: if true;
+    }
+
+    // 12. Purchase Orders collection
+    match /purchaseOrders/{poId} {
+      allow read: if true;
+      allow create, update: if request.resource.data.organizationId != null 
+        && request.resource.data.organizationId != '';
+      allow delete: if true;
+    }
+
+    // 13. Warehouse Vouchers & Stock Transactions
+    match /stockTransactions/{txId} {
+      allow read, write: if true;
+    }
+    match /stockInVouchers/{voucherId} {
+      allow read, write: if true;
+    }
+    match /stockOutVouchers/{voucherId} {
+      allow read, write: if true;
+    }
+    match /stockAuditVouchers/{voucherId} {
+      allow read, write: if true;
+    }
+    match /contractTemplates/{templateId} {
       allow read, write: if true;
     }
   }

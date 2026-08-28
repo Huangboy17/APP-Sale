@@ -51,6 +51,7 @@ import {
   Save,
   CheckSquare,
   Search,
+  FileSignature,
 } from 'lucide-react';
 
 interface CustomerDetailModalProps {
