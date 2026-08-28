@@ -16,6 +16,7 @@ import {
 
 interface ReceiveOrderModalProps {
   order: OrderItem | null;
+  customer?: Customer;
   contract?: Contract;
   onClose: () => void;
   onConfirm: (orderId: string, warehouseLocation: string) => void;
@@ -23,6 +24,7 @@ interface ReceiveOrderModalProps {
 
 export const ReceiveOrderModal: React.FC<ReceiveOrderModalProps> = ({
   order,
+  customer,
   contract,
   onClose,
   onConfirm,
@@ -32,6 +34,9 @@ export const ReceiveOrderModal: React.FC<ReceiveOrderModalProps> = ({
 
   if (!order) return null;
 
+  const assignedSalesName = customer?.assignedToName || order.salesRepName;
+  const customerDisplayName = customer?.name || order.customerName;
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     onConfirm(order.id, warehouseLocation);
@@ -39,60 +44,45 @@ export const ReceiveOrderModal: React.FC<ReceiveOrderModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-      <div className="bg-white rounded-xl max-w-lg w-full shadow-2xl border border-slate-200 overflow-hidden animate-in fade-in zoom-in-95 duration-150">
-        {/* Header */}
-        <div className="px-5 py-4 bg-blue-700 text-white flex items-center justify-between">
-          <div className="flex items-center space-x-2.5">
-            <div className="w-8 h-8 rounded-lg bg-blue-600/60 border border-blue-500/50 flex items-center justify-center text-white">
-              <PackagePlus className="w-4 h-4" />
-            </div>
-            <div>
-              <h3 className="text-sm font-bold">Nhận Hàng Về Kho & Tự Động Giữ Cho HĐ</h3>
-              <p className="text-xs text-blue-200">Nhập kho đơn đặt hàng PO từ nhà cung cấp</p>
-            </div>
+      <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+        {/* Modal Header */}
+        <div className="p-4 bg-gradient-to-r from-blue-700 to-indigo-700 text-white flex items-center justify-between">
+          <div className="flex items-center space-x-2">
+            <PackagePlus className="w-5 h-5" />
+            <h3 className="font-bold text-sm">Xác Nhận Hàng Đã Về Kho & Tự Động Giữ Hàng</h3>
           </div>
           <button
             onClick={onClose}
-            className="text-blue-200 hover:text-white p-1 rounded-lg hover:bg-blue-600/50 transition cursor-pointer"
+            className="p-1 rounded-lg bg-blue-800/60 hover:bg-blue-800 text-blue-200 hover:text-white transition cursor-pointer"
           >
             <X className="w-4 h-4" />
           </button>
         </div>
 
-        {/* Content Form */}
-        <form onSubmit={handleSubmit} className="p-5 space-y-4 text-xs">
-          {/* Summary Box */}
-          <div className="p-3.5 rounded-lg bg-blue-50/70 border border-blue-200 text-blue-950 space-y-2">
-            <div className="flex items-start justify-between">
-              <div>
-                <span className="font-mono font-bold text-xs text-blue-900 bg-white px-2 py-0.5 rounded border border-blue-200">
-                  {order.sku}
-                </span>
-                <h4 className="font-bold text-slate-900 mt-1 text-xs">{order.productName}</h4>
-                <div className="text-[11px] text-slate-500 mt-0.5">
-                  Hãng: <strong>{order.brand}</strong> | Quy cách: <strong>{order.size}</strong>
-                </div>
-              </div>
-              <div className="text-right">
-                <span className="text-[10px] text-blue-700 font-semibold block uppercase">Số lượng nhập</span>
-                <span className="font-mono font-extrabold text-base text-blue-800">
-                  +{order.orderQuantity} {order.unit}
-                </span>
-              </div>
+        {/* Modal Body */}
+        <form onSubmit={handleSubmit} className="p-4 space-y-3.5">
+          {/* Order Summary Card */}
+          <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="font-mono font-bold text-sm text-blue-700">{order.sku}</span>
+              <span className="text-xs font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded-full">
+                Nhập kho: {order.orderQuantity} {order.unit}
+              </span>
             </div>
+            <div className="font-bold text-slate-900 text-xs">{order.productName}</div>
 
-            <div className="grid grid-cols-2 gap-2 pt-2 border-t border-blue-200/60 text-[11px]">
+            <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-200 text-[11px]">
               <div>
                 <span className="text-slate-500">Hợp đồng:</span>{' '}
                 <strong className="text-slate-900">{order.contractNumber}</strong>
               </div>
               <div>
                 <span className="text-slate-500">Khách hàng:</span>{' '}
-                <strong className="text-slate-900">{order.customerName}</strong>
+                <strong className="text-slate-900">{customerDisplayName}</strong>
               </div>
               <div>
                 <span className="text-slate-500">Sales phụ trách:</span>{' '}
-                <strong className="text-slate-900">{order.salesRepName}</strong>
+                <strong className="text-slate-900">{assignedSalesName}</strong>
               </div>
               <div>
                 <span className="text-slate-500">Dự kiến ETA:</span>{' '}
@@ -135,7 +125,7 @@ export const ReceiveOrderModal: React.FC<ReceiveOrderModalProps> = ({
             </div>
             <ul className="list-disc pl-4 space-y-0.5 text-emerald-800">
               <li>Cộng <strong>+{order.orderQuantity} {order.unit}</strong> vào Tồn thực tế của mã <strong>{order.sku}</strong>.</li>
-              <li>Tự động chuyển mã này sang <strong>Bảng Giữ Hàng</strong> cho hợp đồng <strong>{order.contractNumber}</strong> của Sale <strong>{order.salesRepName}</strong>.</li>
+              <li>Tự động chuyển mã này sang <strong>Bảng Giữ Hàng</strong> cho hợp đồng <strong>{order.contractNumber}</strong> của Sale <strong>{assignedSalesName}</strong>.</li>
               <li>Đánh dấu đơn đặt hàng này là <strong>Đã về kho</strong>.</li>
             </ul>
           </div>

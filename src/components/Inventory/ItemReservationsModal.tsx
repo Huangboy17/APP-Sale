@@ -98,12 +98,15 @@ export const ItemReservationsModal: React.FC<ItemReservationsModalProps> = ({ it
   const handleExportExcel = () => {
     const data = itemReserves.map((r, idx) => {
       const cust = getCustomerInfo(r.customerId);
+      const resolvedSales = cust?.assignedToName || r.salesRepName;
+      const resolvedCustomer = cust?.name || r.customerName;
+
       return {
         'STT': idx + 1,
         'Mã Hàng (SKU)': r.sku,
         'Tên Sản Phẩm': r.productName,
-        'Sales Phụ Trách': r.salesRepName,
-        'Khách Hàng': r.customerName,
+        'Sales Phụ Trách': resolvedSales,
+        'Khách Hàng': resolvedCustomer,
         'Công Ty / Dự Án': cust?.company || '',
         'Số Điện Thoại': cust?.phone || '',
         'Số Hợp Đồng': r.contractNumber,
@@ -283,7 +286,8 @@ export const ItemReservationsModal: React.FC<ItemReservationsModalProps> = ({ it
                   <div className="space-y-2.5">
                     {activeHolds.map((res) => {
                       const cust = getCustomerInfo(res.customerId);
-                      const isMyHold = currentUser.name === res.salesRepName;
+                      const assignedSalesName = cust?.assignedToName || res.salesRepName;
+                      const isMyHold = currentUser.name === assignedSalesName || (cust?.assignedToId && currentUser.id === cust.assignedToId);
 
                       return (
                         <div
@@ -294,12 +298,12 @@ export const ItemReservationsModal: React.FC<ItemReservationsModalProps> = ({ it
                             {/* SALE INFO & CUSTOMER */}
                             <div className="flex items-start space-x-3">
                               <div className="w-9 h-9 rounded-full bg-amber-500 text-white font-bold text-xs flex items-center justify-center shrink-0 shadow-2xs">
-                                {res.salesRepName.split(' ').pop()?.slice(0, 2).toUpperCase() || 'SA'}
+                                {assignedSalesName.split(' ').pop()?.slice(0, 2).toUpperCase() || 'SA'}
                               </div>
                               <div>
                                 <div className="flex items-center space-x-2 flex-wrap">
                                   <span className="font-bold text-sm text-slate-900">
-                                    Sale: <span className="text-blue-700">{res.salesRepName}</span>
+                                    Sale: <span className="text-blue-700">{assignedSalesName}</span>
                                   </span>
                                   {isMyHold && (
                                     <span className="px-1.5 py-0.2 rounded text-[10px] font-bold bg-blue-100 text-blue-800 border border-blue-200">
@@ -446,8 +450,8 @@ export const ItemReservationsModal: React.FC<ItemReservationsModalProps> = ({ it
                                 {res.status === 'dispatched' ? 'Đã xuất kho' : 'Đã hủy giữ'}
                               </span>
                               <span>
-                                Sale: <strong className="text-slate-800">{res.salesRepName}</strong> giữ cho{' '}
-                                <strong className="text-slate-800">{res.customerName}</strong> ({res.contractNumber})
+                                Sale: <strong className="text-slate-800">{cust?.assignedToName || res.salesRepName}</strong> giữ cho{' '}
+                                <strong className="text-slate-800">{cust?.name || res.customerName}</strong> ({res.contractNumber})
                               </span>
                             </div>
                             <div className="flex items-center space-x-2">

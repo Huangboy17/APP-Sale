@@ -39,7 +39,13 @@ export const ProductInventoryDrawer: React.FC<ProductInventoryDrawerProps> = ({
     quickAdjustStock,
     setPdfPreviewData,
     contracts,
+    customers,
   } = useApp();
+
+  const customerMap = React.useMemo(
+    () => new Map(customers.map((c) => [c.id, c])),
+    [customers]
+  );
 
   const [activeTab, setActiveTab] = useState<'holds' | 'orders' | 'history'>('holds');
   const [isQuickAdjusting, setIsQuickAdjusting] = useState(false);
@@ -297,6 +303,10 @@ export const ProductInventoryDrawer: React.FC<ProductInventoryDrawerProps> = ({
                 <div className="space-y-2">
                   {itemReserves.map((res) => {
                     const isHolding = res.status === 'holding';
+                    const cust = customerMap.get(res.customerId);
+                    const assignedSales = cust ? cust.assignedToName : (res.salesRepName || 'ORPHAN CUSTOMER');
+                    const custName = cust ? cust.name : (res.customerName || 'ORPHAN CUSTOMER');
+
                     return (
                       <div
                         key={res.id}
@@ -312,7 +322,7 @@ export const ProductInventoryDrawer: React.FC<ProductInventoryDrawerProps> = ({
                           <div className="space-y-1">
                             <div className="flex items-center space-x-2">
                               <span className="font-bold text-slate-900 text-xs sm:text-sm">
-                                {res.customerName || 'Khách hàng'}
+                                {custName}
                               </span>
                               <span
                                 className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
@@ -337,7 +347,7 @@ export const ProductInventoryDrawer: React.FC<ProductInventoryDrawerProps> = ({
                               </span>
                               <span className="flex items-center space-x-1">
                                 <User className="w-3 h-3 text-slate-400" />
-                                <span>Sales: {res.salesRepName || '---'}</span>
+                                <span>Sales: <strong className="text-slate-800">{assignedSales}</strong></span>
                               </span>
                               <span className="flex items-center space-x-1">
                                 <Calendar className="w-3 h-3 text-slate-400" />
@@ -395,6 +405,10 @@ export const ProductInventoryDrawer: React.FC<ProductInventoryDrawerProps> = ({
                 <div className="space-y-2">
                   {itemOrders.map((ord) => {
                     const isPending = ord.status === 'pending_order' || ord.status === 'ordered';
+                    const cust = customerMap.get(ord.customerId);
+                    const assignedSales = cust ? cust.assignedToName : (ord.salesRepName || 'ORPHAN CUSTOMER');
+                    const custName = cust ? cust.name : (ord.customerName || 'Đơn đặt mua');
+
                     return (
                       <div
                         key={ord.id}
@@ -410,7 +424,7 @@ export const ProductInventoryDrawer: React.FC<ProductInventoryDrawerProps> = ({
                           <div className="space-y-1">
                             <div className="flex items-center space-x-2">
                               <span className="font-bold text-slate-900 text-xs sm:text-sm">
-                                {ord.customerName || 'Đơn đặt mua'}
+                                {custName}
                               </span>
                               <span
                                 className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
@@ -434,7 +448,7 @@ export const ProductInventoryDrawer: React.FC<ProductInventoryDrawerProps> = ({
                             </div>
                             <div className="text-[11px] text-slate-600 flex flex-wrap items-center gap-3">
                               <span>HĐ: {ord.contractNumber || '---'}</span>
-                              <span>Sales: {ord.salesRepName || '---'}</span>
+                              <span>Sales: <strong className="text-slate-800">{assignedSales}</strong></span>
                               <span>Ngày tạo: {ord.orderDate || '---'}</span>
                             </div>
                             {ord.notes && (

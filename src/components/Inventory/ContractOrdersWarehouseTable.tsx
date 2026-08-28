@@ -53,13 +53,32 @@ export const ContractOrdersWarehouseTable: React.FC<ContractOrdersWarehouseTable
   const customerMap = new Map<string, Customer>();
   customers.forEach((c) => customerMap.set(c.id, c));
 
+  // Helper to dynamically resolve Sales Rep from Customer Master (Single Source of Truth)
+  const getAssignedSalesRepName = (o: OrderItem): string => {
+    const cust = customerMap.get(o.customerId);
+    if (cust) {
+      return cust.assignedToName || 'Chưa phân công';
+    }
+    return o.salesRepName ? `${o.salesRepName} (Orphan)` : 'ORPHAN CUSTOMER';
+  };
+
+  const getCustomerDisplayName = (o: OrderItem): string => {
+    const cust = customerMap.get(o.customerId);
+    return cust?.name || o.customerName || 'ORPHAN CUSTOMER';
+  };
+
   const filteredOrders = orderItems.filter((o) => {
+    const resolvedSales = getAssignedSalesRepName(o);
+    const resolvedCustomer = getCustomerDisplayName(o);
+    const cust = customerMap.get(o.customerId);
+
     const matchSearch =
       o.sku.toLowerCase().includes(searchTerm.toLowerCase()) ||
       o.productName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      o.customerName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      o.salesRepName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      resolvedCustomer.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      resolvedSales.toLowerCase().includes(searchTerm.toLowerCase()) ||
       o.contractNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (cust?.company && cust.company.toLowerCase().includes(searchTerm.toLowerCase())) ||
       o.brand.toLowerCase().includes(searchTerm.toLowerCase());
 
     const matchStatus = statusFilter === 'all' || o.status === statusFilter;
@@ -78,6 +97,9 @@ export const ContractOrdersWarehouseTable: React.FC<ContractOrdersWarehouseTable
   const handleExportExcel = () => {
     const data = filteredOrders.map((o, idx) => {
       const cust = customerMap.get(o.customerId);
+      const resolvedSales = getAssignedSalesRepName(o);
+      const resolvedCustomer = getCustomerDisplayName(o);
+
       return {
         'STT': idx + 1,
         'Mã Hàng (SKU)': o.sku,
@@ -87,11 +109,11 @@ export const ContractOrdersWarehouseTable: React.FC<ContractOrdersWarehouseTable
         'Màu Sắc': o.color,
         'Số Lượng Cần Đặt': o.orderQuantity,
         'ĐVT': o.unit,
-        'Khách Hàng': o.customerName,
+        'Khách Hàng': resolvedCustomer,
         'Công Ty Khách': cust?.company || '',
         'Số Hợp Đồng': o.contractNumber,
         'Số Báo Giá': o.quoteNumber,
-        'Sales Phụ Trách': o.salesRepName,
+        'Sales Phụ Trách': resolvedSales,
         'Ngày Tạo Đơn HĐ': o.orderDate,
         'Dự Kiến Hàng Về (ETA)': o.supplierETA || '',
         'Ghi Chú Tiến Độ PO': o.notes || '',
@@ -253,7 +275,9 @@ export const ContractOrdersWarehouseTable: React.FC<ContractOrdersWarehouseTable
                           <FileText className="w-3 h-3 text-blue-500 shrink-0" />
                           <span>{order.contractNumber}</span>
                         </button>
-                        <div className="font-semibold text-slate-900 mt-0.5">{order.customerName}</div>
+                        <div className="font-semibold text-slate-900 mt-0.5">
+                          {getCustomerDisplayName(order)}
+                        </div>
                         {cust?.company && (
                           <div className="text-[10px] text-slate-500 truncate max-w-xs">{cust.company}</div>
                         )}
@@ -263,7 +287,12 @@ export const ContractOrdersWarehouseTable: React.FC<ContractOrdersWarehouseTable
                       <td className="px-3.5 py-2.5">
                         <div className="font-bold text-slate-900 flex items-center space-x-1">
                           <User className="w-3 h-3 text-blue-600 shrink-0" />
-                          <span>{order.salesRepName}</span>
+                          <span className={cust ? 'text-slate-900' : 'text-rose-600 italic'}>
+                            {getAssignedSalesRepName(order)}
+                          </span>
+                        </div>
+                        <div className="text-[10px] text-slate-500 mt-0.5">
+                          {cust ? 'Phụ trách khách hàng' : '⚠️ Khách hàng không tồn tại'}
                         </div>
                       </td>
 

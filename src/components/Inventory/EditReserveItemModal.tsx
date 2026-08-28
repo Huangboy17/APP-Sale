@@ -125,7 +125,7 @@ export const EditReserveItemModal: React.FC<EditReserveItemModalProps> = ({
               <div className="flex items-center space-x-1.5 truncate">
                 <User className="w-3 h-3 text-slate-400 shrink-0" />
                 <span className="truncate">
-                  Sale: <strong>{item.salesRepName}</strong>
+                  Sale: <strong>{customer?.assignedToName || item.salesRepName}</strong>
                 </span>
               </div>
               <div className="flex items-center space-x-1.5 truncate">

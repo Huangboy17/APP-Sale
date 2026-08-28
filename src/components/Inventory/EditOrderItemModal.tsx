@@ -133,7 +133,7 @@ export const EditOrderItemModal: React.FC<EditOrderItemModalProps> = ({
               <div className="flex items-center space-x-1.5 truncate">
                 <User className="w-3 h-3 text-slate-400 shrink-0" />
                 <span className="truncate">
-                  Sale: <strong>{order.salesRepName}</strong>
+                  Sale: <strong>{customer?.assignedToName || order.salesRepName}</strong>
                 </span>
               </div>
               <div className="flex items-center space-x-1.5 truncate">

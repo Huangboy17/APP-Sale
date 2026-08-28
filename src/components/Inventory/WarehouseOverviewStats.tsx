@@ -1,5 +1,5 @@
 import React from 'react';
-import { InventoryItem, ReserveItem, OrderItem } from '../../types';
+import { InventoryItem, ReserveItem, OrderItem, Customer } from '../../types';
 import {
   Boxes,
   Layers,
@@ -19,6 +19,7 @@ interface WarehouseOverviewStatsProps {
   inventory: InventoryItem[];
   reserveItems: ReserveItem[];
   orderItems: OrderItem[];
+  customers?: Customer[];
   onSelectTab: (tabKey: 'all_inventory' | 'holding_reserves' | 'contract_orders' | 'critical_alerts') => void;
 }
 
@@ -26,8 +27,11 @@ export const WarehouseOverviewStats: React.FC<WarehouseOverviewStatsProps> = ({
   inventory,
   reserveItems,
   orderItems,
+  customers = [],
   onSelectTab,
 }) => {
+  const customerMap = React.useMemo(() => new Map(customers.map((c) => [c.id, c])), [customers]);
+
   // Calculations
   const totalSkus = inventory.length;
   const totalPhysicalStock = inventory.reduce((sum, i) => sum + (i.totalQuantity || 0), 0);
@@ -45,8 +49,12 @@ export const WarehouseOverviewStats: React.FC<WarehouseOverviewStatsProps> = ({
   const outOfStockCount = inventory.filter((i) => i.availableQuantity === 0).length;
   const lowStockCount = inventory.filter((i) => i.availableQuantity > 0 && i.availableQuantity <= 5).length;
 
-  const salesWithHolds = new Set(activeReserves.map((r) => r.salesRepName)).size;
-  const customersWithHolds = new Set(activeReserves.map((r) => r.customerName)).size;
+  const salesWithHolds = new Set(
+    activeReserves.map((r) => customerMap.get(r.customerId)?.assignedToName || r.salesRepName)
+  ).size;
+  const customersWithHolds = new Set(
+    activeReserves.map((r) => customerMap.get(r.customerId)?.name || r.customerName)
+  ).size;
 
   return (
     <div className="space-y-3">

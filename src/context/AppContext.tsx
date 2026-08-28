@@ -969,36 +969,58 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       batchDeleteQuotationsFromCloud(orphanIds);
     }
 
-    if (hadOrphans) {
-      const validHoldingReserves = reserveItems.filter(
-        (r) => r.status === 'holding' && r.customerId && validCustomerIds.has(r.customerId)
-      );
-      const reserveMap = new Map<string, number>();
-      validHoldingReserves.forEach((r) => {
-        const cleanSku = (r.sku || '').trim().toLowerCase();
-        reserveMap.set(cleanSku, (reserveMap.get(cleanSku) || 0) + (r.reservedQuantity || 0));
-      });
+    // 5. Self-Healing: Reconcile Sales Rep assignments in ReserveItems and OrderItems with current Customer Master
+    const customerMap = new Map(customers.map((c) => [c.id, c]));
+    let reservesReconciled = false;
+    const reconciledReserves = reserveItems.map((r) => {
+      const parentCust = r.customerId ? customerMap.get(r.customerId) : null;
+      if (
+        parentCust &&
+        parentCust.assignedToName &&
+        (r.salesRepName !== parentCust.assignedToName || r.salesRepId !== parentCust.assignedToId || r.customerName !== parentCust.name)
+      ) {
+        reservesReconciled = true;
+        return {
+          ...r,
+          customerName: parentCust.name || r.customerName,
+          salesRepId: parentCust.assignedToId,
+          salesRepName: parentCust.assignedToName,
+        };
+      }
+      return r;
+    });
 
-      setInventory((prevInv) => {
-        const updated = prevInv.map((item) => {
-          const cleanSku = (item.sku || '').trim().toLowerCase();
-          const actualReserved = reserveMap.get(cleanSku) || 0;
-          const actualAvailable = Math.max(0, (item.totalQuantity || 0) - actualReserved);
-          if (item.reservedQuantity !== actualReserved || item.availableQuantity !== actualAvailable) {
-            return {
-              ...item,
-              reservedQuantity: actualReserved,
-              availableQuantity: actualAvailable,
-              updatedAt: new Date().toISOString().split('T')[0],
-            };
-          }
-          return item;
-        });
-        saveInventoryToIndexedDB(updated);
-        return updated;
-      });
+    if (reservesReconciled) {
+      console.log('[SalesReconciliation] Reconciling reserve items with Customer Master assigned Sales');
+      setReserveItems(reconciledReserves);
+      batchSyncReservesToCloud(reconciledReserves.filter((r) => r.customerId && validCustomerIds.has(r.customerId)));
     }
-  }, [customers.length]);
+
+    let ordersReconciled = false;
+    const reconciledOrders = orderItems.map((o) => {
+      const parentCust = o.customerId ? customerMap.get(o.customerId) : null;
+      if (
+        parentCust &&
+        parentCust.assignedToName &&
+        (o.salesRepName !== parentCust.assignedToName || o.salesRepId !== parentCust.assignedToId || o.customerName !== parentCust.name)
+      ) {
+        ordersReconciled = true;
+        return {
+          ...o,
+          customerName: parentCust.name || o.customerName,
+          salesRepId: parentCust.assignedToId,
+          salesRepName: parentCust.assignedToName,
+        };
+      }
+      return o;
+    });
+
+    if (ordersReconciled) {
+      console.log('[SalesReconciliation] Reconciling order items with Customer Master assigned Sales');
+      setOrderItems(reconciledOrders);
+      batchSyncOrdersToCloud(reconciledOrders.filter((o) => o.customerId && validCustomerIds.has(o.customerId)));
+    }
+  }, [customers]);
 
   // Sync all current state to Google Cloud Firestore on demand
   const syncAllToCloudNow = async () => {
@@ -1510,6 +1532,47 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       prev.map((c) => (c.id === updated.id ? itemWithTime : c))
     );
     syncCustomerToCloud(itemWithTime);
+
+    // Synchronize assigned sales representative to all active reserves and orders for this customer
+    setReserveItems((prevReserves) => {
+      let changed = false;
+      const updatedReserves = prevReserves.map((r) => {
+        if (r.customerId === updated.id) {
+          changed = true;
+          return {
+            ...r,
+            customerName: updated.name,
+            salesRepId: updated.assignedToId,
+            salesRepName: updated.assignedToName,
+          };
+        }
+        return r;
+      });
+      if (changed) {
+        batchSyncReservesToCloud(updatedReserves.filter((r) => r.customerId === updated.id));
+      }
+      return updatedReserves;
+    });
+
+    setOrderItems((prevOrders) => {
+      let changed = false;
+      const updatedOrders = prevOrders.map((o) => {
+        if (o.customerId === updated.id) {
+          changed = true;
+          return {
+            ...o,
+            customerName: updated.name,
+            salesRepId: updated.assignedToId,
+            salesRepName: updated.assignedToName,
+          };
+        }
+        return o;
+      });
+      if (changed) {
+        batchSyncOrdersToCloud(updatedOrders.filter((o) => o.customerId === updated.id));
+      }
+      return updatedOrders;
+    });
   };
 
   const updateCustomerStage = (customerId: string, stage: CustomerStage, rejectReason?: string) => {
@@ -1535,8 +1598,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const assignCustomer = (customerId: string, salesId: string, salesName: string) => {
     const now = new Date().toISOString().split('T')[0];
+    let targetCust: Customer | null = null;
     setCustomers((prev) => {
-      let targetCust: Customer | null = null;
       const updated = prev.map((c) => {
         if (c.id === customerId) {
           // Also add the new assignee to memberIds if not already there
@@ -1551,6 +1614,45 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       });
       if (targetCust) syncCustomerToCloud(targetCust);
       return updated;
+    });
+
+    // Synchronize assigned sales representative to all active reserves and orders for this customer
+    setReserveItems((prevReserves) => {
+      let changed = false;
+      const updatedReserves = prevReserves.map((r) => {
+        if (r.customerId === customerId) {
+          changed = true;
+          return {
+            ...r,
+            salesRepId: salesId,
+            salesRepName: salesName,
+          };
+        }
+        return r;
+      });
+      if (changed) {
+        batchSyncReservesToCloud(updatedReserves.filter((r) => r.customerId === customerId));
+      }
+      return updatedReserves;
+    });
+
+    setOrderItems((prevOrders) => {
+      let changed = false;
+      const updatedOrders = prevOrders.map((o) => {
+        if (o.customerId === customerId) {
+          changed = true;
+          return {
+            ...o,
+            salesRepId: salesId,
+            salesRepName: salesName,
+          };
+        }
+        return o;
+      });
+      if (changed) {
+        batchSyncOrdersToCloud(updatedOrders.filter((o) => o.customerId === customerId));
+      }
+      return updatedOrders;
     });
   };
 
@@ -2546,14 +2648,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
 
     // 3. Create a holding reserve item for this contract/customer
+    const targetCustomer = customers.find((c) => c.id === order.customerId);
     const newReserve: ReserveItem = {
       id: `res-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
       contractId: order.contractId,
       contractNumber: order.contractNumber,
       quoteNumber: order.quoteNumber,
       customerId: order.customerId,
-      customerName: order.customerName,
-      salesRepName: order.salesRepName,
+      customerName: targetCustomer?.name || order.customerName,
+      salesRepId: targetCustomer?.assignedToId || order.salesRepId || currentUser.id,
+      salesRepName: targetCustomer?.assignedToName || order.salesRepName || currentUser.name,
+      createdBy: currentUser.id,
       sku: order.sku,
       productName: order.productName,
       unit: order.unit,
@@ -2892,6 +2997,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     // 3. Create Contract with master company branding
     const myOrgId = resolveOrganizationId(currentUser, users);
+    const targetCustomer = customers.find((c) => c.id === quote.customerId);
+    const resolvedCustomerName = targetCustomer?.name || quote.customerName;
+    const resolvedSalesRepId = targetCustomer?.assignedToId || quote.salesRepId || currentUser.id;
+    const resolvedSalesRepName = targetCustomer?.assignedToName || quote.salesRepName || currentUser.name;
+
     const newContract: Contract = {
       id: contractId,
       organizationId: myOrgId, // AUTO-STAMP: tenant isolation
@@ -2899,10 +3009,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       quotationId: quote.id,
       quoteNumber: quote.quoteNumber,
       customerId: quote.customerId,
-      customerName: quote.customerName,
-      customerCompany: quote.customerCompany,
-      customerAddress: quote.customerAddress,
-      customerPhone: quote.customerPhone,
+      customerName: resolvedCustomerName,
+      customerCompany: quote.customerCompany || targetCustomer?.company,
+      customerAddress: quote.customerAddress || targetCustomer?.address,
+      customerPhone: quote.customerPhone || targetCustomer?.phone,
       companyName: quote.companyName || companyInfo.name,
       companyTaxCode: quote.companyTaxCode || companyInfo.taxCode,
       companyAddress: quote.companyAddress || companyInfo.address,
@@ -2910,12 +3020,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       companyEmail: quote.companyEmail || companyInfo.email,
       companyWebsite: quote.companyWebsite || companyInfo.website,
       companyLogo: quote.companyLogo || companyInfo.logoUrl || companyInfo.logo,
-      salesRepId: quote.salesRepId,
-      salesRepName: quote.salesRepName,
-      salesRepPhone: quote.salesRepPhone,
+      salesRepId: resolvedSalesRepId,
+      salesRepName: resolvedSalesRepName,
+      salesRepPhone: quote.salesRepPhone || currentUser.phone,
+      createdBy: currentUser.id,
       contractDate: now,
       deliveryDate: contractDetails?.deliveryDate || new Date(Date.now() + 14 * 86400000).toISOString().split('T')[0],
-      deliveryAddress: contractDetails?.deliveryAddress || quote.customerAddress || 'Giao tại chân công trình',
+      deliveryAddress: contractDetails?.deliveryAddress || quote.customerAddress || targetCustomer?.address || 'Giao tại chân công trình',
       items: quote.items,
       totalValue: quote.grandTotal,
       milestones: quote.milestones,
@@ -2948,8 +3059,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           contractNumber,
           quoteNumber: quote.quoteNumber,
           customerId: quote.customerId,
-          customerName: quote.customerName,
-          salesRepName: quote.salesRepName,
+          customerName: resolvedCustomerName,
+          salesRepId: resolvedSalesRepId,
+          salesRepName: resolvedSalesRepName,
+          createdBy: currentUser.id,
           sku: item.sku,
           productName: item.name,
           unit: item.unit,
@@ -2978,8 +3091,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           contractNumber,
           quoteNumber: quote.quoteNumber,
           customerId: quote.customerId,
-          customerName: quote.customerName,
-          salesRepName: quote.salesRepName,
+          customerName: resolvedCustomerName,
+          salesRepId: resolvedSalesRepId,
+          salesRepName: resolvedSalesRepName,
+          createdBy: currentUser.id,
           sku: item.sku,
           productName: item.name,
           unit: item.unit,
@@ -2997,8 +3112,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           contractNumber,
           quoteNumber: quote.quoteNumber,
           customerId: quote.customerId,
-          customerName: quote.customerName,
-          salesRepName: quote.salesRepName,
+          customerName: resolvedCustomerName,
+          salesRepId: resolvedSalesRepId,
+          salesRepName: resolvedSalesRepName,
+          createdBy: currentUser.id,
           sku: item.sku,
           productName: item.name,
           unit: item.unit,
@@ -3026,8 +3143,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           contractNumber,
           quoteNumber: quote.quoteNumber,
           customerId: quote.customerId,
-          customerName: quote.customerName,
-          salesRepName: quote.salesRepName,
+          customerName: resolvedCustomerName,
+          salesRepId: resolvedSalesRepId,
+          salesRepName: resolvedSalesRepName,
+          createdBy: currentUser.id,
           sku: item.sku,
           productName: item.name,
           unit: item.unit,

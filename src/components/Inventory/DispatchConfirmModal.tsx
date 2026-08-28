@@ -97,11 +97,11 @@ export const DispatchConfirmModal: React.FC<DispatchConfirmModalProps> = ({
               </div>
               <div>
                 <span className="text-slate-500">Khách hàng:</span>{' '}
-                <strong className="text-slate-900">{item.customerName}</strong>
+                <strong className="text-slate-900">{customer?.name || item.customerName}</strong>
               </div>
               <div>
                 <span className="text-slate-500">Sales phụ trách:</span>{' '}
-                <strong className="text-slate-900">{item.salesRepName}</strong>
+                <strong className="text-slate-900">{customer?.assignedToName || item.salesRepName}</strong>
               </div>
               <div>
                 <span className="text-slate-500">Vị trí xuất:</span>{' '}

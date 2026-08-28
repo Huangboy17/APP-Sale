@@ -54,21 +54,42 @@ export const ReservedItemsWarehouseTable: React.FC<ReservedItemsWarehouseTablePr
   const contractMap = new Map<string, Contract>();
   contracts.forEach((c) => contractMap.set(c.id, c));
 
-  // Extract distinct sales reps
-  const salesRepList = Array.from(new Set(reserveItems.map((r) => r.salesRepName).filter(Boolean)));
+  // Helper to dynamically resolve Sales Rep from Customer Master (Single Source of Truth)
+  const getAssignedSalesRepName = (r: ReserveItem): string => {
+    const cust = customerMap.get(r.customerId);
+    if (cust) {
+      return cust.assignedToName || 'Chưa phân công';
+    }
+    return r.salesRepName ? `${r.salesRepName} (Orphan)` : 'ORPHAN CUSTOMER';
+  };
+
+  const getCustomerDisplayName = (r: ReserveItem): string => {
+    const cust = customerMap.get(r.customerId);
+    return cust?.name || r.customerName || 'ORPHAN CUSTOMER';
+  };
+
+  // Extract distinct sales reps from dynamic resolution
+  const salesRepList = Array.from(
+    new Set(reserveItems.map((r) => getAssignedSalesRepName(r)).filter(Boolean))
+  );
 
   // Filtered items
   const filteredReserves = reserveItems.filter((r) => {
+    const resolvedSales = getAssignedSalesRepName(r);
+    const resolvedCustomer = getCustomerDisplayName(r);
+    const cust = customerMap.get(r.customerId);
+
     const matchSearch =
       r.sku.toLowerCase().includes(searchTerm.toLowerCase()) ||
       r.productName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      r.customerName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      r.salesRepName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      resolvedCustomer.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      resolvedSales.toLowerCase().includes(searchTerm.toLowerCase()) ||
       r.contractNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (cust?.company && cust.company.toLowerCase().includes(searchTerm.toLowerCase())) ||
       (r.warehouseLocation && r.warehouseLocation.toLowerCase().includes(searchTerm.toLowerCase()));
 
     const matchStatus = statusFilter === 'all' || r.status === statusFilter;
-    const matchSales = selectedSalesRep === 'all' || r.salesRepName === selectedSalesRep;
+    const matchSales = selectedSalesRep === 'all' || resolvedSales === selectedSalesRep;
 
     return matchSearch && matchStatus && matchSales;
   });
@@ -83,14 +104,17 @@ export const ReservedItemsWarehouseTable: React.FC<ReservedItemsWarehouseTablePr
     const exportData = filteredReserves.map((r, idx) => {
       const cust = customerMap.get(r.customerId);
       const ctr = contractMap.get(r.contractId);
+      const resolvedSales = getAssignedSalesRepName(r);
+      const resolvedCustomer = getCustomerDisplayName(r);
+
       return {
         'STT': idx + 1,
         'Mã Hàng (SKU)': r.sku,
         'Tên Sản Phẩm': r.productName,
         'Số Lượng Giữ': r.reservedQuantity,
         'ĐVT': r.unit,
-        'Sales Phụ Trách': r.salesRepName,
-        'Khách Hàng': r.customerName,
+        'Sales Phụ Trách': resolvedSales,
+        'Khách Hàng': resolvedCustomer,
         'Công Ty Khách': cust?.company || '',
         'SĐT Khách': cust?.phone || '',
         'Địa Chỉ Giao Hàng': ctr?.deliveryAddress || cust?.address || '',
@@ -237,16 +261,20 @@ export const ReservedItemsWarehouseTable: React.FC<ReservedItemsWarehouseTablePr
                       <td className="px-3.5 py-2.5">
                         <div className="font-bold text-slate-900 flex items-center space-x-1">
                           <User className="w-3 h-3 text-blue-600 shrink-0" />
-                          <span>{reserve.salesRepName}</span>
+                          <span className={cust ? 'text-slate-900' : 'text-rose-600 italic'}>
+                            {getAssignedSalesRepName(reserve)}
+                          </span>
                         </div>
-                        <div className="text-[10px] text-slate-500 mt-0.5">Phụ trách giữ hàng</div>
+                        <div className="text-[10px] text-slate-500 mt-0.5">
+                          {cust ? 'Phụ trách khách hàng' : '⚠️ Khách hàng không tồn tại'}
+                        </div>
                       </td>
 
                       {/* Customer & Company */}
                       <td className="px-3.5 py-2.5">
                         <div className="font-bold text-slate-900 flex items-center space-x-1">
                           <Building className="w-3 h-3 text-slate-400 shrink-0" />
-                          <span>{reserve.customerName}</span>
+                          <span>{getCustomerDisplayName(reserve)}</span>
                         </div>
                         {cust?.company && (
                           <div className="text-[11px] text-slate-600 truncate max-w-xs" title={cust.company}>

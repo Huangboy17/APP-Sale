@@ -33,18 +33,36 @@ export const SalesSignedContractsTable: React.FC<SalesSignedContractsTableProps>
   timeLabel,
   salesRepLabel,
 }) => {
-  const { setPdfPreviewData, setActiveTab, updateContractMilestoneStatus } = useApp();
+  const { setPdfPreviewData, setActiveTab, updateContractMilestoneStatus, customers } = useApp();
   const [searchTerm, setSearchTerm] = useState('');
   const [expandedContractId, setExpandedContractId] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<string>('all');
 
+  const customerMap = React.useMemo(() => new Map(customers.map((c) => [c.id, c])), [customers]);
+
+  const getAssignedSalesRepName = (c: Contract): string => {
+    const cust = customerMap.get(c.customerId);
+    if (cust) return cust.assignedToName || 'Chưa phân công';
+    return c.salesRepName || 'ORPHAN CUSTOMER';
+  };
+
+  const getCustomerDisplayName = (c: Contract): string => {
+    const cust = customerMap.get(c.customerId);
+    return cust?.name || c.customerName || 'ORPHAN CUSTOMER';
+  };
+
   const displayedContracts = contracts.filter((c) => {
+    const resolvedSales = getAssignedSalesRepName(c);
+    const resolvedCustomer = getCustomerDisplayName(c);
+    const cust = customerMap.get(c.customerId);
+
     const matchesSearch =
       c.contractNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      c.customerName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      resolvedCustomer.toLowerCase().includes(searchTerm.toLowerCase()) ||
       (c.customerCompany && c.customerCompany.toLowerCase().includes(searchTerm.toLowerCase())) ||
+      (cust?.company && cust.company.toLowerCase().includes(searchTerm.toLowerCase())) ||
       c.quoteNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      c.salesRepName.toLowerCase().includes(searchTerm.toLowerCase());
+      resolvedSales.toLowerCase().includes(searchTerm.toLowerCase());
 
     const matchesStatus = statusFilter === 'all' || c.status === statusFilter;
 
@@ -62,14 +80,18 @@ export const SalesSignedContractsTable: React.FC<SalesSignedContractsTableProps>
   const handleExportExcel = () => {
     const exportData = displayedContracts.map((c, index) => {
       const completedMilestones = c.milestones.filter((m) => m.status === 'completed').length;
+      const resolvedSales = getAssignedSalesRepName(c);
+      const resolvedCustomer = getCustomerDisplayName(c);
+      const cust = customerMap.get(c.customerId);
+
       return {
         STT: index + 1,
         'Số Hợp Đồng': c.contractNumber,
         'Từ Báo Giá': c.quoteNumber,
-        'Khách Hàng': c.customerName,
-        'Công Ty': c.customerCompany || '',
+        'Khách Hàng': resolvedCustomer,
+        'Công Ty': cust?.company || c.customerCompany || '',
         'Mã Số Thuế': c.customerTaxCode || '',
-        'Nhân Viên Phụ Trách': c.salesRepName,
+        'Nhân Viên Phụ Trách': resolvedSales,
         'Tổng Giá Trị (VNĐ)': c.totalValue,
         'Bằng Chữ': numberToVietnameseWords(c.totalValue),
         'Ngày Ký': formatDate(c.contractDate),
@@ -213,7 +235,7 @@ export const SalesSignedContractsTable: React.FC<SalesSignedContractsTableProps>
                         <span>Dự kiến giao: <strong>{formatDate(contract.deliveryDate)}</strong></span>
                       </span>
                       <span className="flex items-center space-x-1">
-                        <span>Sale phụ trách: <strong className="text-slate-800">{contract.salesRepName}</strong></span>
+                        <span>Sale phụ trách: <strong className="text-slate-800">{getAssignedSalesRepName(contract)}</strong></span>
                       </span>
                     </div>
                   </div>

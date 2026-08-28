@@ -326,6 +326,7 @@ const InventoryMasterContent: React.FC = () => {
         inventory={inventory}
         reserveItems={filteredReserveItems}
         orderItems={filteredOrderItems}
+        customers={customers}
         onSelectTab={(tabKey) => setActiveSubTab(tabKey)}
       />
 
@@ -914,17 +915,21 @@ const InventoryMasterContent: React.FC = () => {
 
       {dispatchModalItem && (
         <DispatchConfirmModal
-          reserveItem={dispatchModalItem}
+          item={dispatchModalItem}
+          customer={customers.find((c) => c.id === dispatchModalItem.customerId)}
+          contract={contracts.find((c) => c.id === dispatchModalItem.contractId)}
           onClose={() => setDispatchModalItem(null)}
-          onConfirmDispatch={handleConfirmDispatch}
+          onConfirm={(reserveId, dispatchData) => handleConfirmDispatch(reserveId, dispatchData)}
         />
       )}
 
       {receiveModalOrder && (
         <ReceiveOrderModal
-          orderItem={receiveModalOrder}
+          order={receiveModalOrder}
+          customer={customers.find((c) => c.id === receiveModalOrder.customerId)}
+          contract={contracts.find((c) => c.id === receiveModalOrder.contractId)}
           onClose={() => setReceiveModalOrder(null)}
-          onConfirmReceive={handleConfirmReceiveOrder}
+          onConfirm={(orderId, warehouseLocation) => handleConfirmReceiveOrder(orderId, warehouseLocation)}
         />
       )}
     </div>

@@ -25,18 +25,36 @@ export const ReserveAndOrderTables: React.FC = () => {
     updateOrderStatus,
     currentUser,
     filteredContracts,
+    customers,
   } = useApp();
 
   const [activeSubTab, setActiveSubTab] = useState<'reserve' | 'order'>('reserve');
   const [searchTerm, setSearchTerm] = useState('');
   const [contractFilter, setContractFilter] = useState<string>('all');
 
+  const customerMap = React.useMemo(() => new Map(customers.map((c) => [c.id, c])), [customers]);
+
+  const getAssignedSalesRepName = (customerId: string, fallbackSalesName: string): string => {
+    const cust = customerMap.get(customerId);
+    if (cust) return cust.assignedToName || 'Chưa phân công';
+    return fallbackSalesName || 'ORPHAN CUSTOMER';
+  };
+
+  const getCustomerDisplayName = (customerId: string, fallbackCustomerName: string): string => {
+    const cust = customerMap.get(customerId);
+    return cust?.name || fallbackCustomerName || 'ORPHAN CUSTOMER';
+  };
+
   // Filter reserve items
   const filteredReserves = filteredReserveItems.filter((r) => {
+    const resolvedSales = getAssignedSalesRepName(r.customerId, r.salesRepName);
+    const resolvedCustomer = getCustomerDisplayName(r.customerId, r.customerName);
+
     const matchSearch =
       r.sku.toLowerCase().includes(searchTerm.toLowerCase()) ||
       r.productName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      r.customerName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      resolvedCustomer.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      resolvedSales.toLowerCase().includes(searchTerm.toLowerCase()) ||
       r.contractNumber.toLowerCase().includes(searchTerm.toLowerCase());
     const matchContract = contractFilter === 'all' || r.contractId === contractFilter;
     return matchSearch && matchContract;
@@ -44,10 +62,14 @@ export const ReserveAndOrderTables: React.FC = () => {
 
   // Filter order items
   const filteredOrders = filteredOrderItems.filter((o) => {
+    const resolvedSales = getAssignedSalesRepName(o.customerId, o.salesRepName);
+    const resolvedCustomer = getCustomerDisplayName(o.customerId, o.customerName);
+
     const matchSearch =
       o.sku.toLowerCase().includes(searchTerm.toLowerCase()) ||
       o.productName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      o.customerName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      resolvedCustomer.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      resolvedSales.toLowerCase().includes(searchTerm.toLowerCase()) ||
       o.contractNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
       o.brand.toLowerCase().includes(searchTerm.toLowerCase());
     const matchContract = contractFilter === 'all' || o.contractId === contractFilter;
@@ -60,8 +82,8 @@ export const ReserveAndOrderTables: React.FC = () => {
       'STT': idx + 1,
       'Số HĐ': r.contractNumber,
       'Số Báo Giá': r.quoteNumber,
-      'Khách Hàng': r.customerName,
-      'Sales Phụ Trách': r.salesRepName,
+      'Khách Hàng': getCustomerDisplayName(r.customerId, r.customerName),
+      'Sales Phụ Trách': getAssignedSalesRepName(r.customerId, r.salesRepName),
       'Mã Hàng (SKU)': r.sku,
       'Tên Sản Phẩm': r.productName,
       'Số Lượng Giữ': r.reservedQuantity,
@@ -84,8 +106,8 @@ export const ReserveAndOrderTables: React.FC = () => {
       'STT': idx + 1,
       'Số HĐ': o.contractNumber,
       'Số Báo Giá': o.quoteNumber,
-      'Khách Hàng': o.customerName,
-      'Sales Phụ Trách': o.salesRepName,
+      'Khách Hàng': getCustomerDisplayName(o.customerId, o.customerName),
+      'Sales Phụ Trách': getAssignedSalesRepName(o.customerId, o.salesRepName),
       'Mã Hàng (SKU)': o.sku,
       'Tên Sản Phẩm': o.productName,
       'Hãng': o.brand,
@@ -259,14 +281,14 @@ export const ReserveAndOrderTables: React.FC = () => {
                       </td>
                       <td className="px-3 py-2">
                         <div className="font-semibold text-blue-700">{r.contractNumber}</div>
-                        <div className="text-[10px] text-slate-500">{r.customerName}</div>
+                        <div className="text-[10px] text-slate-500">{getCustomerDisplayName(r.customerId, r.customerName)}</div>
                       </td>
                       <td className="px-3 py-2 text-slate-600 font-medium">{r.warehouseLocation}</td>
                       <td className="px-3 py-2 text-slate-600">
                         <div>Ngày giữ: {formatDate(r.reservedDate)}</div>
                         <div className="text-[10px] text-slate-400">Giao: {formatDate(r.expectedDeliveryDate)}</div>
                       </td>
-                      <td className="px-3 py-2 font-medium text-slate-800">{r.salesRepName}</td>
+                      <td className="px-3 py-2 font-medium text-slate-800">{getAssignedSalesRepName(r.customerId, r.salesRepName)}</td>
                       <td className="px-3 py-2 text-center">
                         <select
                           value={r.status}
@@ -344,7 +366,7 @@ export const ReserveAndOrderTables: React.FC = () => {
                       </td>
                       <td className="px-3 py-2">
                         <div className="font-semibold text-blue-700">{o.contractNumber}</div>
-                        <div className="text-[10px] text-slate-500">{o.customerName}</div>
+                        <div className="text-[10px] text-slate-500">{getCustomerDisplayName(o.customerId, o.customerName)}</div>
                       </td>
                       <td className="px-3 py-2">
                         <input

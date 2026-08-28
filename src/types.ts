@@ -508,7 +508,9 @@ export interface ReserveItem {
   quoteNumber: string;
   customerId: string;
   customerName: string;
-  salesRepName: string;
+  salesRepId?: string; // ID của Sales phụ trách khách hàng
+  salesRepName: string; // Tên Sales phụ trách
+  createdBy?: string; // ID người thao tác tạo phiếu
   sku: string;
   productName: string;
   unit: string;
@@ -531,7 +533,9 @@ export interface OrderItem {
   quoteNumber: string;
   customerId: string;
   customerName: string;
-  salesRepName: string;
+  salesRepId?: string; // ID của Sales phụ trách khách hàng
+  salesRepName: string; // Tên Sales phụ trách
+  createdBy?: string; // ID người thao tác tạo đơn
   sku: string;
   productName: string;
   unit: string;
