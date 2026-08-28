@@ -16,6 +16,7 @@ import {
   PaymentMilestone,
   Organization,
   CustomerMember,
+  PriceImportRecord,
   resolveOrganizationId,
   canLevel2AccessCustomer,
   canLevel2AccessQuotation,
@@ -171,6 +172,7 @@ interface AppContextType {
   updateProduct: (product: ProductPriceItem) => void;
   deleteProduct: (sku: string) => void;
   importProducts: (newProducts: ProductPriceItem[]) => void;
+  importPriceRecords: (records: PriceImportRecord[], mode?: 'upsert' | 'new_only') => void;
 
   // Inventory (Tồn kho theo từng công ty C1)
   inventory: InventoryItem[];
@@ -496,11 +498,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         const unsubProducts = onSnapshot(
           collection(db, COLLECTIONS.PRODUCTS),
           (snap) => {
-            const list: ProductPriceItem[] = [];
+            const cloudList: ProductPriceItem[] = [];
             snap.forEach((d) => {
               const item = d.data() as ProductPriceItem;
               if (item && item.sku) {
-                list.push({
+                cloudList.push({
                   ...item,
                   sku: (item.sku || '').trim().toUpperCase(),
                   name: (item.name || '').trim() || `Sản phẩm ${item.sku}`,
@@ -516,9 +518,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                 });
               }
             });
-            if (list.length > 0) {
-              setProducts(list);
-            }
+            // CRITICAL: Merge cloud data WITH existing local products.
+            // Never discard locally-imported products that haven't synced to cloud yet.
+            setProducts((prevLocal) => {
+              const map = new Map<string, ProductPriceItem>();
+              // Layer 1: Preserve all existing local products
+              prevLocal.forEach((p) => {
+                const key = `${p.organizationId || p.companyId || 'global'}_${(p.sku || '').trim().toUpperCase()}`;
+                map.set(key, p);
+              });
+              // Layer 2: Overlay cloud data (source of truth for synced items)
+              cloudList.forEach((p) => {
+                const key = `${p.organizationId || p.companyId || 'global'}_${(p.sku || '').trim().toUpperCase()}`;
+                map.set(key, p);
+              });
+              return Array.from(map.values());
+            });
             setCloudSyncStatus((prev) => (prev === 'quota-exceeded' ? 'quota-exceeded' : 'connected'));
             setLastCloudSyncTime(new Date());
           },
@@ -532,11 +547,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         const unsubInventory = onSnapshot(
           collection(db, COLLECTIONS.INVENTORY),
           (snap) => {
-            const list: InventoryItem[] = [];
+            const cloudList: InventoryItem[] = [];
             snap.forEach((d) => {
               const item = d.data() as InventoryItem;
               if (item && item.sku) {
-                list.push({
+                cloudList.push({
                   ...item,
                   sku: (item.sku || '').trim().toUpperCase(),
                   name: (item.name || '').trim() || `Sản phẩm ${item.sku}`,
@@ -549,9 +564,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                 });
               }
             });
-            if (list.length > 0) {
-              setInventory(list);
-            }
+            // CRITICAL: Merge cloud data WITH existing local inventory.
+            // Never discard locally-imported inventory that hasn't synced to cloud yet.
+            setInventory((prevLocal) => {
+              const map = new Map<string, InventoryItem>();
+              // Layer 1: Preserve all existing local inventory
+              prevLocal.forEach((i) => {
+                const key = `${i.organizationId || i.companyId || 'global'}_${(i.sku || '').trim().toUpperCase()}`;
+                map.set(key, i);
+              });
+              // Layer 2: Overlay cloud data (source of truth for synced items)
+              cloudList.forEach((i) => {
+                const key = `${i.organizationId || i.companyId || 'global'}_${(i.sku || '').trim().toUpperCase()}`;
+                map.set(key, i);
+              });
+              return Array.from(map.values());
+            });
             setCloudSyncStatus((prev) => (prev === 'quota-exceeded' ? 'quota-exceeded' : 'connected'));
             setLastCloudSyncTime(new Date());
           },
@@ -1477,12 +1505,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       prev.filter((p) => {
         const pOrg = p.organizationId || p.companyId;
         return pOrg === myOrgId || pOrg === myCompanyId;
-      }).forEach((p) => myMap.set(p.sku.toUpperCase(), p));
+      }).forEach((p) => myMap.set((p.sku || '').toUpperCase(), p));
 
-      stampedProducts.forEach((p) => myMap.set(p.sku.toUpperCase(), p));
+      stampedProducts.forEach((p) => myMap.set((p.sku || '').toUpperCase(), p));
 
       const updatedCompanyProducts = Array.from(myMap.values());
-      return [...otherOrgProducts, ...updatedCompanyProducts];
+      const fullList = [...otherOrgProducts, ...updatedCompanyProducts];
+      localStorage.setItem(STORAGE_KEYS.PRODUCTS, JSON.stringify(fullList));
+      return fullList;
     });
 
     // Ensure inventory entries exist for this company
@@ -1496,11 +1526,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       prev.filter((i) => {
         const iOrg = i.organizationId || i.companyId;
         return iOrg === myOrgId || iOrg === myCompanyId;
-      }).forEach((i) => myInvMap.set(i.sku.toUpperCase(), i));
+      }).forEach((i) => myInvMap.set((i.sku || '').toUpperCase(), i));
 
       const newlyAdded: InventoryItem[] = [];
       stampedProducts.forEach((p) => {
-        if (!myInvMap.has(p.sku.toUpperCase())) {
+        const skuKey = (p.sku || '').toUpperCase();
+        if (skuKey && !myInvMap.has(skuKey)) {
           const item: InventoryItem = {
             sku: p.sku,
             name: p.name,
@@ -1515,7 +1546,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             createdBy: currentUser.id,
             createdByName: currentUser.name,
           };
-          myInvMap.set(p.sku.toUpperCase(), item);
+          myInvMap.set(skuKey, item);
           newlyAdded.push(item);
         }
       });
@@ -1524,11 +1555,38 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         batchSyncInventoryToCloud(newlyAdded);
       }
 
-      return [...otherOrgInventory, ...Array.from(myInvMap.values())];
+      const fullInvList = [...otherOrgInventory, ...Array.from(myInvMap.values())];
+      localStorage.setItem(STORAGE_KEYS.INVENTORY, JSON.stringify(fullInvList));
+      return fullInvList;
     });
 
     // Trigger cloud sync outside state updater
     batchSyncProductsToCloud(stampedProducts);
+  };
+
+  const importPriceRecords = (records: PriceImportRecord[], mode: 'upsert' | 'new_only' = 'upsert') => {
+    const existingSkuSet = new Set(products.map((p) => (p.sku || '').toUpperCase()).filter(Boolean));
+
+    let filteredRecords = records;
+    if (mode === 'new_only') {
+      filteredRecords = records.filter((r) => !existingSkuSet.has((r.product_code || '').toUpperCase()));
+    }
+
+    const convertedProducts: ProductPriceItem[] = filteredRecords.map((r) => ({
+      sku: (r.product_code || '').trim().toUpperCase(),
+      name: (r.product_name || '').trim() || `Sản phẩm ${(r.product_code || '').trim().toUpperCase()}`,
+      category: (r.category || '').trim() || 'Chung',
+      brand: (r.brand || '').trim() || 'Khác',
+      color: (r.color || '').trim() || 'Tiêu chuẩn',
+      size: (r.size || '').trim() || 'Tiêu chuẩn',
+      unit: (r.unit || '').trim() || 'Bộ',
+      listPrice: typeof r.price === 'number' && !isNaN(r.price) ? r.price : 0,
+      dpPrice: typeof r.dp_price === 'number' && !isNaN(r.dp_price) ? r.dp_price : 0,
+      description: (r.description || '').trim(),
+      status: 'active',
+    }));
+
+    importProducts(convertedProducts);
   };
 
   // Inventory Tồn kho - Scoped by Company & Synced with Holds:
@@ -1771,13 +1829,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       prev.filter((i) => {
         const iOrg = i.organizationId || i.companyId;
         return iOrg === myOrgId || iOrg === myCompanyId;
-      }).forEach((i) => myMap.set(i.sku.toUpperCase(), i));
+      }).forEach((i) => myMap.set((i.sku || '').toUpperCase(), i));
 
       stampedList.forEach((item) => {
-        const existing = myMap.get(item.sku.toUpperCase());
+        const skuKey = (item.sku || '').toUpperCase();
+        const existing = myMap.get(skuKey);
         const reserved = existing ? existing.reservedQuantity : (item.reservedQuantity || 0);
         const available = Math.max(0, item.totalQuantity - reserved);
-        myMap.set(item.sku.toUpperCase(), {
+        myMap.set(skuKey, {
           ...item,
           reservedQuantity: reserved,
           availableQuantity: available,
@@ -1786,7 +1845,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       });
 
       const updatedCompanyInv = Array.from(myMap.values());
-      return [...otherOrgInventory, ...updatedCompanyInv];
+      const fullList = [...otherOrgInventory, ...updatedCompanyInv];
+      localStorage.setItem(STORAGE_KEYS.INVENTORY, JSON.stringify(fullList));
+      return fullList;
     });
 
     // Trigger cloud sync outside state updater
@@ -2640,6 +2701,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         updateProduct,
         deleteProduct,
         importProducts,
+        importPriceRecords,
         inventory: filteredInventory,
         allInventory: inventory,
         updateInventoryItem,

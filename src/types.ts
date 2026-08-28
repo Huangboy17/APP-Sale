@@ -161,6 +161,38 @@ export interface ProductPriceItem {
   createdByName?: string;
 }
 
+// Standard Intermediate Import Record (Excel/JSON -> PriceImportRecord)
+export interface PriceImportRecord {
+  product_code: string; // Mã SP / SKU
+  product_name: string; // Tên SP
+  unit: string; // ĐVT
+  price: number; // Giá niêm yết
+  dp_price?: number; // Giá DP (Giá sàn tối thiểu)
+  category?: string; // Phân loại
+  brand?: string; // Hãng sản xuất
+  color?: string; // Màu sắc
+  size?: string; // Kích thước / Quy cách
+  description?: string; // Mô tả
+}
+
+export interface ValidatedPriceRow {
+  rowIndex: number; // 1-indexed (row in file)
+  record: PriceImportRecord;
+  status: 'valid' | 'warning' | 'error';
+  statusMessage: string;
+  isExisting: boolean;
+}
+
+export interface PriceImportValidationResult {
+  rows: ValidatedPriceRow[];
+  totalCount: number;
+  validCount: number;
+  warningCount: number;
+  errorCount: number;
+  newItemsCount: number;
+  updateItemsCount: number;
+}
+
 // =============================================================================
 // INVENTORY ITEM
 // =============================================================================

@@ -52,10 +52,14 @@ export const InventoryImportModal: React.FC<InventoryImportModalProps> = ({ isOp
   if (!isOpen) return null;
 
   const currentInventoryMap = new Map<string, InventoryItem>();
-  inventory.forEach((i) => currentInventoryMap.set(i.sku.toUpperCase(), i));
+  inventory.forEach((i) => {
+    if (i && i.sku) currentInventoryMap.set(i.sku.toUpperCase(), i);
+  });
 
   const productPriceMap = new Map<string, string>();
-  products.forEach((p) => productPriceMap.set(p.sku.toUpperCase(), p.name));
+  products.forEach((p) => {
+    if (p && p.sku) productPriceMap.set(p.sku.toUpperCase(), p.name);
+  });
 
   const handleFileChange = async (selectedFile: File) => {
     setErrorMessage(null);
