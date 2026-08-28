@@ -884,6 +884,7 @@ export const QuotationModal: React.FC<QuotationModalProps> = ({
                 const created = addCustomer({
                   ...custData,
                   stage: 'quoting',
+                  organizationId: currentUser.organizationId || '',
                   assignedToId: currentUser.id,
                   assignedToName: currentUser.name,
                   createdBy: currentUser.id,

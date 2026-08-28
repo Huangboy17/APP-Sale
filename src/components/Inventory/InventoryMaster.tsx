@@ -68,11 +68,14 @@ const InventoryMasterContent: React.FC = () => {
     purchaseOrders,
     customers,
     contracts,
+    filteredQuotations,
     updateInventoryItem,
     deleteInventoryItem,
     quickAdjustStock,
     updateReserveStatus,
     updateOrderStatus,
+    dispatchReserveWarehouse,
+    receiveInboundOrderBatch,
     receiveOrderToWarehouseAndReserve,
     setPdfPreviewData,
     currentUser,
@@ -939,7 +942,12 @@ const InventoryMasterContent: React.FC = () => {
       {activeSubTab === 'critical_alerts' && (
         <ReorderAlertsTable
           inventory={inventory}
-          onOpenHoldDetail={(inv) => setDrawerSelectedItem(inv)}
+          quotations={filteredQuotations}
+          onOpenEditItem={(item) => {
+            setEditingItem(item);
+            setIsAddEditModalOpen(true);
+          }}
+          onQuickAdjust={(sku, delta) => quickAdjustStock(sku, delta)}
         />
       )}
 
@@ -962,6 +970,7 @@ const InventoryMasterContent: React.FC = () => {
       {/* MODALS */}
       {isAddEditModalOpen && (
         <AddEditInventoryModal
+          isOpen={isAddEditModalOpen}
           itemToEdit={editingItem}
           onClose={() => {
             setIsAddEditModalOpen(false);

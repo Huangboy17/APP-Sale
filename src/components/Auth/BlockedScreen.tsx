@@ -33,7 +33,7 @@ export const BlockedScreen: React.FC = () => {
             </div>
             <div className="mb-3">
               <span className="text-slate-400 text-sm">Vai trò:</span>
-              <p className="text-white font-medium">{currentUser.role === 'level1' ? 'Giám Đốc / Doanh Nghiệp (Level 1)' : currentUser.role}</p>
+              <p className="text-white font-medium">{currentUser.role === 'manager_c1' ? 'Giám Đốc / Doanh Nghiệp (Level 1)' : currentUser.role}</p>
             </div>
             <div className="flex items-center gap-2">
               <span className="text-slate-400 text-sm">Trạng thái:</span>

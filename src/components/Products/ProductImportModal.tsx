@@ -48,7 +48,7 @@ export const ProductImportModal: React.FC<ProductImportModalProps> = ({ isOpen, 
 
   if (!isOpen) return null;
 
-  const existingSkuSet = new Set(products.map((p) => (p.sku || '').toUpperCase()).filter(Boolean));
+  const existingSkuSet = new Set<string>(products.map((p) => (p.sku || '').toUpperCase()).filter(Boolean));
 
   const processFile = async (selectedFile: File, targetSheet?: string) => {
     setErrorMessage(null);

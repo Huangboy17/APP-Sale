@@ -15,6 +15,7 @@ import {
   FileText,
   User,
   Tag,
+  Truck,
 } from 'lucide-react';
 
 interface EditOrderItemModalProps {

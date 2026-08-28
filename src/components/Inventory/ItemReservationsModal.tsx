@@ -141,7 +141,7 @@ export const ItemReservationsModal: React.FC<ItemReservationsModalProps> = ({ it
 
   const handleGoToLogisticsTab = () => {
     onClose();
-    setActiveTab('reserve_order');
+    setActiveTab('reserve_orders');
   };
 
   const isManagerOrAdmin =
@@ -437,23 +437,25 @@ export const ItemReservationsModal: React.FC<ItemReservationsModalProps> = ({ it
                         <span>Lịch sử giữ hàng đã xử lý xong ({pastHolds.length})</span>
                       </div>
                       <div className="bg-white rounded-lg border border-slate-200 divide-y divide-slate-100 overflow-hidden">
-                        {pastHolds.map((res) => (
-                          <div key={res.id} className="p-3 text-xs flex items-center justify-between text-slate-600 bg-slate-50/40">
-                            <div className="flex items-center space-x-3">
-                              <span
-                                className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                                  res.status === 'dispatched'
-                                    ? 'bg-emerald-100 text-emerald-800'
-                                    : 'bg-slate-200 text-slate-700'
-                                }`}
-                              >
-                                {res.status === 'dispatched' ? 'Đã xuất kho' : 'Đã hủy giữ'}
-                              </span>
-                              <span>
-                                Sale: <strong className="text-slate-800">{cust?.assignedToName || res.salesRepName}</strong> giữ cho{' '}
-                                <strong className="text-slate-800">{cust?.name || res.customerName}</strong> ({res.contractNumber})
-                              </span>
-                            </div>
+                        {pastHolds.map((res) => {
+                          const cust = customers.find((c) => c.id === res.customerId);
+                          return (
+                            <div key={res.id} className="p-3 text-xs flex items-center justify-between text-slate-600 bg-slate-50/40">
+                              <div className="flex items-center space-x-3">
+                                <span
+                                  className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                                    res.status === 'dispatched'
+                                      ? 'bg-emerald-100 text-emerald-800'
+                                      : 'bg-slate-200 text-slate-700'
+                                  }`}
+                                >
+                                  {res.status === 'dispatched' ? 'Đã xuất kho' : 'Đã hủy giữ'}
+                                </span>
+                                <span>
+                                  Sale: <strong className="text-slate-800">{cust?.assignedToName || res.salesRepName}</strong> giữ cho{' '}
+                                  <strong className="text-slate-800">{cust?.name || res.customerName}</strong> ({res.contractNumber})
+                                </span>
+                              </div>
                             <div className="flex items-center space-x-2">
                               <div className="font-mono font-bold text-slate-800">
                                 {res.reservedQuantity} {res.unit}
@@ -488,7 +490,8 @@ export const ItemReservationsModal: React.FC<ItemReservationsModalProps> = ({ it
                               </button>
                             </div>
                           </div>
-                        ))}
+                        );
+                      })}
                       </div>
                     </div>
                   )}

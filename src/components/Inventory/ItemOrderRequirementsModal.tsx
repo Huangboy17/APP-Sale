@@ -1,6 +1,6 @@
 import React from 'react';
 import { useApp } from '../../context/AppContext';
-import { OrderItem } from '../../types';
+import { OrderItem, Customer, Contract } from '../../types';
 import { formatDate } from '../../utils/formatters';
 import {
   X,
@@ -40,8 +40,8 @@ export const ItemOrderRequirementsModal: React.FC<ItemOrderRequirementsModalProp
     (o) => (o.sku || '').trim().toUpperCase() === targetSku
   );
 
-  const customerMap = new Map(customers.map((c) => [c.id, c]));
-  const contractMap = new Map(contracts.map((c) => [c.id, c]));
+  const customerMap = new Map<string, Customer>((customers || []).map((c: Customer) => [c.id, c]));
+  const contractMap = new Map<string, Contract>((contracts || []).map((c: Contract) => [c.id, c]));
 
   const getCustomerName = (customerId: string, fallback: string) => {
     return customerMap.get(customerId)?.name || fallback || 'ORPHAN CUSTOMER';

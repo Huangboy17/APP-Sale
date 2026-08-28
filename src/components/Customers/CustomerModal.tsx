@@ -98,6 +98,7 @@ export const CustomerModal: React.FC<CustomerModalProps> = ({
         stage,
         assignedToId,
         assignedToName,
+        organizationId: currentUser.organizationId || '',
         createdBy: currentUser.id,
         expectedValue: Number(expectedValue) || 0,
         notes,

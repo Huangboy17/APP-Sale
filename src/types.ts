@@ -125,7 +125,11 @@ export interface Customer {
   phone: string;
   email: string;
   address?: string;
+  shippingAddress?: string;
+  city?: string;
   taxCode?: string;
+  contactPerson?: string;
+  position?: string;
   stage: CustomerStage;
   organizationId: string; // REQUIRED — Organization ID (Tenant Level 1)
   assignedToId: string; // Level 2 user id phụ trách chính
@@ -483,6 +487,7 @@ export interface Contract {
   quoteNumber: string;
   customerId: string;
   customerName: string;
+  title?: string;
   createdBy?: string;
   customerCompany?: string;
   customerTaxCode?: string;
@@ -560,6 +565,7 @@ export interface ReserveItem {
   reservedDate: string;
   status: ReserveItemStatus;
   expectedDeliveryDate: string;
+  actualDeliveryDate?: string;
   stockTransactionIds?: string[];
   timeline?: TimelineEvent[];
   releasedReason?: string;

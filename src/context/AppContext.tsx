@@ -545,7 +545,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [pdfPreviewData, setPdfPreviewData] = useState<{ type: 'quote' | 'contract'; data: Quotation | Contract } | null>(null);
 
   // Cloud Sync Status
-  const [cloudSyncStatus, setCloudSyncStatus] = useState<'connected' | 'syncing' | 'offline' | 'error'>('connected');
+  const [cloudSyncStatus, setCloudSyncStatus] = useState<'connected' | 'syncing' | 'quota-exceeded' | 'offline' | 'error'>('connected');
   const [lastCloudSyncTime, setLastCloudSyncTime] = useState<Date | null>(new Date());
 
   // -------------------------------------------------------------
@@ -1078,7 +1078,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
 
     // 5. Self-Healing: Reconcile Sales Rep assignments in ReserveItems and OrderItems with current Customer Master
-    const customerMap = new Map(customers.map((c) => [c.id, c]));
+    const customerMap = new Map<string, Customer>(customers.map((c) => [c.id, c]));
     let reservesReconciled = false;
     const reconciledReserves = reserveItems.map((r) => {
       const parentCust = r.customerId ? customerMap.get(r.customerId) : null;

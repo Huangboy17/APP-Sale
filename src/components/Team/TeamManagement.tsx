@@ -86,6 +86,7 @@ export const TeamManagement: React.FC = () => {
       password: assignedPass,
       role: assignedRole,
       department: newUserDepartment || (isManagerC1 ? currentUser.department || 'Phòng Kinh Doanh' : 'Phòng Dự Án'),
+      organizationId: currentUser.organizationId || '',
       managerId: isManagerC1 ? currentUser.id : undefined,
       status: 'active',
       avatar: `https://images.unsplash.com/photo-${1534528741775 + Math.floor(Math.random() * 50)}?w=120&auto=format&fit=crop&q=80`,

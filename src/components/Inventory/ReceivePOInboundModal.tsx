@@ -73,7 +73,7 @@ export const ReceivePOInboundModal: React.FC<ReceivePOInboundModalProps> = ({
   };
 
   const totalReceivingNow = useMemo(() => {
-    return Object.values(actualQuantities).reduce((sum, q) => sum + (Number(q) || 0), 0);
+    return Object.values(actualQuantities).reduce((sum: number, q) => sum + (Number(q) || 0), 0);
   }, [actualQuantities]);
 
   const handleSubmit = async (e: React.FormEvent) => {

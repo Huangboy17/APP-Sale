@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ReserveItem, Customer, Contract } from '../../types';
+import { ReserveItem, ReserveItemStatus, Customer, Contract } from '../../types';
 import { formatDate } from '../../utils/formatters';
 import {
   X,
@@ -34,7 +34,7 @@ export const EditReserveItemModal: React.FC<EditReserveItemModalProps> = ({
   onClose,
   onSave,
 }) => {
-  const [status, setStatus] = useState<'holding' | 'dispatched' | 'cancelled'>('holding');
+  const [status, setStatus] = useState<ReserveItemStatus>('holding');
   const [reservedQuantity, setReservedQuantity] = useState<number>(0);
   const [warehouseLocation, setWarehouseLocation] = useState<string>('');
   const [expectedDeliveryDate, setExpectedDeliveryDate] = useState<string>('');
