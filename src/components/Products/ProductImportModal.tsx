@@ -130,6 +130,7 @@ export const ProductImportModal: React.FC<ProductImportModalProps> = ({ isOpen, 
   };
 
   const handleConfirmImport = () => {
+    console.log('[PRICE_IMPORT] START');
     if (!validationResult) return;
 
     const validRows = validationResult.rows.filter((r) => r.status !== 'error');
@@ -139,8 +140,16 @@ export const ProductImportModal: React.FC<ProductImportModalProps> = ({ isOpen, 
     }
 
     const recordsToImport = validRows.map((r) => r.record);
+    console.log('[PRICE_IMPORT] INPUT_RECORDS count:', recordsToImport.length);
 
-    importPriceRecords(recordsToImport, importMode);
+    try {
+      importPriceRecords(recordsToImport, importMode);
+      console.log('[PRICE_IMPORT] COMPLETE');
+    } catch (err) {
+      console.error('[PRICE_IMPORT] IMPORT_ERROR:', err);
+      alert(`Đã xảy ra lỗi khi import: ${err instanceof Error ? err.message : String(err)}`);
+      return;
+    }
 
     alert(`Import thành công ${recordsToImport.length} sản phẩm vào Master Data Giá (Firestore & Local persistence)!`);
     onClose();

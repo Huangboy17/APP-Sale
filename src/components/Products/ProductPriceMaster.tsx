@@ -457,9 +457,10 @@ export const ProductPriceMaster: React.FC = () => {
                   </td>
                 </tr>
               ) : (
-                paginatedProducts.map((p) => {
-                  const maxDiscountPercent =
-                    p.listPrice > 0 ? (((p.listPrice - p.dpPrice) / p.listPrice) * 100).toFixed(1) : 0;
+                paginatedProducts.map((p, idx) => {
+                  const lPrice = typeof p.listPrice === 'number' && !isNaN(p.listPrice) ? p.listPrice : 0;
+                  const dPrice = typeof p.dpPrice === 'number' && !isNaN(p.dpPrice) ? p.dpPrice : 0;
+                  const maxDiscountPercent = lPrice > 0 ? (((lPrice - dPrice) / lPrice) * 100).toFixed(1) : '0';
 
                   const cleanSku = (p.sku || '').trim().toLowerCase();
                   const inv = inventoryMap.get(cleanSku);
@@ -468,7 +469,7 @@ export const ProductPriceMaster: React.FC = () => {
                   const availableQty = inv ? inv.availableQuantity : 0;
 
                   return (
-                    <tr key={p.sku} className="hover:bg-slate-50 transition-colors">
+                    <tr key={p.sku || `row-${idx}`} className="hover:bg-slate-50 transition-colors">
                       <td className="px-3 py-2 font-mono font-bold text-blue-700">{p.sku}</td>
                       <td className="px-3 py-2">
                         <div className="font-bold text-slate-900">{p.name}</div>

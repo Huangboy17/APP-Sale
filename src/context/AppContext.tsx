@@ -515,24 +515,58 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                   dpPrice: typeof item.dpPrice === 'number' && !isNaN(item.dpPrice) ? item.dpPrice : 0,
                   description: (item.description || '').trim(),
                   status: item.status || 'active',
+                  organizationId: item.organizationId || item.companyId,
+                  companyId: item.companyId || item.organizationId,
+                  createdBy: item.createdBy,
+                  createdByName: item.createdByName,
                 });
               }
             });
+
+            console.log('[PRICE_IMPORT] SNAPSHOT_MERGE cloud items count:', cloudList.length);
+
             // CRITICAL: Merge cloud data WITH existing local products.
-            // Never discard locally-imported products that haven't synced to cloud yet.
+            // Preserve organizationId & createdBy from local state if cloud item lacks them.
             setProducts((prevLocal) => {
               const map = new Map<string, ProductPriceItem>();
+              
               // Layer 1: Preserve all existing local products
               prevLocal.forEach((p) => {
-                const key = `${p.organizationId || p.companyId || 'global'}_${(p.sku || '').trim().toUpperCase()}`;
-                map.set(key, p);
+                const skuKey = (p.sku || '').trim().toUpperCase();
+                const orgKey = p.organizationId || p.companyId || 'global';
+                map.set(`${orgKey}_${skuKey}`, p);
               });
-              // Layer 2: Overlay cloud data (source of truth for synced items)
-              cloudList.forEach((p) => {
-                const key = `${p.organizationId || p.companyId || 'global'}_${(p.sku || '').trim().toUpperCase()}`;
-                map.set(key, p);
+
+              // Layer 2: Overlay cloud data without losing tenant ownership
+              cloudList.forEach((cloudItem) => {
+                const skuUpper = (cloudItem.sku || '').trim().toUpperCase();
+                // Check if we have a local item for this SKU
+                let existingLocalKey = Array.from(map.keys()).find((k) => k.endsWith(`_${skuUpper}`));
+                let existingLocal = existingLocalKey ? map.get(existingLocalKey) : undefined;
+
+                const orgId = cloudItem.organizationId || cloudItem.companyId || existingLocal?.organizationId || existingLocal?.companyId;
+                const createdBy = cloudItem.createdBy || existingLocal?.createdBy;
+                const createdByName = cloudItem.createdByName || existingLocal?.createdByName;
+
+                const mergedItem: ProductPriceItem = {
+                  ...cloudItem,
+                  organizationId: orgId,
+                  companyId: orgId,
+                  createdBy: createdBy || 'system',
+                  createdByName: createdByName || 'System',
+                };
+
+                const targetKey = `${orgId || 'global'}_${skuUpper}`;
+                if (existingLocalKey && existingLocalKey !== targetKey) {
+                  map.delete(existingLocalKey);
+                }
+                map.set(targetKey, mergedItem);
               });
-              return Array.from(map.values());
+
+              const mergedResult = Array.from(map.values());
+              // Update localStorage with merged list
+              localStorage.setItem(STORAGE_KEYS.PRODUCTS, JSON.stringify(mergedResult));
+              return mergedResult;
             });
             setCloudSyncStatus((prev) => (prev === 'quota-exceeded' ? 'quota-exceeded' : 'connected'));
             setLastCloudSyncTime(new Date());
@@ -1489,29 +1523,50 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       status: p.status || 'active',
       organizationId: myOrgId,
       companyId: myCompanyId,
-      createdBy: currentUser.id,
-      createdByName: currentUser.name,
+      createdBy: currentUser.id || 'system',
+      createdByName: currentUser.name || 'System Manager',
     }));
 
+    console.log('[PRICE_IMPORT] STAMPED count:', stampedProducts.length, 'org:', myOrgId);
+
     setProducts((prev) => {
-      // Retain products of other companies/organizations
+      // Products belonging explicitly to OTHER organizations
       const otherOrgProducts = prev.filter((p) => {
         const pOrg = p.organizationId || p.companyId;
         return pOrg && pOrg !== myOrgId && pOrg !== myCompanyId;
       });
 
-      // Merge current organization's products
+      // Products belonging to current org OR unassigned products
       const myMap = new Map<string, ProductPriceItem>();
       prev.filter((p) => {
         const pOrg = p.organizationId || p.companyId;
-        return pOrg === myOrgId || pOrg === myCompanyId;
-      }).forEach((p) => myMap.set((p.sku || '').toUpperCase(), p));
+        return !pOrg || pOrg === myOrgId || pOrg === myCompanyId;
+      }).forEach((p) => {
+        const stampedExisting: ProductPriceItem = {
+          ...p,
+          organizationId: p.organizationId || myOrgId,
+          companyId: p.companyId || myCompanyId,
+          createdBy: p.createdBy || currentUser.id || 'system',
+          createdByName: p.createdByName || currentUser.name || 'System Manager',
+        };
+        myMap.set((p.sku || '').toUpperCase(), stampedExisting);
+      });
 
+      // Overlay newly imported products
       stampedProducts.forEach((p) => myMap.set((p.sku || '').toUpperCase(), p));
 
       const updatedCompanyProducts = Array.from(myMap.values());
       const fullList = [...otherOrgProducts, ...updatedCompanyProducts];
-      localStorage.setItem(STORAGE_KEYS.PRODUCTS, JSON.stringify(fullList));
+      
+      console.log('[PRICE_IMPORT] STATE_UPDATED full products count:', fullList.length);
+
+      try {
+        localStorage.setItem(STORAGE_KEYS.PRODUCTS, JSON.stringify(fullList));
+        console.log('[PRICE_IMPORT] LOCAL_STORAGE_SAVED');
+      } catch (err) {
+        console.error('[PRICE_IMPORT] LOCAL_STORAGE_SAVE_ERROR:', err);
+      }
+
       return fullList;
     });
 
@@ -1525,8 +1580,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const myInvMap = new Map<string, InventoryItem>();
       prev.filter((i) => {
         const iOrg = i.organizationId || i.companyId;
-        return iOrg === myOrgId || iOrg === myCompanyId;
-      }).forEach((i) => myInvMap.set((i.sku || '').toUpperCase(), i));
+        return !iOrg || iOrg === myOrgId || iOrg === myCompanyId;
+      }).forEach((i) => {
+        const stampedInv: InventoryItem = {
+          ...i,
+          organizationId: i.organizationId || myOrgId,
+          companyId: i.companyId || myCompanyId,
+          createdBy: i.createdBy || currentUser.id || 'system',
+          createdByName: i.createdByName || currentUser.name || 'System Manager',
+        };
+        myInvMap.set((i.sku || '').toUpperCase(), stampedInv);
+      });
 
       const newlyAdded: InventoryItem[] = [];
       stampedProducts.forEach((p) => {
@@ -1543,8 +1607,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             updatedAt: new Date().toISOString().split('T')[0],
             organizationId: myOrgId,
             companyId: myCompanyId,
-            createdBy: currentUser.id,
-            createdByName: currentUser.name,
+            createdBy: currentUser.id || 'system',
+            createdByName: currentUser.name || 'System Manager',
           };
           myInvMap.set(skuKey, item);
           newlyAdded.push(item);
@@ -1556,21 +1620,32 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
 
       const fullInvList = [...otherOrgInventory, ...Array.from(myInvMap.values())];
-      localStorage.setItem(STORAGE_KEYS.INVENTORY, JSON.stringify(fullInvList));
+      try {
+        localStorage.setItem(STORAGE_KEYS.INVENTORY, JSON.stringify(fullInvList));
+      } catch (err) {
+        console.error('[PRICE_IMPORT] INVENTORY_LOCAL_STORAGE_SAVE_ERROR:', err);
+      }
       return fullInvList;
     });
 
     // Trigger cloud sync outside state updater
-    batchSyncProductsToCloud(stampedProducts);
+    console.log('[PRICE_IMPORT] FIRESTORE_SYNC_START');
+    batchSyncProductsToCloud(stampedProducts)
+      .then(() => console.log('[PRICE_IMPORT] FIRESTORE_SYNC_SUCCESS'))
+      .catch((err) => console.error('[PRICE_IMPORT] FIRESTORE_SYNC_ERROR:', err));
   };
 
   const importPriceRecords = (records: PriceImportRecord[], mode: 'upsert' | 'new_only' = 'upsert') => {
+    console.log('[PRICE_IMPORT] INPUT_RECORDS count:', records.length, 'mode:', mode);
+
     const existingSkuSet = new Set(products.map((p) => (p.sku || '').toUpperCase()).filter(Boolean));
 
     let filteredRecords = records;
     if (mode === 'new_only') {
       filteredRecords = records.filter((r) => !existingSkuSet.has((r.product_code || '').toUpperCase()));
     }
+
+    console.log('[PRICE_IMPORT] VALIDATED count:', filteredRecords.length);
 
     const convertedProducts: ProductPriceItem[] = filteredRecords.map((r) => ({
       sku: (r.product_code || '').trim().toUpperCase(),
