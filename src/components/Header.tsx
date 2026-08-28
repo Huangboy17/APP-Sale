@@ -91,7 +91,7 @@ export const Header: React.FC = () => {
         {/* Left Title & Google Cloud Firestore Badge */}
         <div className="flex items-center space-x-3">
           <h2 className="font-bold text-sm sm:text-base text-slate-800 tracking-tight flex items-center space-x-2">
-            <span>Hệ thống quản lý kinh doanh & Báo giá</span>
+            <span>{currentUser.role === 'super_admin' ? 'SUPER ADMIN • Quản Trị Nền Tảng' : 'Hệ thống quản lý kinh doanh & Báo giá'}</span>
           </h2>
 
           {/* Google Cloud Firestore Status Indicator */}
@@ -130,57 +130,59 @@ export const Header: React.FC = () => {
 
         {/* Right Quick Actions & Profile */}
         <div className="flex items-center space-x-2">
-          {/* Quick Company Brand Button for Level 1 & Admin */}
-          <button
-            onClick={() => handleOpenProfileModal('company')}
-            className={`hidden lg:inline-flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition border cursor-pointer ${
-              isTier1OrAdmin
-                ? 'bg-amber-50 hover:bg-amber-100 text-amber-900 border-amber-300 shadow-2xs'
-                : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200'
-            }`}
-            title="Thông tin công ty & Nhận diện thương hiệu (Tên, MST, Địa chỉ, Logo cấp cho Cấp 2 và Báo giá/Hợp đồng)"
-          >
-            <Building2 className={`w-3.5 h-3.5 ${isTier1OrAdmin ? 'text-amber-700' : 'text-slate-500'}`} />
-            <span>{isTier1OrAdmin ? 'Cấu hình Thương hiệu Công ty' : 'Thương hiệu Công ty'}</span>
-            {isTier1OrAdmin && (
-              <span className="px-1.5 py-0.2 rounded-full text-[9px] bg-amber-200 text-amber-900 font-bold">
-                Cấp 1
-              </span>
-            )}
-          </button>
+          {currentUser.role !== 'super_admin' && (
+            <>
+              {/* Quick Company Brand Button for Level 1 */}
+              {currentUser.role === 'manager_c1' && (
+                <button
+                  onClick={() => handleOpenProfileModal('company')}
+                  className="hidden lg:inline-flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition border cursor-pointer bg-amber-50 hover:bg-amber-100 text-amber-900 border-amber-300 shadow-2xs"
+                  title="Thông tin công ty & Nhận diện thương hiệu (Tên, MST, Địa chỉ, Logo cấp cho Cấp 2 và Báo giá/Hợp đồng)"
+                >
+                  <Building2 className="w-3.5 h-3.5 text-amber-700" />
+                  <span>Cấu hình Thương hiệu Công ty</span>
+                  <span className="px-1.5 py-0.2 rounded-full text-[9px] bg-amber-200 text-amber-900 font-bold">
+                    Cấp 1
+                  </span>
+                </button>
+              )}
 
-          {/* Quick Import Data Shortcut (For Admin & C1) */}
-          {currentUser.role !== 'sales_c2' && (
-            <button
-              onClick={() => setActiveTab('products')}
-              className="hidden md:inline-flex items-center space-x-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors border border-slate-200"
-            >
-              <FileSpreadsheet className="w-3.5 h-3.5 text-slate-500" />
-              <span>Import Data Giá</span>
-            </button>
+              {/* Quick Import Data Shortcut (For Level 1) */}
+              {currentUser.role === 'manager_c1' && (
+                <button
+                  onClick={() => setActiveTab('products')}
+                  className="hidden md:inline-flex items-center space-x-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors border border-slate-200"
+                >
+                  <FileSpreadsheet className="w-3.5 h-3.5 text-slate-500" />
+                  <span>Import Data Giá</span>
+                </button>
+              )}
+
+              {/* Quick Clear Data Button */}
+              {currentUser.role === 'manager_c1' && (
+                <button
+                  onClick={() => setIsClearDataModalOpen(true)}
+                  className="inline-flex items-center space-x-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 transition shadow-2xs cursor-pointer"
+                  title="Xoá toàn bộ dữ liệu: Khách hàng, Data giá, Báo giá, Tồn kho..."
+                >
+                  <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+                  <span className="hidden sm:inline">Xoá Dữ Liệu</span>
+                </button>
+              )}
+
+              {/* Quick Create Quote Button */}
+              <button
+                id="header-create-quote-btn"
+                onClick={handleOpenNewQuote}
+                className="bg-blue-600 text-white px-3 py-1.5 rounded-lg text-xs font-semibold hover:bg-blue-700 transition-colors flex items-center space-x-1.5 shadow-xs"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>+ Tạo Báo Giá</span>
+              </button>
+
+              <div className="h-5 w-px bg-slate-200 mx-0.5"></div>
+            </>
           )}
-
-          {/* Quick Clear Data Button */}
-          <button
-            onClick={() => setIsClearDataModalOpen(true)}
-            className="inline-flex items-center space-x-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 transition shadow-2xs cursor-pointer"
-            title="Xoá toàn bộ dữ liệu: Khách hàng, Data giá, Báo giá, Tồn kho..."
-          >
-            <Trash2 className="w-3.5 h-3.5 text-rose-600" />
-            <span className="hidden sm:inline">Xoá Dữ Liệu</span>
-          </button>
-
-          {/* Quick Create Quote Button */}
-          <button
-            id="header-create-quote-btn"
-            onClick={handleOpenNewQuote}
-            className="bg-blue-600 text-white px-3 py-1.5 rounded-lg text-xs font-semibold hover:bg-blue-700 transition-colors flex items-center space-x-1.5 shadow-xs"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span>+ Tạo Báo Giá</span>
-          </button>
-
-          <div className="h-5 w-px bg-slate-200 mx-0.5"></div>
 
           {/* Authenticated User Profile Menu */}
           <div className="relative">
@@ -266,27 +268,29 @@ export const Header: React.FC = () => {
                       <span className="text-[10px] text-slate-400">Xem/Sửa</span>
                     </button>
 
-                    <button
-                      type="button"
-                      onClick={() => handleOpenProfileModal('company')}
-                      className={`w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-xs transition font-semibold cursor-pointer ${
-                        isTier1OrAdmin
-                          ? 'bg-amber-50/70 hover:bg-amber-100/80 text-amber-950 border border-amber-200/60'
-                          : 'text-slate-800 hover:bg-slate-100'
-                      }`}
-                    >
-                      <div className="flex items-center space-x-2">
-                        <Building2 className={`w-4 h-4 ${isTier1OrAdmin ? 'text-amber-600' : 'text-slate-500'}`} />
-                        <span>Thông tin Công ty & Logo</span>
-                      </div>
-                      {isTier1OrAdmin ? (
-                        <span className="text-[9.5px] px-1.5 py-0.2 rounded bg-amber-200 text-amber-900 font-bold">
-                          Cấp 1 Cài Đặt
-                        </span>
-                      ) : (
-                        <span className="text-[10px] text-slate-400">Xem</span>
-                      )}
-                    </button>
+                    {currentUser.role !== 'super_admin' && (
+                      <button
+                        type="button"
+                        onClick={() => handleOpenProfileModal('company')}
+                        className={`w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-xs transition font-semibold cursor-pointer ${
+                          currentUser.role === 'manager_c1'
+                            ? 'bg-amber-50/70 hover:bg-amber-100/80 text-amber-950 border border-amber-200/60'
+                            : 'text-slate-800 hover:bg-slate-100'
+                        }`}
+                      >
+                        <div className="flex items-center space-x-2">
+                          <Building2 className={`w-4 h-4 ${currentUser.role === 'manager_c1' ? 'text-amber-600' : 'text-slate-500'}`} />
+                          <span>Thông tin Công ty & Logo</span>
+                        </div>
+                        {currentUser.role === 'manager_c1' ? (
+                          <span className="text-[9.5px] px-1.5 py-0.2 rounded bg-amber-200 text-amber-900 font-bold">
+                            Cấp 1 Cài Đặt
+                          </span>
+                        ) : (
+                          <span className="text-[10px] text-slate-400">Xem</span>
+                        )}
+                      </button>
+                    )}
                   </div>
 
                   {/* System Actions */}
@@ -303,17 +307,19 @@ export const Header: React.FC = () => {
                       <span>Đổi mật khẩu tài khoản</span>
                     </button>
 
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setIsProfileOpen(false);
-                        setIsClearDataModalOpen(true);
-                      }}
-                      className="w-full flex items-center space-x-2 px-2.5 py-2 rounded-lg text-xs text-rose-700 hover:bg-rose-50 transition font-medium cursor-pointer"
-                    >
-                      <Trash2 className="w-3.5 h-3.5 text-rose-500" />
-                      <span>Quản lý xoá dữ liệu...</span>
-                    </button>
+                    {currentUser.role !== 'super_admin' && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsProfileOpen(false);
+                          setIsClearDataModalOpen(true);
+                        }}
+                        className="w-full flex items-center space-x-2 px-2.5 py-2 rounded-lg text-xs text-rose-700 hover:bg-rose-50 transition font-medium cursor-pointer"
+                      >
+                        <Trash2 className="w-3.5 h-3.5 text-rose-500" />
+                        <span>Quản lý xoá dữ liệu...</span>
+                      </button>
+                    )}
 
                     <button
                       type="button"

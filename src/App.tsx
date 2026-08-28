@@ -74,14 +74,22 @@ const MainContent: React.FC = () => {
         <main className="flex-1 p-4 sm:p-6 overflow-y-auto min-h-0 bg-[#F1F5F9]">
           <div className="max-w-7xl mx-auto w-full">
             <ErrorBoundary>
-              {activeTab === 'dashboard' && <Dashboard />}
-              {activeTab === 'customers' && <CustomerList />}
-              {activeTab === 'quotations' && <QuotationManager />}
-              {activeTab === 'contracts' && <ContractList />}
-              {activeTab === 'reserve_orders' && <ReserveAndOrderTables />}
-              {activeTab === 'products' && <ProductPriceMaster />}
-              {activeTab === 'inventory' && <InventoryMaster />}
-              {activeTab === 'team' && <TeamManagement />}
+              {currentUser.role === 'super_admin' ? (
+                <>
+                  {activeTab === 'team' ? <TeamManagement /> : <Dashboard />}
+                </>
+              ) : (
+                <>
+                  {activeTab === 'dashboard' && <Dashboard />}
+                  {activeTab === 'customers' && <CustomerList />}
+                  {activeTab === 'quotations' && <QuotationManager />}
+                  {activeTab === 'contracts' && <ContractList />}
+                  {activeTab === 'reserve_orders' && <ReserveAndOrderTables />}
+                  {activeTab === 'products' && <ProductPriceMaster />}
+                  {activeTab === 'inventory' && <InventoryMaster />}
+                  {activeTab === 'team' && <TeamManagement />}
+                </>
+              )}
             </ErrorBoundary>
           </div>
         </main>
@@ -89,11 +97,23 @@ const MainContent: React.FC = () => {
         {/* High Density Footer */}
         <footer className="h-8 bg-slate-100 border-t border-slate-200 flex items-center justify-between px-4 sm:px-6 shrink-0 select-none">
           <div className="text-[10px] text-slate-400 flex items-center space-x-2 sm:space-x-4">
-            <span>Phiên bản 3.0.0 (Enterprise — Multi-Tenant)</span>
-            <span>|</span>
-            <span>Tổng số Sales: {Array.isArray(users) ? users.filter((u) => u.role === 'sales_c2').length : 0} nhân viên</span>
-            <span>|</span>
-            <span>Kho hàng: {Array.isArray(inventory) ? inventory.length.toLocaleString('vi-VN') : 0} mã sản phẩm</span>
+            {currentUser.role === 'super_admin' ? (
+              <>
+                <span>Super Admin Platform • Multi-Tenant</span>
+                <span>|</span>
+                <span>Doanh nghiệp (L1): {Array.isArray(users) ? users.filter((u) => u.role === 'manager_c1').length : 0} đơn vị</span>
+                <span>|</span>
+                <span>Nhân viên (L2): {Array.isArray(users) ? users.filter((u) => u.role === 'sales_c2').length : 0} người</span>
+              </>
+            ) : (
+              <>
+                <span>Phiên bản 3.0.0 (Enterprise — Multi-Tenant)</span>
+                <span>|</span>
+                <span>Tổng số Sales: {Array.isArray(users) ? users.filter((u) => u.role === 'sales_c2').length : 0} nhân viên</span>
+                <span>|</span>
+                <span>Kho hàng: {Array.isArray(inventory) ? inventory.length.toLocaleString('vi-VN') : 0} mã sản phẩm</span>
+              </>
+            )}
           </div>
           <div className="text-[10px] text-slate-400 hidden sm:block">
             © 2026 SalesFlow Management Systems

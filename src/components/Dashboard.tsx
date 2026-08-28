@@ -161,57 +161,43 @@ export const Dashboard: React.FC = () => {
   const selectedRepObj = availableSalesReps.find((r) => r.id === selectedRepId);
   const salesRepLabel = selectedRepId === 'all' ? (isManagerC1 ? 'Toàn Phòng Kinh Doanh' : 'Tất cả nhân viên') : (selectedRepObj?.name || selectedRepId);
 
-  // Super Admin view logic when in system_admin mode
-  if (isSuperAdmin && adminViewMode === 'system_admin') {
+  // Super Admin view logic: Focused strictly on Platform Administration & Level 1 Accounts
+  if (isSuperAdmin) {
     const managersC1 = users.filter((u) => u.role === 'manager_c1');
     const pendingC1 = managersC1.filter((u) => u.status === 'pending_approval' || u.status === 'pending');
     const activeC1 = managersC1.filter((u) => u.status === 'active');
+    const blockedC1 = managersC1.filter((u) => u.status === 'blocked' || u.status === 'inactive' || u.status === 'archived');
     const salesC2List = users.filter((u) => u.role === 'sales_c2');
 
     return (
       <div className="space-y-4">
-        {/* Super Admin Top Switch */}
-        <div className="flex items-center justify-between bg-white p-3.5 rounded-xl border border-slate-200 shadow-xs">
-          <div className="flex items-center space-x-2">
-            <ShieldCheck className="w-5 h-5 text-purple-600" />
-            <span className="font-bold text-slate-800 text-sm">Chế độ xem Quản Trị Hệ Thống (Cấp 0)</span>
-          </div>
-          <button
-            onClick={() => setAdminViewMode('sales_overview')}
-            className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold transition flex items-center space-x-1.5 shadow-2xs"
-          >
-            <BarChart3 className="w-4 h-4" />
-            <span>Chuyển sang Tổng Quan Phòng Kinh Doanh →</span>
-          </button>
-        </div>
-
         {/* Super Admin Welcome Banner */}
         <div className="bg-gradient-to-r from-slate-900 via-purple-950 to-slate-900 p-5 rounded-xl text-white shadow-md border border-purple-800/40">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div className="space-y-1.5">
               <div className="inline-flex items-center space-x-2 px-2.5 py-1 rounded-full bg-purple-500/20 text-purple-300 border border-purple-400/30 text-xs font-semibold">
                 <ShieldCheck className="w-4 h-4 text-purple-400" />
-                <span>Super Admin Hệ Thống (Cấp 0)</span>
+                <span>Super Admin • Quản Trị Nền Tảng (Cấp 0)</span>
               </div>
               <h1 className="text-xl font-bold tracking-tight">
                 Xin chào, <span className="text-purple-300">{currentUser.name}</span> ({currentUser.email})
               </h1>
               <p className="text-xs text-slate-300 max-w-2xl leading-relaxed">
-                Tài khoản của bạn nắm giữ quyền quản trị cao nhất: Phê duyệt tài khoản Cấp 1, cấu hình kết nối Google Cloud Firestore, và quản lý danh mục dữ liệu.
+                Tài khoản quản trị nền tảng: Quản lý, tạo mới, phê duyệt, khóa/mở khóa tài khoản Doanh nghiệp (Level 1) và theo dõi quy mô người dùng toàn hệ thống.
               </p>
             </div>
 
             <div className="flex flex-wrap items-center gap-2 self-start md:self-auto">
               <button
                 onClick={() => setActiveTab('team')}
-                className="px-3.5 py-2 bg-purple-600 hover:bg-purple-500 text-white rounded-lg text-xs font-bold transition flex items-center space-x-1.5 shadow-sm"
+                className="px-3.5 py-2 bg-purple-600 hover:bg-purple-500 text-white rounded-lg text-xs font-bold transition flex items-center space-x-1.5 shadow-sm cursor-pointer"
               >
                 <UserPlus className="w-3.5 h-3.5" />
-                <span>Quản Lý Phân Quyền & C1</span>
+                <span>+ Quản Lý & Tạo Level 1</span>
               </button>
               <button
                 onClick={() => syncAllToCloudNow()}
-                className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-lg text-xs font-bold transition flex items-center space-x-1.5"
+                className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-lg text-xs font-bold transition flex items-center space-x-1.5 cursor-pointer"
               >
                 <Cloud className="w-3.5 h-3.5 text-blue-400" />
                 <span>Đồng Bộ Google Cloud</span>
@@ -220,133 +206,165 @@ export const Dashboard: React.FC = () => {
           </div>
         </div>
 
-        {/* Super Admin Metric Cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
-          <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-xs">
+        {/* Super Admin Metric Cards — Strictly Platform & Account KPIs */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5">
+          {/* Card 1: Total Level 1 */}
+          <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
             <div className="flex items-center justify-between text-slate-500 text-xs font-bold uppercase tracking-wider">
-              <span>Tài khoản Cấp 1</span>
-              <span className="p-1 rounded bg-purple-50 text-purple-700">L1</span>
+              <span>Tổng số Level 1</span>
+              <span className="p-1 rounded bg-purple-50 text-purple-700 font-bold text-[10px]">L1</span>
             </div>
             <div className="flex items-baseline space-x-2 mt-2">
               <span className="text-2xl font-extrabold text-slate-900">{managersC1.length}</span>
-              <span className="text-xs text-emerald-600 font-semibold">{activeC1.length} đã duyệt</span>
+              <span className="text-xs text-slate-500 font-medium">doanh nghiệp</span>
             </div>
-            <p className="text-[11px] text-slate-400 mt-1">Giám đốc / Trưởng phòng phụ trách L2</p>
+            <p className="text-[11px] text-slate-400 mt-1">Tài khoản Doanh nghiệp / Giám đốc</p>
           </div>
 
-          <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-xs">
+          {/* Card 2: Active Level 1 */}
+          <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
             <div className="flex items-center justify-between text-slate-500 text-xs font-bold uppercase tracking-wider">
-              <span>Cấp 1 Chờ Phê Duyệt</span>
-              <span className={`p-1 rounded text-xs font-bold ${pendingC1.length > 0 ? 'bg-rose-100 text-rose-700' : 'bg-slate-100 text-slate-600'}`}>
+              <span>Đang Hoạt Động</span>
+              <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+            </div>
+            <div className="flex items-baseline space-x-2 mt-2">
+              <span className="text-2xl font-extrabold text-emerald-600">{activeC1.length}</span>
+              <span className="text-xs text-emerald-700 font-semibold">tài khoản</span>
+            </div>
+            <p className="text-[11px] text-slate-400 mt-1">Đã phê duyệt và đang sử dụng</p>
+          </div>
+
+          {/* Card 3: Pending Approval Level 1 */}
+          <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
+            <div className="flex items-center justify-between text-slate-500 text-xs font-bold uppercase tracking-wider">
+              <span>Chờ Phê Duyệt</span>
+              <span className={`p-1 rounded text-xs font-bold ${pendingC1.length > 0 ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-600'}`}>
                 {pendingC1.length}
               </span>
             </div>
             <div className="flex items-baseline space-x-2 mt-2">
-              <span className={`text-2xl font-extrabold ${pendingC1.length > 0 ? 'text-rose-600' : 'text-slate-900'}`}>
-                {pendingC1.length} tài khoản
+              <span className={`text-2xl font-extrabold ${pendingC1.length > 0 ? 'text-amber-600' : 'text-slate-900'}`}>
+                {pendingC1.length}
               </span>
+              <span className="text-xs text-amber-700 font-semibold">yêu cầu</span>
             </div>
             <p className="text-[11px] text-slate-400 mt-1">
               {pendingC1.length > 0 ? 'Cần Super Admin xem xét duyệt' : 'Không có yêu cầu chờ duyệt'}
             </p>
           </div>
 
-          <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-xs">
+          {/* Card 4: Blocked Level 1 */}
+          <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
             <div className="flex items-center justify-between text-slate-500 text-xs font-bold uppercase tracking-wider">
-              <span>Nhân viên Cấp 2 (Sales)</span>
-              <span className="p-1 rounded bg-blue-50 text-blue-700">L2</span>
+              <span>Đang Khóa</span>
+              <span className={`p-1 rounded text-xs font-bold ${blockedC1.length > 0 ? 'bg-rose-100 text-rose-700' : 'bg-slate-100 text-slate-600'}`}>
+                {blockedC1.length}
+              </span>
             </div>
             <div className="flex items-baseline space-x-2 mt-2">
-              <span className="text-2xl font-extrabold text-slate-900">{salesC2List.length}</span>
-              <span className="text-xs text-blue-600 font-semibold">NVKD trực tiếp</span>
+              <span className={`text-2xl font-extrabold ${blockedC1.length > 0 ? 'text-rose-600' : 'text-slate-900'}`}>
+                {blockedC1.length}
+              </span>
+              <span className="text-xs text-rose-700 font-semibold">tài khoản</span>
             </div>
-            <p className="text-[11px] text-slate-400 mt-1">Do các Giám đốc Cấp 1 quản lý & tạo</p>
+            <p className="text-[11px] text-slate-400 mt-1">Tài khoản bị tạm ngưng truy cập</p>
           </div>
 
-          <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-xs">
+          {/* Card 5: Total Level 2 (Sales) */}
+          <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
             <div className="flex items-center justify-between text-slate-500 text-xs font-bold uppercase tracking-wider">
-              <span>Dữ liệu Master Data</span>
-              <Database className="w-4 h-4 text-emerald-600" />
+              <span>Tổng số Level 2</span>
+              <span className="p-1 rounded bg-blue-50 text-blue-700 font-bold text-[10px]">L2</span>
             </div>
             <div className="flex items-baseline space-x-2 mt-2">
-              <span className="text-2xl font-extrabold text-slate-900">{allProducts.length} mã</span>
-              <span className="text-xs text-emerald-600 font-semibold">{allInventory.length} mã kho</span>
+              <span className="text-2xl font-extrabold text-blue-600">{salesC2List.length}</span>
+              <span className="text-xs text-blue-700 font-semibold">nhân viên</span>
             </div>
-            <p className="text-[11px] text-slate-400 mt-1">Bảng giá & Tồn kho toàn hệ thống</p>
+            <p className="text-[11px] text-slate-400 mt-1">Do các Level 1 quản lý & phân quyền</p>
           </div>
         </div>
 
         {/* Super Admin User list */}
-        <div className="bg-white border border-slate-200 rounded-lg shadow-xs overflow-hidden">
+        <div className="bg-white border border-slate-200 rounded-xl shadow-xs overflow-hidden">
           <div className="p-3.5 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
             <div>
               <h3 className="font-bold text-slate-900 text-xs sm:text-sm flex items-center space-x-1.5">
                 <Shield className="w-4 h-4 text-purple-600" />
-                <span>Danh Sách Tài Khoản Giám Đốc Cấp 1</span>
+                <span>Danh Sách Tài Khoản Doanh Nghiệp (Level 1)</span>
               </h3>
             </div>
             <button
               onClick={() => setActiveTab('team')}
-              className="text-xs text-blue-600 hover:text-blue-800 font-semibold"
+              className="text-xs text-blue-600 hover:text-blue-800 font-semibold flex items-center space-x-1 cursor-pointer"
             >
-              Quản lý chi tiết →
+              <span>Quản lý chi tiết Level 1 →</span>
             </button>
           </div>
 
           <div className="divide-y divide-slate-100 text-xs">
-            {managersC1.map((mgr) => (
-              <div key={mgr.id} className="p-3 flex items-center justify-between hover:bg-slate-50 transition">
-                <div className="flex items-center space-x-3">
-                  <img src={mgr.avatar} alt={mgr.name} className="w-9 h-9 rounded-full object-cover border border-slate-200" />
-                  <div>
-                    <div className="font-bold text-slate-900">{mgr.name}</div>
-                    <div className="text-[11px] text-slate-500">{mgr.email} • {mgr.phone}</div>
-                    <div className="text-[10px] text-blue-600 font-semibold">{mgr.department}</div>
+            {managersC1.length === 0 ? (
+              <div className="p-8 text-center text-slate-400">
+                <Users className="w-8 h-8 mx-auto text-slate-300 mb-2" />
+                <p>Chưa có tài khoản Level 1 nào trong hệ thống.</p>
+              </div>
+            ) : (
+              managersC1.map((mgr) => (
+                <div key={mgr.id} className="p-3 flex items-center justify-between hover:bg-slate-50 transition">
+                  <div className="flex items-center space-x-3">
+                    <img src={mgr.avatar} alt={mgr.name} className="w-9 h-9 rounded-full object-cover border border-slate-200" />
+                    <div>
+                      <div className="font-bold text-slate-900 flex items-center space-x-2">
+                        <span>{mgr.name}</span>
+                        {mgr.status === 'active' && (
+                          <span className="px-1.5 py-0.2 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800">
+                            Hoạt động
+                          </span>
+                        )}
+                        {(mgr.status === 'pending_approval' || mgr.status === 'pending') && (
+                          <span className="px-1.5 py-0.2 rounded text-[10px] font-bold bg-amber-100 text-amber-800">
+                            Chờ duyệt
+                          </span>
+                        )}
+                        {(mgr.status === 'blocked' || mgr.status === 'inactive') && (
+                          <span className="px-1.5 py-0.2 rounded text-[10px] font-bold bg-rose-100 text-rose-800">
+                            Đang khóa
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-[11px] text-slate-500">{mgr.email} • {mgr.phone}</div>
+                      <div className="text-[10px] text-blue-600 font-semibold">{mgr.department}</div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center space-x-2">
+                    {mgr.status === 'pending_approval' || mgr.status === 'pending' ? (
+                      <button
+                        onClick={() => approveUser(mgr.id)}
+                        className="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-xs font-bold flex items-center space-x-1 shadow-2xs cursor-pointer"
+                      >
+                        <CheckCircle2 className="w-3.5 h-3.5" />
+                        <span>Phê Duyệt</span>
+                      </button>
+                    ) : null}
+                    <button
+                      onClick={() => setActiveTab('team')}
+                      className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded text-xs font-semibold transition cursor-pointer"
+                    >
+                      Chi tiết
+                    </button>
                   </div>
                 </div>
-
-                <div className="flex items-center space-x-2">
-                  {mgr.status === 'pending_approval' || mgr.status === 'pending' ? (
-                    <button
-                      onClick={() => approveUser(mgr.id)}
-                      className="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-xs font-bold flex items-center space-x-1 shadow-2xs cursor-pointer"
-                    >
-                      <CheckCircle2 className="w-3.5 h-3.5" />
-                      <span>Phê Duyệt</span>
-                    </button>
-                  ) : (
-                    <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded text-[11px] font-bold">
-                      ✓ Đã Kích Hoạt
-                    </span>
-                  )}
-                </div>
-              </div>
-            ))}
+              ))
+            )}
           </div>
         </div>
       </div>
     );
   }
 
-  // Standard Sales Department Overview Window for Sales, Manager C1, Director, and Super Admin
+  // Standard Sales Department Overview Window for Sales, Manager C1, Director
   return (
     <div className="space-y-4">
-      {/* Super Admin Mode Switch banner (if Super Admin) */}
-      {isSuperAdmin && (
-        <div className="flex items-center justify-between bg-purple-50 border border-purple-200 p-3 rounded-xl">
-          <div className="flex items-center space-x-2 text-purple-900 text-xs font-semibold">
-            <ShieldCheck className="w-4 h-4 text-purple-600" />
-            <span>Bạn đang xem với tư cách Super Admin (Quyền xem toàn bộ doanh số phòng & nhân viên).</span>
-          </div>
-          <button
-            onClick={() => setAdminViewMode('system_admin')}
-            className="px-2.5 py-1 bg-purple-600 hover:bg-purple-700 text-white rounded text-xs font-bold transition"
-          >
-            Quản trị Cấp 1 & Hệ thống →
-          </button>
-        </div>
-      )}
-
       {/* Action Header Banner */}
       <div className="bg-white rounded-xl p-4 border border-slate-200 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div className="space-y-1">

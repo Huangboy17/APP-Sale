@@ -42,29 +42,19 @@ export const Sidebar: React.FC = () => {
   const holdingCount = filteredReserveItems.filter((r) => r.status === 'holding').length;
   const pendingOrderCount = filteredOrderItems.filter((o) => o.status === 'pending_order').length;
 
-  // Super Admin Navigation
+  // Super Admin Navigation (Focused strictly on Platform Management & Level 1 Accounts)
   const superAdminNav = [
     {
       id: 'dashboard',
-      label: 'Tổng quan hệ thống',
+      label: 'Dashboard Quản Trị',
       icon: LayoutDashboard,
     },
     {
       id: 'team',
-      label: 'Duyệt Cấp 1 & Quản trị TK',
+      label: 'Quản lý tài khoản Level 1',
       icon: UserPlus,
       badge: pendingC1Count > 0 ? `${pendingC1Count} chờ duyệt` : undefined,
       badgeColor: 'bg-rose-500 text-white',
-    },
-    {
-      id: 'products',
-      label: 'Quản trị Data Giá',
-      icon: Tag,
-    },
-    {
-      id: 'inventory',
-      label: 'Quản trị Kho hàng',
-      icon: Boxes,
     },
   ];
 
@@ -208,7 +198,7 @@ export const Sidebar: React.FC = () => {
           <span className="text-blue-400 font-extrabold">PRO</span>
         </h1>
         <p className="text-[10px] text-slate-400 mt-1 uppercase tracking-widest font-semibold">
-          {currentUser.role === 'super_admin' && 'Super Admin Dashboard (L0)'}
+          {currentUser.role === 'super_admin' && 'Super Admin • Quản Trị Nền Tảng'}
           {currentUser.role === 'manager_c1' && 'Director Dashboard (L1)'}
           {currentUser.role === 'sales_c2' && 'Sales Dashboard (L2)'}
         </p>
@@ -218,13 +208,13 @@ export const Sidebar: React.FC = () => {
       <nav className="flex-1 py-3 px-3 overflow-y-auto space-y-1">
         {isSuperAdmin && (
           <>
-            {renderNavGroup('Quản trị hệ thống (L0)', superAdminNav)}
+            {renderNavGroup('Quản trị nền tảng', superAdminNav)}
             <div className="mt-4 p-3 rounded-md bg-purple-950/40 border border-purple-800/40 text-[11px] text-purple-200">
               <div className="font-bold text-purple-300 flex items-center space-x-1.5 mb-1">
-                <span>🔒 Phân quyền Super Admin</span>
+                <span>🔒 Quản trị nền tảng</span>
               </div>
               <p className="text-[10px] text-purple-300/80 leading-relaxed">
-                Tài khoản Super Admin quản trị hệ thống, phê duyệt tài khoản C1 & cấu hình database. Dữ liệu báo giá & khách hàng nội bộ của C1, C2 được bảo mật riêng biệt.
+                Tài khoản Super Admin quản trị nền tảng, tạo mới, phê duyệt và quản lý các tài khoản Level 1. Dữ liệu kinh doanh và kho hàng của Level 1 được phân lập và bảo mật an toàn.
               </p>
             </div>
           </>
