@@ -3,7 +3,7 @@ import { useApp } from '../../context/AppContext';
 import { ProductPriceItem, InventoryItem } from '../../types';
 import { formatVND, exportProductsToExcel, downloadProductTemplateExcel } from '../../utils/formatters';
 import { ProductImportModal } from './ProductImportModal';
-import { ItemReservationsModal } from '../Inventory/ItemReservationsModal';
+import { ProductInventoryDrawer } from '../Inventory/ProductInventoryDrawer';
 import { ErrorBoundary } from '../Common/ErrorBoundary';
 import {
   Tag,
@@ -17,6 +17,7 @@ import {
   X,
   Boxes,
   Layers,
+  ShoppingCart,
   Eye,
   CheckCircle2,
   AlertTriangle,
@@ -442,6 +443,12 @@ const ProductPriceMasterContent: React.FC = () => {
                 >
                   <span>Tồn Khả Dụng</span>
                 </th>
+                <th
+                  className="px-3 py-2.5 text-center bg-indigo-50/70 text-indigo-900 font-bold border-r border-indigo-200"
+                  title="Số lượng hàng đang được đặt từ Nhà cung cấp"
+                >
+                  <span>Đang Đặt NCC</span>
+                </th>
                 <th className="px-3 py-2.5 text-right">Giá Niêm Yết</th>
                 <th className="px-3 py-2.5 text-right bg-amber-50/70 text-amber-900 font-bold">
                   Giá DP (Sàn Bán)
@@ -453,7 +460,7 @@ const ProductPriceMasterContent: React.FC = () => {
             <tbody className="divide-y divide-slate-100 text-slate-700">
               {displayedProducts.length === 0 ? (
                 <tr>
-                  <td colSpan={canManageProducts ? 12 : 11} className="px-4 py-8 text-center text-slate-400">
+                  <td colSpan={canManageProducts ? 13 : 12} className="px-4 py-8 text-center text-slate-400">
                     {currentUser.role === 'super_admin'
                       ? 'Tài khoản Super Admin không hiển thị data giá bán lẻ của các công ty. Vui lòng đăng nhập tài khoản Cấp 1 tương ứng để xem và quản lý.'
                       : 'Chưa có sản phẩm nào trong Data Giá của công ty. Vui lòng bấm "Import Data Giá" hoặc "+ Thêm Sản Phẩm" để bắt đầu.'}
@@ -470,6 +477,7 @@ const ProductPriceMasterContent: React.FC = () => {
                   const totalQty = inv ? inv.totalQuantity : 0;
                   const reservedQty = inv ? inv.reservedQuantity : 0;
                   const availableQty = inv ? inv.availableQuantity : 0;
+                  const onOrderQty = inv ? inv.onOrderQuantity || 0 : 0;
 
                   return (
                     <tr key={p.sku || `row-${idx}`} className="hover:bg-slate-50 transition-colors">
@@ -534,6 +542,17 @@ const ProductPriceMasterContent: React.FC = () => {
                             <XCircle className="w-3 h-3 text-rose-600 shrink-0" />
                           )}
                           <span>{availableQty}</span>
+                        </span>
+                      </td>
+
+                      {/* Đang Đặt NCC */}
+                      <td className="px-3 py-2 text-center border-r border-indigo-100 bg-indigo-50/20">
+                        <span
+                          className={`font-mono text-xs font-bold ${
+                            onOrderQty > 0 ? 'text-indigo-800' : 'text-slate-300'
+                          }`}
+                        >
+                          {onOrderQty}
                         </span>
                       </td>
 
@@ -812,11 +831,13 @@ const ProductPriceMasterContent: React.FC = () => {
         onClose={() => setIsImportModalOpen(false)}
       />
 
-      {/* Item Hold / Reservation Details Modal */}
-      <ItemReservationsModal
-        item={selectedItemForHoldModal}
-        onClose={() => setSelectedItemForHoldModal(null)}
-      />
+      {/* Product Inventory Details Multi-Tab Drawer */}
+      {selectedItemForHoldModal && (
+        <ProductInventoryDrawer
+          item={selectedItemForHoldModal}
+          onClose={() => setSelectedItemForHoldModal(null)}
+        />
+      )}
     </div>
   );
 };

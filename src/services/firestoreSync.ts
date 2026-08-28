@@ -19,6 +19,10 @@ import {
   ReserveItem,
   OrderItem,
   Organization,
+  StockTransaction,
+  StockInVoucher,
+  StockOutVoucher,
+  StockAuditVoucher,
 } from '../types';
 import {
   INITIAL_USERS,
@@ -44,6 +48,10 @@ export const COLLECTIONS = {
   ORDERS: 'orderItems',
   ORGANIZATIONS: 'organizations',
   CUSTOMER_MEMBERS: 'customerMembers',
+  STOCK_TRANSACTIONS: 'stockTransactions',
+  STOCK_IN_VOUCHERS: 'stockInVouchers',
+  STOCK_OUT_VOUCHERS: 'stockOutVouchers',
+  STOCK_AUDIT_VOUCHERS: 'stockAuditVouchers',
 };
 
 // Quota state and notification callback
@@ -477,6 +485,79 @@ export async function getOrganizationFromCloud(orgId: string): Promise<Organizat
   } catch (err) {
     handleFirestoreError(err, 'Get organization');
     return null;
+  }
+}
+
+// Stock Transaction & Ledger Actions
+export async function syncStockTransactionToCloud(tx: StockTransaction) {
+  try {
+    await setDoc(doc(db, COLLECTIONS.STOCK_TRANSACTIONS, tx.id), cleanForFirestore(tx), { merge: true });
+  } catch (err) {
+    handleFirestoreError(err, 'Save stock transaction');
+  }
+}
+
+export async function batchSyncStockTransactionsToCloud(transactions: StockTransaction[]) {
+  if (!transactions || transactions.length === 0) return;
+  try {
+    const batch = writeBatch(db);
+    transactions.forEach((tx) => {
+      batch.set(doc(db, COLLECTIONS.STOCK_TRANSACTIONS, tx.id), cleanForFirestore(tx), { merge: true });
+    });
+    await batch.commit();
+  } catch (err) {
+    handleFirestoreError(err, 'Batch save stock transactions');
+  }
+}
+
+// Stock In Voucher Actions
+export async function syncStockInVoucherToCloud(voucher: StockInVoucher) {
+  try {
+    await setDoc(doc(db, COLLECTIONS.STOCK_IN_VOUCHERS, voucher.id), cleanForFirestore(voucher), { merge: true });
+  } catch (err) {
+    handleFirestoreError(err, 'Save stock in voucher');
+  }
+}
+
+export async function deleteStockInVoucherFromCloud(voucherId: string) {
+  try {
+    await deleteDoc(doc(db, COLLECTIONS.STOCK_IN_VOUCHERS, voucherId));
+  } catch (err) {
+    handleFirestoreError(err, 'Delete stock in voucher');
+  }
+}
+
+// Stock Out Voucher Actions
+export async function syncStockOutVoucherToCloud(voucher: StockOutVoucher) {
+  try {
+    await setDoc(doc(db, COLLECTIONS.STOCK_OUT_VOUCHERS, voucher.id), cleanForFirestore(voucher), { merge: true });
+  } catch (err) {
+    handleFirestoreError(err, 'Save stock out voucher');
+  }
+}
+
+export async function deleteStockOutVoucherFromCloud(voucherId: string) {
+  try {
+    await deleteDoc(doc(db, COLLECTIONS.STOCK_OUT_VOUCHERS, voucherId));
+  } catch (err) {
+    handleFirestoreError(err, 'Delete stock out voucher');
+  }
+}
+
+// Stock Audit Voucher Actions
+export async function syncStockAuditVoucherToCloud(voucher: StockAuditVoucher) {
+  try {
+    await setDoc(doc(db, COLLECTIONS.STOCK_AUDIT_VOUCHERS, voucher.id), cleanForFirestore(voucher), { merge: true });
+  } catch (err) {
+    handleFirestoreError(err, 'Save stock audit voucher');
+  }
+}
+
+export async function deleteStockAuditVoucherFromCloud(voucherId: string) {
+  try {
+    await deleteDoc(doc(db, COLLECTIONS.STOCK_AUDIT_VOUCHERS, voucherId));
+  } catch (err) {
+    handleFirestoreError(err, 'Delete stock audit voucher');
   }
 }
 

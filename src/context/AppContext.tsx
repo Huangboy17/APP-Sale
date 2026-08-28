@@ -25,6 +25,11 @@ import {
   isUserActive,
   isUserPending,
   isUserBlocked,
+  StockTransaction,
+  StockTransactionType,
+  StockInVoucher,
+  StockOutVoucher,
+  StockAuditVoucher,
 } from '../types';
 import {
   saveProductsToIndexedDB,
@@ -89,6 +94,14 @@ import {
   syncOrganizationToCloud,
   syncCustomerMemberToCloud,
   deleteCustomerMemberFromCloud,
+  syncStockTransactionToCloud,
+  batchSyncStockTransactionsToCloud,
+  syncStockInVoucherToCloud,
+  deleteStockInVoucherFromCloud,
+  syncStockOutVoucherToCloud,
+  deleteStockOutVoucherFromCloud,
+  syncStockAuditVoucherToCloud,
+  deleteStockAuditVoucherFromCloud,
 } from '../services/firestoreSync';
 
 // Helper function to resolve the company scope (C1 is company, C2 inherits C1's companyId)
@@ -198,8 +211,24 @@ interface AppContextType {
   addInventoryItem: (item: Omit<InventoryItem, 'availableQuantity' | 'reservedQuantity' | 'updatedAt'>) => void;
   deleteInventoryItem: (sku: string) => void;
   importInventory: (newInventory: InventoryItem[]) => void;
-  quickAdjustStock: (sku: string, deltaQty: number) => void;
+  quickAdjustStock: (sku: string, deltaQty: number, notes?: string) => void;
   receiveOrderToWarehouseAndReserve: (orderId: string, warehouseLocation?: string) => void;
+
+  // Warehouse Vouchers & Stock Transaction Ledger
+  stockTransactions: StockTransaction[];
+  stockInVouchers: StockInVoucher[];
+  stockOutVouchers: StockOutVoucher[];
+  stockAuditVouchers: StockAuditVoucher[];
+  addStockTransaction: (txData: Omit<StockTransaction, 'id' | 'timestamp' | 'date'>) => StockTransaction;
+  createStockInVoucher: (data: Omit<StockInVoucher, 'id' | 'voucherNumber' | 'createdAt' | 'updatedAt'>) => StockInVoucher;
+  confirmStockInVoucher: (voucherId: string) => Promise<void>;
+  cancelStockInVoucher: (voucherId: string) => Promise<void>;
+  createStockOutVoucher: (data: Omit<StockOutVoucher, 'id' | 'voucherNumber' | 'createdAt' | 'updatedAt'>) => StockOutVoucher;
+  confirmStockOutVoucher: (voucherId: string) => Promise<void>;
+  cancelStockOutVoucher: (voucherId: string) => Promise<void>;
+  createStockAuditVoucher: (data: Omit<StockAuditVoucher, 'id' | 'voucherNumber' | 'createdAt' | 'updatedAt'>) => StockAuditVoucher;
+  confirmStockAuditVoucher: (voucherId: string) => Promise<void>;
+  cancelStockAuditVoucher: (voucherId: string) => Promise<void>;
 
   // Quotations (Báo giá)
   quotations: Quotation[];
@@ -419,6 +448,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return INITIAL_COMPANY_INFO;
     }
   });
+
+  // Warehouse Vouchers & Stock Transaction Ledger State
+  const [stockTransactions, setStockTransactions] = useState<StockTransaction[]>([]);
+  const [stockInVouchers, setStockInVouchers] = useState<StockInVoucher[]>([]);
+  const [stockOutVouchers, setStockOutVouchers] = useState<StockOutVoucher[]>([]);
+  const [stockAuditVouchers, setStockAuditVouchers] = useState<StockAuditVoucher[]>([]);
 
   // Profile & Company Identity Modal
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
@@ -744,6 +779,79 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           }
         );
         unsubs.push(unsubCompany);
+
+        // 10. Stock Transactions real-time listener
+        const unsubStockTx = onSnapshot(
+          collection(db, COLLECTIONS.STOCK_TRANSACTIONS),
+          (snap) => {
+            const list: StockTransaction[] = [];
+            snap.forEach((d) => {
+              const tx = d.data() as StockTransaction;
+              if (tx && tx.id) list.push(tx);
+            });
+            // Sort by timestamp desc
+            list.sort((a, b) => new Date(b.timestamp || b.date).getTime() - new Date(a.timestamp || a.date).getTime());
+            setStockTransactions(list);
+          },
+          (err) => {
+            handleFirestoreError(err, 'Stock transactions listener');
+          }
+        );
+        unsubs.push(unsubStockTx);
+
+        // 11. Stock In Vouchers real-time listener
+        const unsubStockIn = onSnapshot(
+          collection(db, COLLECTIONS.STOCK_IN_VOUCHERS),
+          (snap) => {
+            const list: StockInVoucher[] = [];
+            snap.forEach((d) => {
+              const v = d.data() as StockInVoucher;
+              if (v && v.id) list.push(v);
+            });
+            list.sort((a, b) => new Date(b.createdAt || b.date).getTime() - new Date(a.createdAt || a.date).getTime());
+            setStockInVouchers(list);
+          },
+          (err) => {
+            handleFirestoreError(err, 'Stock In vouchers listener');
+          }
+        );
+        unsubs.push(unsubStockIn);
+
+        // 12. Stock Out Vouchers real-time listener
+        const unsubStockOut = onSnapshot(
+          collection(db, COLLECTIONS.STOCK_OUT_VOUCHERS),
+          (snap) => {
+            const list: StockOutVoucher[] = [];
+            snap.forEach((d) => {
+              const v = d.data() as StockOutVoucher;
+              if (v && v.id) list.push(v);
+            });
+            list.sort((a, b) => new Date(b.createdAt || b.date).getTime() - new Date(a.createdAt || a.date).getTime());
+            setStockOutVouchers(list);
+          },
+          (err) => {
+            handleFirestoreError(err, 'Stock Out vouchers listener');
+          }
+        );
+        unsubs.push(unsubStockOut);
+
+        // 13. Stock Audit Vouchers real-time listener
+        const unsubStockAudit = onSnapshot(
+          collection(db, COLLECTIONS.STOCK_AUDIT_VOUCHERS),
+          (snap) => {
+            const list: StockAuditVoucher[] = [];
+            snap.forEach((d) => {
+              const v = d.data() as StockAuditVoucher;
+              if (v && v.id) list.push(v);
+            });
+            list.sort((a, b) => new Date(b.createdAt || b.date).getTime() - new Date(a.createdAt || a.date).getTime());
+            setStockAuditVouchers(list);
+          },
+          (err) => {
+            handleFirestoreError(err, 'Stock Audit vouchers listener');
+          }
+        );
+        unsubs.push(unsubStockAudit);
 
         setCloudSyncStatus((prev) => (prev === 'quota-exceeded' ? 'quota-exceeded' : 'connected'));
       } catch (err) {
@@ -1851,34 +1959,41 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     importProducts(convertedProducts);
   };
 
-  // Inventory Tồn kho - Scoped by Company & Synced with Holds:
+  // Inventory Tồn kho - Unified Inventory Engine (Single Source of Truth for Sales & Warehouse):
   const filteredInventory = useMemo(() => {
-    if (currentUser.role === 'super_admin') {
-      return [];
-    }
+    const validCustomerIds = new Set(customers.map((c) => c.id));
     const myOrgId = resolveOrganizationId(currentUser, users);
     const myCompanyId = companyScope.companyId || myOrgId;
 
-    // Find all user names in this organization to compute organization-level reserve holding accurately
-    const companyUserNames = users
-      .filter((u) => {
-        const uOrg = u.organizationId || resolveOrganizationId(u, users);
-        return uOrg === myOrgId || u.id === currentUser.id;
-      })
-      .map((u) => u.name);
-
+    // 1. Calculate active holding reserves for valid customers
     const reserveMap = new Map<string, number>();
     reserveItems.forEach((r) => {
-      if (
-        r.status === 'holding' &&
-        (companyUserNames.includes(r.salesRepName) || r.salesRepName === currentUser.name)
-      ) {
-        const cleanSku = (r.sku || '').trim().toUpperCase();
-        reserveMap.set(cleanSku, (reserveMap.get(cleanSku) || 0) + (r.reservedQuantity || 0));
+      if (r.status === 'holding' && r.customerId && validCustomerIds.has(r.customerId)) {
+        if (currentUser.role === 'super_admin' || !r.organizationId || r.organizationId === myOrgId) {
+          const cleanSku = (r.sku || '').trim().toUpperCase();
+          reserveMap.set(cleanSku, (reserveMap.get(cleanSku) || 0) + (r.reservedQuantity || 0));
+        }
       }
     });
 
-    const companyInv = inventory.filter((item) => {
+    // 2. Calculate active pending / ordered PO quantities
+    const orderMap = new Map<string, number>();
+    orderItems.forEach((o) => {
+      if (
+        (o.status === 'pending_order' || o.status === 'ordered') &&
+        o.customerId &&
+        validCustomerIds.has(o.customerId)
+      ) {
+        if (currentUser.role === 'super_admin' || !o.organizationId || o.organizationId === myOrgId) {
+          const cleanSku = (o.sku || '').trim().toUpperCase();
+          orderMap.set(cleanSku, (orderMap.get(cleanSku) || 0) + (o.orderQuantity || 0));
+        }
+      }
+    });
+
+    // 3. Filter inventory items based on role / organization
+    const scopedInventory = inventory.filter((item) => {
+      if (currentUser.role === 'super_admin') return true;
       const itemOrg = item.organizationId || item.companyId;
       if (itemOrg) {
         return itemOrg === myOrgId || itemOrg === myCompanyId;
@@ -1890,21 +2005,43 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         const mgrId = currentUser.managerId || currentUser.createdBy;
         return item.createdBy === currentUser.id || (mgrId ? item.createdBy === mgrId : false);
       }
-      return false;
+      return true;
     });
 
-    return companyInv.map((item) => {
+    // 4. Compute On Hand, Reserved, Available, On Order, Reorder Needed
+    return scopedInventory.map((item) => {
       const cleanSku = (item.sku || '').trim().toUpperCase();
+      const actualOnHand = typeof item.totalQuantity === 'number' && !isNaN(item.totalQuantity) ? Math.max(0, item.totalQuantity) : 0;
       const actualReserved = reserveMap.get(cleanSku) || 0;
-      const actualAvailable = Math.max(0, (item.totalQuantity || 0) - actualReserved);
+      const actualAvailable = Math.max(0, actualOnHand - actualReserved);
+      const actualOnOrder = orderMap.get(cleanSku) || 0;
+      const reorderNeeded = Math.max(0, actualReserved - actualAvailable - actualOnOrder);
 
       return {
         ...item,
+        totalQuantity: actualOnHand,
         reservedQuantity: actualReserved,
         availableQuantity: actualAvailable,
+        onOrderQuantity: actualOnOrder,
+        reorderNeeded,
       };
     });
-  }, [inventory, reserveItems, currentUser, companyScope, users]);
+  }, [inventory, reserveItems, orderItems, currentUser, companyScope, users, customers]);
+
+  // Stock Transaction Logging
+  const addStockTransaction = (txData: Omit<StockTransaction, 'id' | 'timestamp' | 'date'>): StockTransaction => {
+    const now = new Date();
+    const newTx: StockTransaction = {
+      ...txData,
+      id: `tx-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+      timestamp: now.toISOString(),
+      date: now.toISOString().split('T')[0],
+      organizationId: txData.organizationId || resolveOrganizationId(currentUser, users),
+    };
+    setStockTransactions((prev) => [newTx, ...prev]);
+    syncStockTransactionToCloud(newTx);
+    return newTx;
+  };
 
   const updateInventoryItem = (item: InventoryItem) => {
     const myCompanyId = companyScope.companyId;
@@ -1917,13 +2054,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       availableQuantity: available,
       updatedAt: new Date().toISOString().split('T')[0],
     };
-    setInventory((prev) =>
-      prev.map((i) =>
+    setInventory((prev) => {
+      const newInv = prev.map((i) =>
         i.sku.trim().toUpperCase() === item.sku.trim().toUpperCase() && (i.companyId === updated.companyId || !i.companyId)
           ? updated
           : i
-      )
-    );
+      );
+      saveInventoryToIndexedDB(newInv);
+      return newInv;
+    });
     syncInventoryItemToCloud(updated);
   };
 
@@ -1943,32 +2082,60 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const filtered = prev.filter(
         (i) => !(i.sku.trim().toUpperCase() === newItem.sku.trim().toUpperCase() && (i.companyId === myCompanyId || !i.companyId))
       );
-      return [created, ...filtered];
+      const newInv = [created, ...filtered];
+      saveInventoryToIndexedDB(newInv);
+      return newInv;
     });
     syncInventoryItemToCloud(created);
+
+    addStockTransaction({
+      sku: created.sku,
+      productName: created.name,
+      unit: created.unit,
+      type: 'IMPORT',
+      deltaQuantity: created.totalQuantity,
+      beforeOnHand: 0,
+      afterOnHand: created.totalQuantity,
+      referenceCode: 'THÊM MỚI MÃ HÀNG',
+      performedById: currentUser.id,
+      performedByName: currentUser.name,
+      organizationId: created.organizationId || myCompanyId,
+      notes: 'Thêm mới mã hàng vào danh mục tồn kho',
+    });
   };
 
   const deleteInventoryItem = (sku: string) => {
     const myCompanyId = companyScope.companyId;
-    setInventory((prev) =>
-      prev.filter(
+    setInventory((prev) => {
+      const newInv = prev.filter(
         (i) => !(i.sku.trim().toUpperCase() === sku.trim().toUpperCase() && (i.companyId === myCompanyId || !i.companyId))
-      )
-    );
+      );
+      saveInventoryToIndexedDB(newInv);
+      return newInv;
+    });
     deleteInventoryItemFromCloud(sku, myCompanyId);
   };
 
-  const quickAdjustStock = (sku: string, deltaQty: number) => {
-    const myCompanyId = companyScope.companyId;
+  const quickAdjustStock = (sku: string, deltaQty: number, notes?: string) => {
+    const myOrgId = resolveOrganizationId(currentUser, users);
+    const myCompanyId = companyScope.companyId || myOrgId;
+    let oldOnHand = 0;
+    let newOnHand = 0;
+    let targetProdName = sku;
+    let targetUnit = 'Bộ';
+
     setInventory((prev) => {
       let targetItem: InventoryItem | null = null;
       const updated = prev.map((item) => {
         if (item.sku.trim().toUpperCase() === sku.trim().toUpperCase() && (item.companyId === myCompanyId || !item.companyId)) {
-          const newTotal = Math.max(0, item.totalQuantity + deltaQty);
-          const newAvailable = Math.max(0, newTotal - item.reservedQuantity);
+          oldOnHand = item.totalQuantity || 0;
+          newOnHand = Math.max(0, oldOnHand + deltaQty);
+          const newAvailable = Math.max(0, newOnHand - (item.reservedQuantity || 0));
+          targetProdName = item.name;
+          targetUnit = item.unit || 'Bộ';
           targetItem = {
             ...item,
-            totalQuantity: newTotal,
+            totalQuantity: newOnHand,
             availableQuantity: newAvailable,
             updatedAt: new Date().toISOString().split('T')[0],
           };
@@ -1976,9 +2143,349 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         }
         return item;
       });
-      if (targetItem) syncInventoryItemToCloud(targetItem);
+      if (targetItem) {
+        syncInventoryItemToCloud(targetItem);
+        saveInventoryToIndexedDB(updated);
+      }
       return updated;
     });
+
+    if (deltaQty !== 0) {
+      addStockTransaction({
+        sku,
+        productName: targetProdName,
+        unit: targetUnit,
+        type: 'ADJUSTMENT',
+        deltaQuantity: deltaQty,
+        beforeOnHand: oldOnHand,
+        afterOnHand: newOnHand,
+        referenceCode: 'ĐIỀU CHỈNH NHANH',
+        performedById: currentUser.id,
+        performedByName: currentUser.name,
+        organizationId: myOrgId,
+        notes: notes || `Điều chỉnh nhanh tồn kho: ${deltaQty > 0 ? `+${deltaQty}` : deltaQty}`,
+      });
+    }
+  };
+
+  // Stock In Voucher Actions
+  const createStockInVoucher = (data: Omit<StockInVoucher, 'id' | 'voucherNumber' | 'createdAt' | 'updatedAt'>): StockInVoucher => {
+    const now = new Date();
+    const dateStr = now.toISOString().split('T')[0].replace(/-/g, '');
+    const rand = Math.floor(1000 + Math.random() * 9000);
+    const voucherNumber = `PNK-${dateStr}-${rand}`;
+    const myOrgId = resolveOrganizationId(currentUser, users);
+
+    const newVoucher: StockInVoucher = {
+      ...data,
+      id: `pnk-${Date.now()}-${rand}`,
+      voucherNumber,
+      organizationId: data.organizationId || myOrgId,
+      createdById: currentUser.id,
+      createdByName: currentUser.name,
+      createdAt: now.toISOString(),
+      updatedAt: now.toISOString(),
+      status: data.status || 'DRAFT',
+    };
+
+    setStockInVouchers((prev) => [newVoucher, ...prev]);
+    syncStockInVoucherToCloud(newVoucher);
+    return newVoucher;
+  };
+
+  const confirmStockInVoucher = async (voucherId: string) => {
+    const voucher = stockInVouchers.find((v) => v.id === voucherId);
+    if (!voucher || voucher.status === 'CONFIRMED') return;
+
+    const now = new Date();
+    const myOrgId = resolveOrganizationId(currentUser, users);
+    const myCompanyId = companyScope.companyId || myOrgId;
+
+    // 1. Update voucher status to CONFIRMED
+    const updatedVoucher: StockInVoucher = {
+      ...voucher,
+      status: 'CONFIRMED',
+      confirmedAt: now.toISOString(),
+      updatedAt: now.toISOString(),
+    };
+    setStockInVouchers((prev) => prev.map((v) => (v.id === voucherId ? updatedVoucher : v)));
+    syncStockInVoucherToCloud(updatedVoucher);
+
+    // 2. Increment On Hand for each item in the voucher
+    const itemMap = new Map<string, number>();
+    voucher.items.forEach((item) => {
+      const cleanSku = item.sku.trim().toUpperCase();
+      itemMap.set(cleanSku, (itemMap.get(cleanSku) || 0) + (item.actualQuantity || item.expectedQuantity || 0));
+    });
+
+    setInventory((prev) => {
+      const updated = prev.map((inv) => {
+        const cleanSku = inv.sku.trim().toUpperCase();
+        if (itemMap.has(cleanSku)) {
+          const addQty = itemMap.get(cleanSku) || 0;
+          const oldOnHand = inv.totalQuantity || 0;
+          const newOnHand = oldOnHand + addQty;
+          const newAvailable = Math.max(0, newOnHand - (inv.reservedQuantity || 0));
+
+          // Log StockTransaction
+          addStockTransaction({
+            sku: inv.sku,
+            productName: inv.name,
+            unit: inv.unit,
+            type: 'STOCK_IN',
+            deltaQuantity: addQty,
+            beforeOnHand: oldOnHand,
+            afterOnHand: newOnHand,
+            referenceCode: updatedVoucher.voucherNumber,
+            partnerName: updatedVoucher.supplierName,
+            performedById: currentUser.id,
+            performedByName: currentUser.name,
+            organizationId: myOrgId,
+            notes: `Nhập kho theo ${updatedVoucher.voucherNumber} từ NCC ${updatedVoucher.supplierName}`,
+          });
+
+          return {
+            ...inv,
+            totalQuantity: newOnHand,
+            availableQuantity: newAvailable,
+            updatedAt: now.toISOString().split('T')[0],
+          };
+        }
+        return inv;
+      });
+
+      saveInventoryToIndexedDB(updated);
+      const changed = updated.filter((i) => itemMap.has(i.sku.trim().toUpperCase()));
+      if (changed.length > 0) batchSyncInventoryToCloud(changed);
+      return updated;
+    });
+  };
+
+  const cancelStockInVoucher = async (voucherId: string) => {
+    const voucher = stockInVouchers.find((v) => v.id === voucherId);
+    if (!voucher || voucher.status === 'CONFIRMED') return;
+
+    const updatedVoucher: StockInVoucher = {
+      ...voucher,
+      status: 'CANCELLED',
+      updatedAt: new Date().toISOString(),
+    };
+    setStockInVouchers((prev) => prev.map((v) => (v.id === voucherId ? updatedVoucher : v)));
+    syncStockInVoucherToCloud(updatedVoucher);
+  };
+
+  // Stock Out Voucher Actions
+  const createStockOutVoucher = (data: Omit<StockOutVoucher, 'id' | 'voucherNumber' | 'createdAt' | 'updatedAt'>): StockOutVoucher => {
+    const now = new Date();
+    const dateStr = now.toISOString().split('T')[0].replace(/-/g, '');
+    const rand = Math.floor(1000 + Math.random() * 9000);
+    const voucherNumber = `PXK-${dateStr}-${rand}`;
+    const myOrgId = resolveOrganizationId(currentUser, users);
+
+    const newVoucher: StockOutVoucher = {
+      ...data,
+      id: `pxk-${Date.now()}-${rand}`,
+      voucherNumber,
+      organizationId: data.organizationId || myOrgId,
+      createdById: currentUser.id,
+      createdByName: currentUser.name,
+      createdAt: now.toISOString(),
+      updatedAt: now.toISOString(),
+      status: data.status || 'DRAFT',
+    };
+
+    setStockOutVouchers((prev) => [newVoucher, ...prev]);
+    syncStockOutVoucherToCloud(newVoucher);
+    return newVoucher;
+  };
+
+  const confirmStockOutVoucher = async (voucherId: string) => {
+    const voucher = stockOutVouchers.find((v) => v.id === voucherId);
+    if (!voucher || voucher.status === 'CONFIRMED') return;
+
+    const now = new Date();
+    const myOrgId = resolveOrganizationId(currentUser, users);
+
+    // 1. Update voucher status to CONFIRMED
+    const updatedVoucher: StockOutVoucher = {
+      ...voucher,
+      status: 'CONFIRMED',
+      confirmedAt: now.toISOString(),
+      updatedAt: now.toISOString(),
+    };
+    setStockOutVouchers((prev) => prev.map((v) => (v.id === voucherId ? updatedVoucher : v)));
+    syncStockOutVoucherToCloud(updatedVoucher);
+
+    // 2. Decrement On Hand for each item in the voucher
+    const itemMap = new Map<string, number>();
+    voucher.items.forEach((item) => {
+      const cleanSku = item.sku.trim().toUpperCase();
+      itemMap.set(cleanSku, (itemMap.get(cleanSku) || 0) + (item.quantity || 0));
+    });
+
+    setInventory((prev) => {
+      const updated = prev.map((inv) => {
+        const cleanSku = inv.sku.trim().toUpperCase();
+        if (itemMap.has(cleanSku)) {
+          const deductQty = itemMap.get(cleanSku) || 0;
+          const oldOnHand = inv.totalQuantity || 0;
+          const newOnHand = Math.max(0, oldOnHand - deductQty);
+          const newAvailable = Math.max(0, newOnHand - (inv.reservedQuantity || 0));
+
+          // Log StockTransaction
+          addStockTransaction({
+            sku: inv.sku,
+            productName: inv.name,
+            unit: inv.unit,
+            type: 'STOCK_OUT',
+            deltaQuantity: -deductQty,
+            beforeOnHand: oldOnHand,
+            afterOnHand: newOnHand,
+            referenceCode: updatedVoucher.voucherNumber,
+            partnerName: updatedVoucher.customerName || updatedVoucher.contractNumber,
+            performedById: currentUser.id,
+            performedByName: currentUser.name,
+            organizationId: myOrgId,
+            notes: `Xuất kho theo ${updatedVoucher.voucherNumber} cho HĐ ${updatedVoucher.contractNumber || '---'} (Khách: ${updatedVoucher.customerName || '---'})`,
+          });
+
+          return {
+            ...inv,
+            totalQuantity: newOnHand,
+            availableQuantity: newAvailable,
+            updatedAt: now.toISOString().split('T')[0],
+          };
+        }
+        return inv;
+      });
+
+      saveInventoryToIndexedDB(updated);
+      const changed = updated.filter((i) => itemMap.has(i.sku.trim().toUpperCase()));
+      if (changed.length > 0) batchSyncInventoryToCloud(changed);
+      return updated;
+    });
+
+    // 3. If linked to a reserveId, update reserve status to dispatched
+    if (voucher.reserveId) {
+      updateReserveStatus(voucher.reserveId, 'dispatched');
+    }
+  };
+
+  const cancelStockOutVoucher = async (voucherId: string) => {
+    const voucher = stockOutVouchers.find((v) => v.id === voucherId);
+    if (!voucher || voucher.status === 'CONFIRMED') return;
+
+    const updatedVoucher: StockOutVoucher = {
+      ...voucher,
+      status: 'CANCELLED',
+      updatedAt: new Date().toISOString(),
+    };
+    setStockOutVouchers((prev) => prev.map((v) => (v.id === voucherId ? updatedVoucher : v)));
+    syncStockOutVoucherToCloud(updatedVoucher);
+  };
+
+  // Stock Audit Voucher Actions
+  const createStockAuditVoucher = (data: Omit<StockAuditVoucher, 'id' | 'voucherNumber' | 'createdAt' | 'updatedAt'>): StockAuditVoucher => {
+    const now = new Date();
+    const dateStr = now.toISOString().split('T')[0].replace(/-/g, '');
+    const rand = Math.floor(1000 + Math.random() * 9000);
+    const voucherNumber = `PKK-${dateStr}-${rand}`;
+    const myOrgId = resolveOrganizationId(currentUser, users);
+
+    const newVoucher: StockAuditVoucher = {
+      ...data,
+      id: `pkk-${Date.now()}-${rand}`,
+      voucherNumber,
+      organizationId: data.organizationId || myOrgId,
+      createdById: currentUser.id,
+      createdByName: currentUser.name,
+      createdAt: now.toISOString(),
+      updatedAt: now.toISOString(),
+      status: data.status || 'DRAFT',
+    };
+
+    setStockAuditVouchers((prev) => [newVoucher, ...prev]);
+    syncStockAuditVoucherToCloud(newVoucher);
+    return newVoucher;
+  };
+
+  const confirmStockAuditVoucher = async (voucherId: string) => {
+    const voucher = stockAuditVouchers.find((v) => v.id === voucherId);
+    if (!voucher || voucher.status === 'CONFIRMED') return;
+
+    const now = new Date();
+    const myOrgId = resolveOrganizationId(currentUser, users);
+
+    // 1. Update voucher status to CONFIRMED
+    const updatedVoucher: StockAuditVoucher = {
+      ...voucher,
+      status: 'CONFIRMED',
+      confirmedAt: now.toISOString(),
+      updatedAt: now.toISOString(),
+    };
+    setStockAuditVouchers((prev) => prev.map((v) => (v.id === voucherId ? updatedVoucher : v)));
+    syncStockAuditVoucherToCloud(updatedVoucher);
+
+    // 2. Adjust On Hand to actualQuantity for each audited item
+    const itemMap = new Map<string, { actualQty: number; diff: number; reason?: string }>();
+    voucher.items.forEach((item) => {
+      const cleanSku = item.sku.trim().toUpperCase();
+      itemMap.set(cleanSku, { actualQty: item.actualQuantity, diff: item.difference, reason: item.reason });
+    });
+
+    setInventory((prev) => {
+      const updated = prev.map((inv) => {
+        const cleanSku = inv.sku.trim().toUpperCase();
+        if (itemMap.has(cleanSku)) {
+          const auditInfo = itemMap.get(cleanSku)!;
+          const oldOnHand = inv.totalQuantity || 0;
+          const newOnHand = Math.max(0, auditInfo.actualQty);
+          const newAvailable = Math.max(0, newOnHand - (inv.reservedQuantity || 0));
+
+          // Log StockTransaction
+          addStockTransaction({
+            sku: inv.sku,
+            productName: inv.name,
+            unit: inv.unit,
+            type: 'AUDIT_ADJUSTMENT',
+            deltaQuantity: auditInfo.diff,
+            beforeOnHand: oldOnHand,
+            afterOnHand: newOnHand,
+            referenceCode: updatedVoucher.voucherNumber,
+            performedById: currentUser.id,
+            performedByName: currentUser.name,
+            organizationId: myOrgId,
+            notes: `Cân bằng tồn theo phiếu kiểm kê ${updatedVoucher.voucherNumber}. Lý do: ${auditInfo.reason || 'Kiểm kê định kỳ'}`,
+          });
+
+          return {
+            ...inv,
+            totalQuantity: newOnHand,
+            availableQuantity: newAvailable,
+            updatedAt: now.toISOString().split('T')[0],
+          };
+        }
+        return inv;
+      });
+
+      saveInventoryToIndexedDB(updated);
+      const changed = updated.filter((i) => itemMap.has(i.sku.trim().toUpperCase()));
+      if (changed.length > 0) batchSyncInventoryToCloud(changed);
+      return updated;
+    });
+  };
+
+  const cancelStockAuditVoucher = async (voucherId: string) => {
+    const voucher = stockAuditVouchers.find((v) => v.id === voucherId);
+    if (!voucher || voucher.status === 'CONFIRMED') return;
+
+    const updatedVoucher: StockAuditVoucher = {
+      ...voucher,
+      status: 'CANCELLED',
+      updatedAt: new Date().toISOString(),
+    };
+    setStockAuditVouchers((prev) => prev.map((v) => (v.id === voucherId ? updatedVoucher : v)));
+    syncStockAuditVoucherToCloud(updatedVoucher);
   };
 
   const receiveOrderToWarehouseAndReserve = (orderId: string, warehouseLocation?: string) => {
@@ -3002,6 +3509,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         importInventory,
         quickAdjustStock,
         receiveOrderToWarehouseAndReserve,
+        stockTransactions,
+        stockInVouchers,
+        stockOutVouchers,
+        stockAuditVouchers,
+        addStockTransaction,
+        createStockInVoucher,
+        confirmStockInVoucher,
+        cancelStockInVoucher,
+        createStockOutVoucher,
+        confirmStockOutVoucher,
+        cancelStockOutVoucher,
+        createStockAuditVoucher,
+        confirmStockAuditVoucher,
+        cancelStockAuditVoucher,
         quotations,
         filteredQuotations,
         getCustomerQuotations,

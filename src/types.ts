@@ -198,18 +198,155 @@ export interface PriceImportValidationResult {
 // =============================================================================
 
 export interface InventoryItem {
-  sku: string; // Mã hàng
+  sku: string; // Mã hàng (SKU)
   name: string;
   unit: string;
-  totalQuantity: number; // Tồn thực tế
-  reservedQuantity: number; // Đang giữ hàng
-  availableQuantity: number; // Khả dụng = total - reserved
-  warehouseLocation?: string; // Vị trí kho (Kho A1, Kho B2, Tổng kho HCM, Kho Hà Nội...)
+  totalQuantity: number; // Tồn thực tế (On Hand)
+  reservedQuantity: number; // Đang giữ hàng (Reserved)
+  availableQuantity: number; // Khả dụng = On Hand - Reserved
+  onOrderQuantity?: number; // Đang đặt từ NCC (On Order)
+  reorderNeeded?: number; // Nhu cầu đặt thêm
+  warehouseLocation?: string; // Vị trí kho (Kho Tổng, Kho A1, Kho B2...)
   updatedAt: string;
   organizationId?: string; // Tenant Level 1 ID
-  companyId?: string; // DEPRECATED — use organizationId. Kept for backward compatibility
-  createdBy?: string; // ID của người tạo/cập nhật (C1 hoặc C2)
+  companyId?: string; // DEPRECATED — use organizationId
+  createdBy?: string;
   createdByName?: string;
+}
+
+// =============================================================================
+// STOCK TRANSACTION & LEDGER (LỊCH SỬ BIẾN ĐỘNG KHO)
+// =============================================================================
+
+export type StockTransactionType =
+  | 'IMPORT' // Import Excel / Ban đầu
+  | 'STOCK_IN' // Nhập kho từ NCC / Mua hàng
+  | 'STOCK_OUT' // Xuất kho giao khách / Công trình
+  | 'RESERVE' // Giữ hàng cho hợp đồng
+  | 'RELEASE_RESERVATION' // Hủy giữ / Giải phóng tồn kho
+  | 'ADJUSTMENT' // Điều chỉnh nhanh
+  | 'AUDIT_ADJUSTMENT' // Cân bằng kiểm kê
+  | 'RETURN'; // Khách trả hàng nhập lại kho
+
+export interface StockTransaction {
+  id: string;
+  timestamp: string; // ISO DateTime
+  date: string; // YYYY-MM-DD
+  sku: string;
+  productName: string;
+  unit: string;
+  type: StockTransactionType;
+  deltaQuantity: number; // Số lượng thay đổi (+ hoặc -)
+  beforeOnHand: number;
+  afterOnHand: number;
+  beforeReserved?: number;
+  afterReserved?: number;
+  beforeAvailable?: number;
+  afterAvailable?: number;
+  referenceCode?: string; // Số phiếu nhập/xuất, Mã hợp đồng, Mã giữ
+  partnerName?: string; // Tên nhà cung cấp hoặc Tên khách hàng
+  performedById: string;
+  performedByName: string;
+  organizationId: string;
+  notes?: string;
+}
+
+// =============================================================================
+// STOCK IN VOUCHER (PHIẾU NHẬP KHO)
+// =============================================================================
+
+export interface StockInVoucherItem {
+  sku: string;
+  productName: string;
+  unit: string;
+  expectedQuantity: number;
+  actualQuantity: number;
+  unitCost?: number;
+  notes?: string;
+}
+
+export interface StockInVoucher {
+  id: string;
+  voucherNumber: string; // PNK-YYYYMMDD-XXXX
+  date: string;
+  supplierName: string;
+  warehouseLocation: string;
+  status: 'DRAFT' | 'CONFIRMED' | 'CANCELLED';
+  items: StockInVoucherItem[];
+  totalQuantity: number;
+  totalAmount?: number;
+  createdById: string;
+  createdByName: string;
+  confirmedAt?: string;
+  organizationId: string;
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// =============================================================================
+// STOCK OUT VOUCHER (PHIẾU XUẤT KHO)
+// =============================================================================
+
+export interface StockOutVoucherItem {
+  sku: string;
+  productName: string;
+  unit: string;
+  quantity: number;
+  notes?: string;
+}
+
+export interface StockOutVoucher {
+  id: string;
+  voucherNumber: string; // PXK-YYYYMMDD-XXXX
+  date: string;
+  contractNumber?: string;
+  customerName?: string;
+  customerId?: string;
+  reserveId?: string;
+  warehouseLocation: string;
+  status: 'DRAFT' | 'CONFIRMED' | 'CANCELLED';
+  items: StockOutVoucherItem[];
+  totalQuantity: number;
+  createdById: string;
+  createdByName: string;
+  confirmedAt?: string;
+  organizationId: string;
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// =============================================================================
+// STOCK AUDIT VOUCHER (PHIẾU KIỂM KÊ KHO)
+// =============================================================================
+
+export interface StockAuditVoucherItem {
+  sku: string;
+  productName: string;
+  unit: string;
+  systemQuantity: number; // Tồn hệ thống
+  actualQuantity: number; // Tồn thực tế đếm được
+  difference: number; // actual - system
+  reason?: string;
+}
+
+export interface StockAuditVoucher {
+  id: string;
+  voucherNumber: string; // PKK-YYYYMMDD-XXXX
+  date: string;
+  warehouseLocation: string;
+  status: 'DRAFT' | 'CONFIRMED' | 'CANCELLED';
+  items: StockAuditVoucherItem[];
+  totalItemsAudited: number;
+  totalDifference: number;
+  createdById: string;
+  createdByName: string;
+  confirmedAt?: string;
+  organizationId: string;
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 // =============================================================================
