@@ -10,6 +10,9 @@ import {
   Quotation,
   QuotationStatus,
   Contract,
+  ContractTemplate,
+  ContractTemplateCategory,
+  ContractSnapshot,
   ReserveItem,
   ReserveItemStatus,
   OrderItem,
@@ -121,7 +124,17 @@ import {
   deleteStockOutVoucherFromCloud,
   syncStockAuditVoucherToCloud,
   deleteStockAuditVoucherFromCloud,
+  syncContractTemplateToCloud,
+  deleteContractTemplateFromCloud,
+  batchSyncContractTemplatesToCloud,
 } from '../services/firestoreSync';
+import {
+  INITIAL_CONTRACT_TEMPLATES,
+  renderContractContent,
+  validateContractRequirements,
+  ContractMappingInput,
+} from '../services/contractTemplateService';
+import { numberToVietnameseWords } from '../utils/formatters';
 
 // Helper function to resolve the company scope (C1 is company, C2 inherits C1's companyId)
 export const getCompanyScopeForUser = (user: User, userList: User[]): { companyId: string; companyName: string } => {
@@ -263,7 +276,8 @@ interface AppContextType {
   finalizeQuoteToContract: (
     quoteId: string,
     contractDetails?: Partial<Contract>,
-    overrideQuote?: Quotation
+    overrideQuote?: Quotation,
+    templateId?: string
   ) => { contract: Contract; reserveItems: ReserveItem[]; orderItems: OrderItem[] };
 
   // Contracts (Hợp đồng)
@@ -271,6 +285,20 @@ interface AppContextType {
   filteredContracts: Contract[];
   updateContract: (contract: Contract) => void;
   updateContractMilestoneStatus: (contractId: string, milestoneId: string, status: 'pending' | 'completed' | 'overdue') => void;
+
+  // Contract Templates (Hợp đồng mẫu)
+  contractTemplates: ContractTemplate[];
+  filteredContractTemplates: ContractTemplate[];
+  addContractTemplate: (template: Omit<ContractTemplate, 'id' | 'createdAt' | 'updatedAt'>) => ContractTemplate;
+  updateContractTemplate: (template: ContractTemplate) => void;
+  deleteContractTemplate: (templateId: string) => void;
+  duplicateContractTemplate: (templateId: string) => ContractTemplate | null;
+
+  // Create Contract from Quote Modal
+  isCreateContractModalOpen: boolean;
+  setIsCreateContractModalOpen: (open: boolean) => void;
+  contractModalQuote: Quotation | null;
+  setContractModalQuote: (quote: Quotation | null) => void;
 
   // Split Tables: Giữ hàng & Đặt hàng (Sales & Warehouse Progress Engine)
   reserveItems: ReserveItem[];
@@ -356,6 +384,7 @@ const STORAGE_KEYS = {
   RESERVES: 'salesflow_reserves_v1',
   ORDERS: 'salesflow_orders_v1',
   PURCHASE_ORDERS: 'salesflow_purchase_orders_v1',
+  CONTRACT_TEMPLATES: 'salesflow_contract_templates_v1',
 };
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -431,6 +460,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const saved = localStorage.getItem(STORAGE_KEYS.CONTRACTS);
     return saved ? JSON.parse(saved) : INITIAL_CONTRACTS;
   });
+
+  const [contractTemplates, setContractTemplates] = useState<ContractTemplate[]>(() => {
+    const saved = localStorage.getItem(STORAGE_KEYS.CONTRACT_TEMPLATES);
+    if (!saved) return INITIAL_CONTRACT_TEMPLATES;
+    try {
+      const parsed = JSON.parse(saved);
+      return Array.isArray(parsed) && parsed.length > 0 ? parsed : INITIAL_CONTRACT_TEMPLATES;
+    } catch {
+      return INITIAL_CONTRACT_TEMPLATES;
+    }
+  });
+
+  // Create Contract from Quote Modal state
+  const [isCreateContractModalOpen, setIsCreateContractModalOpen] = useState(false);
+  const [contractModalQuote, setContractModalQuote] = useState<Quotation | null>(null);
 
   const [reserveItems, setReserveItems] = useState<ReserveItem[]>(() => {
     const saved = localStorage.getItem(STORAGE_KEYS.RESERVES);
@@ -945,6 +989,27 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         );
         unsubs.push(unsubPurchaseOrders);
 
+        // 15. Contract Templates real-time listener
+        const unsubTemplates = onSnapshot(
+          collection(db, COLLECTIONS.CONTRACT_TEMPLATES),
+          (snap) => {
+            if (!snap.empty) {
+              const list: ContractTemplate[] = [];
+              snap.forEach((d) => {
+                const tmpl = d.data() as ContractTemplate;
+                if (tmpl && tmpl.id) list.push(tmpl);
+              });
+              if (list.length > 0) {
+                setContractTemplates(list);
+              }
+            }
+          },
+          (err) => {
+            handleFirestoreError(err, 'Contract Templates listener');
+          }
+        );
+        unsubs.push(unsubTemplates);
+
         setCloudSyncStatus((prev) => (prev === 'quota-exceeded' ? 'quota-exceeded' : 'connected'));
       } catch (err) {
         handleFirestoreError(err, 'Initialization error');
@@ -998,6 +1063,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   useEffect(() => {
     safeSetLocalStorage(STORAGE_KEYS.CONTRACTS, contracts);
   }, [contracts]);
+
+  useEffect(() => {
+    safeSetLocalStorage(STORAGE_KEYS.CONTRACT_TEMPLATES, contractTemplates);
+  }, [contractTemplates]);
 
   useEffect(() => {
     safeSetLocalStorage(STORAGE_KEYS.RESERVES, reserveItems);
@@ -3466,11 +3535,76 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     deleteQuotationFromCloud(id);
   };
 
+  // Contract Templates Methods
+  const filteredContractTemplates = useMemo(() => {
+    if (currentUser.role === 'super_admin') {
+      return contractTemplates;
+    }
+    const myOrgId = resolveOrganizationId(currentUser, users);
+    return contractTemplates.filter((t) => {
+      return !t.organizationId || t.organizationId === myOrgId || t.organizationId === 'org-system';
+    });
+  }, [contractTemplates, currentUser, users]);
+
+  const addContractTemplate = (templateData: Omit<ContractTemplate, 'id' | 'createdAt' | 'updatedAt'>): ContractTemplate => {
+    const now = new Date().toISOString().split('T')[0];
+    const myOrgId = resolveOrganizationId(currentUser, users);
+    const newTmpl: ContractTemplate = {
+      ...templateData,
+      id: `tmpl-${Date.now()}`,
+      organizationId: myOrgId,
+      createdBy: currentUser.id,
+      createdByName: currentUser.name,
+      createdAt: now,
+      updatedAt: now,
+    };
+    setContractTemplates((prev) => [newTmpl, ...prev]);
+    syncContractTemplateToCloud(newTmpl);
+    return newTmpl;
+  };
+
+  const updateContractTemplate = (updated: ContractTemplate) => {
+    const now = new Date().toISOString().split('T')[0];
+    const itemWithTime: ContractTemplate = {
+      ...updated,
+      updatedAt: now,
+    };
+    setContractTemplates((prev) => prev.map((t) => (t.id === updated.id ? itemWithTime : t)));
+    syncContractTemplateToCloud(itemWithTime);
+  };
+
+  const deleteContractTemplate = (templateId: string) => {
+    setContractTemplates((prev) => prev.filter((t) => t.id !== templateId));
+    deleteContractTemplateFromCloud(templateId);
+  };
+
+  const duplicateContractTemplate = (templateId: string): ContractTemplate | null => {
+    const original = contractTemplates.find((t) => t.id === templateId);
+    if (!original) return null;
+    const now = new Date().toISOString().split('T')[0];
+    const myOrgId = resolveOrganizationId(currentUser, users);
+    const copy: ContractTemplate = {
+      ...original,
+      id: `tmpl-${Date.now()}`,
+      code: `${original.code}-COPY`,
+      name: `${original.name} (Bản sao)`,
+      organizationId: myOrgId,
+      createdBy: currentUser.id,
+      createdByName: currentUser.name,
+      createdAt: now,
+      updatedAt: now,
+    };
+    setContractTemplates((prev) => [copy, ...prev]);
+    syncContractTemplateToCloud(copy);
+    return copy;
+  };
+
   // CRITICAL REQUIREMENT: Finalize Quote to Contract + Automatic Split of Reserve & Order
   const finalizeQuoteToContract = (
     quoteId: string,
     contractDetails?: Partial<Contract>,
-    overrideQuote?: Quotation
+    overrideQuote?: Quotation,
+    templateId?: string
   ) => {
     let quote = overrideQuote || quotations.find((q) => q.id === quoteId);
 
@@ -3561,12 +3695,118 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return updated;
     });
 
-    // 3. Create Contract with master company branding
+    // 3. Resolve Target Template & Render Snapshot
     const myOrgId = resolveOrganizationId(currentUser, users);
     const targetCustomer = customers.find((c) => c.id === quote.customerId);
     const resolvedCustomerName = targetCustomer?.name || quote.customerName;
     const resolvedSalesRepId = targetCustomer?.assignedToId || quote.salesRepId || currentUser.id;
     const resolvedSalesRepName = targetCustomer?.assignedToName || quote.salesRepName || currentUser.name;
+
+    const chosenTemplateId = templateId || contractDetails?.templateId;
+    const activeTemplate =
+      contractTemplates.find((t) => t.id === chosenTemplateId) ||
+      contractTemplates[0] ||
+      INITIAL_CONTRACT_TEMPLATES[0];
+
+    const mappingInput: ContractMappingInput = {
+      contractNumber,
+      contractDate: contractDetails?.contractDate || now,
+      contractTitle: contractDetails?.title || `HỢP ĐỒNG KINH TẾ ${contractNumber}`,
+      deliveryDate: contractDetails?.deliveryDate || new Date(Date.now() + 14 * 86400000).toISOString().split('T')[0],
+      deliveryAddress: contractDetails?.deliveryAddress || quote.customerAddress || targetCustomer?.address || 'Giao tại chân công trình',
+      deliveryTerms: contractDetails?.deliveryTerms || 'Hàng mới 100%, nguyên đai nguyên kiện từ nhà sản xuất.',
+      paymentTerms: contractDetails?.paymentTermsDescription || 'Thanh toán bằng chuyển khoản ngân hàng theo tiến độ hợp đồng.',
+      warrantyTerms: contractDetails?.warrantyTerms || 'Bảo hành chính hãng 24 tháng theo tiêu chuẩn của nhà sản xuất.',
+      generalTerms: contractDetails?.generalTerms || 'Hai bên cam kết thực hiện đúng các điều khoản đã thỏa thuận.',
+      notes: contractDetails?.notes || '',
+      customer: {
+        name: resolvedCustomerName,
+        company: quote.customerCompany || targetCustomer?.company || resolvedCustomerName,
+        address: quote.customerAddress || targetCustomer?.address || '',
+        taxCode: quote.customerTaxCode || targetCustomer?.taxCode || '',
+        phone: quote.customerPhone || targetCustomer?.phone || '',
+        email: quote.customerEmail || targetCustomer?.email || '',
+        representative: contractDetails?.customerRepresentative || targetCustomer?.representative || resolvedCustomerName,
+        position: contractDetails?.customerPosition || targetCustomer?.position || 'Đại diện bên mua',
+      },
+      seller: {
+        name: quote.companyName || companyInfo.name || 'CÔNG TY TNHH HHG HOLDINGS',
+        address: quote.companyAddress || companyInfo.address || '',
+        taxCode: quote.companyTaxCode || companyInfo.taxCode || '',
+        phone: quote.companyHotline || companyInfo.phone || companyInfo.hotline || '',
+        email: quote.companyEmail || companyInfo.email || '',
+        website: quote.companyWebsite || companyInfo.website || '',
+        representative: companyInfo.directorName || 'Bùi Viết Hoàng',
+        position: companyInfo.directorTitle || 'Tổng Giám Đốc',
+        bankAccount: companyInfo.bankAccount || '',
+        bankName: companyInfo.bankName || '',
+      },
+      quotation: {
+        quoteNumber: quote.quoteNumber,
+        date: quote.date,
+      },
+      items: quote.items,
+      totals: {
+        subtotal: quote.subtotal || contractDetails?.totalValue || 0,
+        discountTotal: quote.discountTotal || 0,
+        taxRate: quote.taxRate || 10,
+        taxAmount: quote.taxAmount || 0,
+        grandTotal: quote.grandTotal || contractDetails?.totalValue || 0,
+      },
+    };
+
+    const renderedContent = renderContractContent(activeTemplate.content, mappingInput);
+
+    const snapshot: ContractSnapshot = {
+      templateId: activeTemplate.id,
+      templateName: activeTemplate.name,
+      templateCode: activeTemplate.code,
+      templateVersion: activeTemplate.version,
+      customerSnapshot: {
+        id: quote.customerId,
+        name: resolvedCustomerName,
+        company: mappingInput.customer.company,
+        address: mappingInput.customer.address,
+        taxCode: mappingInput.customer.taxCode,
+        phone: mappingInput.customer.phone,
+        email: mappingInput.customer.email,
+        representative: mappingInput.customer.representative,
+        position: mappingInput.customer.position,
+      },
+      sellerSnapshot: {
+        name: mappingInput.seller.name,
+        address: mappingInput.seller.address,
+        taxCode: mappingInput.seller.taxCode,
+        phone: mappingInput.seller.phone,
+        email: mappingInput.seller.email,
+        website: mappingInput.seller.website,
+        representative: mappingInput.seller.representative,
+        position: mappingInput.seller.position,
+        bankAccount: mappingInput.seller.bankAccount,
+        bankName: mappingInput.seller.bankName,
+        logoUrl: quote.companyLogo || companyInfo.logoUrl || companyInfo.logo,
+      },
+      quotationSnapshot: {
+        id: quote.id,
+        quoteNumber: quote.quoteNumber,
+        version: quote.version,
+        title: quote.title,
+        date: quote.date,
+      },
+      itemsSnapshot: [...quote.items],
+      pricingSnapshot: {
+        subtotal: mappingInput.totals.subtotal,
+        discountTotal: mappingInput.totals.discountTotal || 0,
+        taxRate: mappingInput.totals.taxRate,
+        taxAmount: mappingInput.totals.taxAmount,
+        grandTotal: mappingInput.totals.grandTotal,
+        totalInWords: numberToVietnameseWords(mappingInput.totals.grandTotal),
+      },
+      renderedContent,
+      generatedAt: new Date().toISOString(),
+      generatedBy: currentUser.id,
+      generatedByName: currentUser.name,
+    };
 
     const newContract: Contract = {
       id: contractId,
@@ -3576,23 +3816,36 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       quoteNumber: quote.quoteNumber,
       customerId: quote.customerId,
       customerName: resolvedCustomerName,
-      customerCompany: quote.customerCompany || targetCustomer?.company,
-      customerAddress: quote.customerAddress || targetCustomer?.address,
-      customerPhone: quote.customerPhone || targetCustomer?.phone,
-      companyName: quote.companyName || companyInfo.name,
-      companyTaxCode: quote.companyTaxCode || companyInfo.taxCode,
-      companyAddress: quote.companyAddress || companyInfo.address,
-      companyPhone: quote.companyHotline || companyInfo.phone || companyInfo.hotline,
-      companyEmail: quote.companyEmail || companyInfo.email,
-      companyWebsite: quote.companyWebsite || companyInfo.website,
+      customerCompany: mappingInput.customer.company,
+      customerAddress: mappingInput.customer.address,
+      customerPhone: mappingInput.customer.phone,
+      customerTaxCode: mappingInput.customer.taxCode,
+      customerRepresentative: mappingInput.customer.representative,
+      customerPosition: mappingInput.customer.position,
+      companyName: mappingInput.seller.name,
+      companyTaxCode: mappingInput.seller.taxCode,
+      companyAddress: mappingInput.seller.address,
+      companyPhone: mappingInput.seller.phone,
+      companyEmail: mappingInput.seller.email,
+      companyWebsite: mappingInput.seller.website,
       companyLogo: quote.companyLogo || companyInfo.logoUrl || companyInfo.logo,
       salesRepId: resolvedSalesRepId,
       salesRepName: resolvedSalesRepName,
       salesRepPhone: quote.salesRepPhone || currentUser.phone,
       createdBy: currentUser.id,
-      contractDate: now,
-      deliveryDate: contractDetails?.deliveryDate || new Date(Date.now() + 14 * 86400000).toISOString().split('T')[0],
-      deliveryAddress: contractDetails?.deliveryAddress || quote.customerAddress || targetCustomer?.address || 'Giao tại chân công trình',
+      contractDate: mappingInput.contractDate,
+      deliveryDate: mappingInput.deliveryDate || new Date(Date.now() + 14 * 86400000).toISOString().split('T')[0],
+      deliveryAddress: mappingInput.deliveryAddress || 'Giao tại chân công trình',
+      deliveryTerms: mappingInput.deliveryTerms,
+      paymentTermsDescription: mappingInput.paymentTerms,
+      warrantyTerms: mappingInput.warrantyTerms,
+      generalTerms: mappingInput.generalTerms,
+      notes: mappingInput.notes,
+      templateId: activeTemplate.id,
+      templateName: activeTemplate.name,
+      templateVersion: activeTemplate.version,
+      snapshot,
+      renderedContent,
       items: quote.items,
       totalValue: quote.grandTotal,
       milestones: quote.milestones,
@@ -4814,6 +5067,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         filteredContracts,
         updateContract,
         updateContractMilestoneStatus,
+        contractTemplates,
+        filteredContractTemplates,
+        addContractTemplate,
+        updateContractTemplate,
+        deleteContractTemplate,
+        duplicateContractTemplate,
+        isCreateContractModalOpen,
+        setIsCreateContractModalOpen,
+        contractModalQuote,
+        setContractModalQuote,
         reserveItems,
         filteredReserveItems,
         updateReserveStatus,

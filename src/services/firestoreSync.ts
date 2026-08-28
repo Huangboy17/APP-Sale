@@ -24,6 +24,7 @@ import {
   StockOutVoucher,
   StockAuditVoucher,
   PurchaseOrder,
+  ContractTemplate,
 } from '../types';
 import {
   INITIAL_USERS,
@@ -36,6 +37,7 @@ import {
   INITIAL_RESERVE_ITEMS,
   INITIAL_ORDER_ITEMS,
 } from '../data/initialData';
+import { INITIAL_CONTRACT_TEMPLATES } from './contractTemplateService';
 
 export const COLLECTIONS = {
   USERS: 'users',
@@ -54,6 +56,7 @@ export const COLLECTIONS = {
   STOCK_OUT_VOUCHERS: 'stockOutVouchers',
   STOCK_AUDIT_VOUCHERS: 'stockAuditVouchers',
   PURCHASE_ORDERS: 'purchaseOrders',
+  CONTRACT_TEMPLATES: 'contractTemplates',
 };
 
 // Quota state and notification callback
@@ -136,6 +139,10 @@ export async function seedInitialDataIfEmpty() {
 
     batch.set(doc(db, COLLECTIONS.COMPANY, INITIAL_COMPANY_INFO.id), cleanForFirestore(INITIAL_COMPANY_INFO), {
       merge: true,
+    });
+
+    INITIAL_CONTRACT_TEMPLATES.forEach((tmpl) => {
+      batch.set(doc(db, COLLECTIONS.CONTRACT_TEMPLATES, tmpl.id), cleanForFirestore(tmpl), { merge: true });
     });
 
     await batch.commit();
@@ -607,6 +614,36 @@ export async function batchSyncPurchaseOrdersToCloud(pos: PurchaseOrder[]) {
     await batch.commit();
   } catch (err) {
     handleFirestoreError(err, 'Batch sync purchase orders');
+  }
+}
+
+// Contract Template Actions
+export async function syncContractTemplateToCloud(template: ContractTemplate) {
+  try {
+    await setDoc(doc(db, COLLECTIONS.CONTRACT_TEMPLATES, template.id), cleanForFirestore(template), { merge: true });
+  } catch (err) {
+    handleFirestoreError(err, 'Save contract template');
+  }
+}
+
+export async function deleteContractTemplateFromCloud(templateId: string) {
+  try {
+    await deleteDoc(doc(db, COLLECTIONS.CONTRACT_TEMPLATES, templateId));
+  } catch (err) {
+    handleFirestoreError(err, 'Delete contract template');
+  }
+}
+
+export async function batchSyncContractTemplatesToCloud(templates: ContractTemplate[]) {
+  if (!templates || templates.length === 0) return;
+  try {
+    const batch = writeBatch(db);
+    templates.forEach((t) => {
+      batch.set(doc(db, COLLECTIONS.CONTRACT_TEMPLATES, t.id), cleanForFirestore(t), { merge: true });
+    });
+    await batch.commit();
+  } catch (err) {
+    handleFirestoreError(err, 'Batch sync contract templates');
   }
 }
 

@@ -476,6 +476,91 @@ export interface Quotation {
 }
 
 // =============================================================================
+// CONTRACT TEMPLATE (HỢP ĐỒNG MẪU)
+// =============================================================================
+
+export type ContractTemplateCategory =
+  | 'cung_cap' // Cung cấp vật tư / thiết bị
+  | 'thi_cong' // Thi công & lắp đặt
+  | 'thuong_mai' // Thương mại & mua bán
+  | 'dich_vu' // Dịch vụ kỹ thuật
+  | 'khac'; // Khác
+
+export interface ContractTemplate {
+  id: string;
+  organizationId?: string; // Tenant Level 1 ID
+  name: string; // Tên mẫu (vd: Hợp đồng Cung cấp Thiết bị Chiếu sáng)
+  code: string; // Mã mẫu (vd: HD-CUNG-CAP-VAT-TU)
+  description: string;
+  category: ContractTemplateCategory;
+  categoryLabel?: string;
+  version: string; // "1.0", "1.1", "2.0"
+  status: 'active' | 'archived';
+  content: string; // Nội dung mẫu chứa {{placeholders}} và {{items_table}}
+  fileUrl?: string; // Tùy chọn file đính kèm/gốc
+  templateVariables?: string[];
+  createdAt: string;
+  updatedAt: string;
+  createdBy?: string;
+  createdByName?: string;
+}
+
+// =============================================================================
+// CONTRACT SNAPSHOT (DỮ LIỆU ĐÓNG BĂNG TẠI THỜI ĐIỂM KÝ)
+// =============================================================================
+
+export interface ContractSnapshot {
+  templateId: string;
+  templateName: string;
+  templateCode: string;
+  templateVersion: string;
+  customerSnapshot: {
+    id: string;
+    name: string;
+    company?: string;
+    address?: string;
+    taxCode?: string;
+    phone?: string;
+    email?: string;
+    representative?: string;
+    position?: string;
+  };
+  sellerSnapshot: {
+    name: string;
+    address?: string;
+    taxCode?: string;
+    phone?: string;
+    email?: string;
+    website?: string;
+    representative?: string;
+    position?: string;
+    bankAccount?: string;
+    bankName?: string;
+    logoUrl?: string;
+  };
+  quotationSnapshot: {
+    id: string;
+    quoteNumber: string;
+    version: number;
+    title: string;
+    date: string;
+  };
+  itemsSnapshot: QuoteProductRow[];
+  pricingSnapshot: {
+    subtotal: number;
+    discountTotal: number;
+    taxRate: number;
+    taxAmount: number;
+    grandTotal: number;
+    totalInWords: string;
+  };
+  renderedContent: string;
+  generatedAt: string;
+  generatedBy?: string;
+  generatedByName?: string;
+}
+
+// =============================================================================
 // CONTRACT
 // =============================================================================
 
@@ -509,6 +594,16 @@ export interface Contract {
   contractDate: string;
   deliveryDate: string;
   deliveryAddress: string;
+  deliveryTerms?: string;
+  paymentTermsDescription?: string;
+  warrantyTerms?: string;
+  generalTerms?: string;
+  notes?: string;
+  templateId?: string;
+  templateName?: string;
+  templateVersion?: string;
+  snapshot?: ContractSnapshot;
+  renderedContent?: string;
   items: QuoteProductRow[];
   totalValue: number;
   milestones: PaymentMilestone[];
