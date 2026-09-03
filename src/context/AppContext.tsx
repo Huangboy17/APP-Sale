@@ -476,6 +476,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const [isProductsHydrated, setIsProductsHydrated] = useState<boolean>(false);
   const [isInventoryHydrated, setIsInventoryHydrated] = useState<boolean>(false);
+  const [isCustomersHydrated, setIsCustomersHydrated] = useState<boolean>(false);
+  const [isQuotationsHydrated, setIsQuotationsHydrated] = useState<boolean>(false);
+  const [isContractsHydrated, setIsContractsHydrated] = useState<boolean>(false);
+  const [isReservesHydrated, setIsReservesHydrated] = useState<boolean>(false);
+  const [isOrdersHydrated, setIsOrdersHydrated] = useState<boolean>(false);
+  const [isPurchaseOrdersHydrated, setIsPurchaseOrdersHydrated] = useState<boolean>(false);
 
   const [products, setProducts] = useState<ProductPriceItem[]>(INITIAL_PRODUCTS);
   const [inventory, setInventory] = useState<InventoryItem[]>(INITIAL_INVENTORY);
@@ -682,6 +688,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // Real-time Cloud Synchronization (Google Cloud Firestore)
   // -------------------------------------------------------------
   useEffect(() => {
+    // CRITICAL: Only establish Firestore listeners when authenticated.
+    // When isAuthenticated changes (login/logout), this effect re-runs:
+    // - Login: new listeners established → Firestore delivers fresh data
+    // - Logout: cleanup runs → listeners unsubscribed
+    if (!isAuthenticated) return;
+
     let unsubs: (() => void)[] = [];
 
     // Register quota exceeded callback
@@ -766,6 +778,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                 return merged;
               });
             }
+            setIsCustomersHydrated(true);
             setCloudSyncStatus((prev) => (prev === 'quota-exceeded' ? 'quota-exceeded' : 'connected'));
             setLastCloudSyncTime(new Date());
           },
@@ -918,6 +931,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                 return merged;
               });
             }
+            setIsQuotationsHydrated(true);
             setCloudSyncStatus((prev) => (prev === 'quota-exceeded' ? 'quota-exceeded' : 'connected'));
             setLastCloudSyncTime(new Date());
           },
@@ -948,6 +962,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                 return merged;
               });
             }
+            setIsContractsHydrated(true);
             setCloudSyncStatus((prev) => (prev === 'quota-exceeded' ? 'quota-exceeded' : 'connected'));
             setLastCloudSyncTime(new Date());
           },
@@ -967,6 +982,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               if (item && item.id) list.push(item);
             });
             setReserveItems(list);
+            setIsReservesHydrated(true);
             setCloudSyncStatus((prev) => (prev === 'quota-exceeded' ? 'quota-exceeded' : 'connected'));
             setLastCloudSyncTime(new Date());
           },
@@ -986,6 +1002,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               if (item && item.id) list.push(item);
             });
             setOrderItems(list);
+            setIsOrdersHydrated(true);
             setCloudSyncStatus((prev) => (prev === 'quota-exceeded' ? 'quota-exceeded' : 'connected'));
             setLastCloudSyncTime(new Date());
           },
@@ -1104,6 +1121,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             });
             list.sort((a, b) => new Date(b.createdAt || b.orderDate).getTime() - new Date(a.createdAt || a.orderDate).getTime());
             setPurchaseOrders(list);
+            setIsPurchaseOrdersHydrated(true);
           },
           (err) => {
             handleFirestoreError(err, 'Purchase Orders listener');
@@ -1143,7 +1161,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return () => {
       unsubs.forEach((unsub) => unsub());
     };
-  }, []);
+  }, [isAuthenticated]);
 
   // Sync to localStorage / IndexedDB as local instant cache
   useEffect(() => {
@@ -1155,8 +1173,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, [currentUser]);
 
   useEffect(() => {
+    if (!isCustomersHydrated) return; // GUARD: Block write during logout/init
     safeSetLocalStorage(STORAGE_KEYS.CUSTOMERS, customers);
-  }, [customers]);
+  }, [customers, isCustomersHydrated]);
 
   useEffect(() => {
     if (!isProductsHydrated) {
@@ -1179,28 +1198,33 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, [inventory, isInventoryHydrated]);
 
   useEffect(() => {
+    if (!isQuotationsHydrated) return; // GUARD: Block write during logout/init
     safeSetLocalStorage(STORAGE_KEYS.QUOTATIONS, quotations);
-  }, [quotations]);
+  }, [quotations, isQuotationsHydrated]);
 
   useEffect(() => {
+    if (!isContractsHydrated) return; // GUARD: Block write during logout/init
     safeSetLocalStorage(STORAGE_KEYS.CONTRACTS, contracts);
-  }, [contracts]);
+  }, [contracts, isContractsHydrated]);
 
   useEffect(() => {
     safeSetLocalStorage(STORAGE_KEYS.CONTRACT_TEMPLATES, contractTemplates);
   }, [contractTemplates]);
 
   useEffect(() => {
+    if (!isReservesHydrated) return; // GUARD: Block write during logout/init
     safeSetLocalStorage(STORAGE_KEYS.RESERVES, reserveItems);
-  }, [reserveItems]);
+  }, [reserveItems, isReservesHydrated]);
 
   useEffect(() => {
+    if (!isOrdersHydrated) return; // GUARD: Block write during logout/init
     safeSetLocalStorage(STORAGE_KEYS.ORDERS, orderItems);
-  }, [orderItems]);
+  }, [orderItems, isOrdersHydrated]);
 
   useEffect(() => {
+    if (!isPurchaseOrdersHydrated) return; // GUARD: Block write during logout/init
     safeSetLocalStorage(STORAGE_KEYS.PURCHASE_ORDERS, purchaseOrders);
-  }, [purchaseOrders]);
+  }, [purchaseOrders, isPurchaseOrdersHydrated]);
 
   useEffect(() => {
     safeSetLocalStorage(STORAGE_KEYS.COMPANY, companyInfo);
@@ -1790,12 +1814,29 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     } catch (err) {
       console.warn('[Firebase Auth] SignOut warning:', err);
     }
+
+    // CRITICAL: Reset hydration flags BEFORE clearing state.
+    // This prevents auto-save effects from overwriting localStorage with []
+    // when the state-clearing calls below trigger re-renders.
+    // localStorage cache is preserved → next login reads cached data instantly,
+    // then Firestore onSnapshot delivers fresh data from cloud.
+    setIsCustomersHydrated(false);
+    setIsQuotationsHydrated(false);
+    setIsContractsHydrated(false);
+    setIsReservesHydrated(false);
+    setIsOrdersHydrated(false);
+    setIsPurchaseOrdersHydrated(false);
+    setIsProductsHydrated(false);
+    setIsInventoryHydrated(false);
+
+    // Clear auth state (this also triggers Firestore listener cleanup via useEffect[isAuthenticated])
     setIsAuthenticated(false);
     localStorage.removeItem(STORAGE_KEYS.IS_AUTHENTICATED);
     localStorage.removeItem(STORAGE_KEYS.CURRENT_USER_ID);
     setAuthScreenMode('login');
 
-    // CRITICAL: Purge in-memory state so no data leaks to next user
+    // Purge in-memory state so no data leaks to next user session
+    // Auto-save is now blocked by hydration guards → localStorage NOT overwritten
     setProducts([]);
     setInventory([]);
     setCustomers([]);
