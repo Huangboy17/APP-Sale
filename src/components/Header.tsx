@@ -307,7 +307,7 @@ export const Header: React.FC = () => {
                       <span>Đổi mật khẩu tài khoản</span>
                     </button>
 
-                    {currentUser.role !== 'super_admin' && (
+                    {currentUser.role === 'manager_c1' && (
                       <button
                         type="button"
                         onClick={() => {
@@ -317,21 +317,9 @@ export const Header: React.FC = () => {
                         className="w-full flex items-center space-x-2 px-2.5 py-2 rounded-lg text-xs text-rose-700 hover:bg-rose-50 transition font-medium cursor-pointer"
                       >
                         <Trash2 className="w-3.5 h-3.5 text-rose-500" />
-                        <span>Quản lý xoá dữ liệu...</span>
+                        <span>Quản lý xoá dữ liệu doanh nghiệp...</span>
                       </button>
                     )}
-
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setIsProfileOpen(false);
-                        resetDataToDefault();
-                      }}
-                      className="w-full flex items-center space-x-2 px-2.5 py-2 rounded-lg text-xs text-slate-600 hover:bg-slate-100 transition font-medium cursor-pointer"
-                    >
-                      <RotateCcw className="w-3.5 h-3.5 text-slate-400" />
-                      <span>Khôi phục dữ liệu mẫu ban đầu</span>
-                    </button>
                   </div>
 
                   {/* Logout Button */}

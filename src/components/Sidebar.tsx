@@ -297,14 +297,16 @@ export const Sidebar: React.FC = () => {
               <Building2 className="w-3.5 h-3.5" />
             </button>
 
-            <button
-              type="button"
-              onClick={() => setIsClearDataModalOpen(true)}
-              className="p-1.5 rounded-md hover:bg-rose-500/20 text-slate-400 hover:text-rose-300 border border-slate-700 hover:border-rose-500/40 transition cursor-pointer"
-              title="Xoá dữ liệu: Khách hàng, Data giá, Báo giá, Tồn kho..."
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-            </button>
+            {currentUser.role === 'manager_c1' && (
+              <button
+                type="button"
+                onClick={() => setIsClearDataModalOpen(true)}
+                className="p-1.5 rounded-md hover:bg-rose-500/20 text-slate-400 hover:text-rose-300 border border-slate-700 hover:border-rose-500/40 transition cursor-pointer"
+                title="Xoá dữ liệu nghiệp vụ của doanh nghiệp (Khách hàng, Data giá, Báo giá, Tồn kho...)"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            )}
 
             <button
               type="button"

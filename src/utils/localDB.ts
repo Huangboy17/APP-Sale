@@ -116,6 +116,33 @@ export async function loadFromIDB<T>(storeName: string, key: string): Promise<T 
 }
 
 /**
+ * Delete a specific key directly from IndexedDB
+ */
+export async function deleteFromIDB(storeName: string, key: string): Promise<void> {
+  try {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(storeName, 'readwrite');
+      const store = tx.objectStore(storeName);
+      store.delete(key);
+
+      tx.oncomplete = () => {
+        resolve();
+      };
+      tx.onerror = () => {
+        reject(tx.error || new Error(`IndexedDB delete error in ${storeName}`));
+      };
+      tx.onabort = () => {
+        reject(new Error(`IndexedDB delete aborted in ${storeName}`));
+      };
+    });
+  } catch (err) {
+    console.error(`[LocalDB] IndexedDB delete error for ${storeName}/${key}:`, err);
+    throw err;
+  }
+}
+
+/**
  * Dedicated Product Persistence (IndexedDB ONLY - Zero localStorage)
  * Scoped by organizationId (Tenant) to guarantee 100% data isolation between Level 1 accounts.
  */
@@ -125,6 +152,18 @@ export function getTenantProductStoreKey(orgId?: string): string {
 
 export function getTenantInventoryStoreKey(orgId?: string): string {
   return orgId ? `inventory_${orgId}` : IDB_KEYS.INVENTORY;
+}
+
+export async function clearTenantProductsFromIndexedDB(orgId: string): Promise<void> {
+  if (!orgId) return;
+  const storeKey = getTenantProductStoreKey(orgId);
+  await saveToIDB(IDB_STORES.PRODUCTS, storeKey, []);
+}
+
+export async function clearTenantInventoryFromIndexedDB(orgId: string): Promise<void> {
+  if (!orgId) return;
+  const storeKey = getTenantInventoryStoreKey(orgId);
+  await saveToIDB(IDB_STORES.INVENTORY, storeKey, []);
 }
 
 export async function saveProductsToIndexedDB(products: ProductPriceItem[], orgId?: string): Promise<void> {

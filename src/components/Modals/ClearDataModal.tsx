@@ -1,16 +1,14 @@
 import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
+import { resolveOrganizationId } from '../../types';
 import {
   Trash2,
-  AlertTriangle,
-  RotateCcw,
   CheckCircle2,
   X,
   Users,
   Tag,
   Package,
   FileText,
-  Clock,
   Layers,
   ShieldAlert,
   Loader2,
@@ -22,7 +20,6 @@ export const ClearDataModal: React.FC = () => {
     setIsClearDataModalOpen,
     clearAllSystemData,
     clearSpecificData,
-    resetDataToDefault,
     customers,
     products,
     inventory,
@@ -34,7 +31,7 @@ export const ClearDataModal: React.FC = () => {
     currentUser,
   } = useApp();
 
-  const [activeTab, setActiveTab] = useState<'all' | 'custom' | 'restore'>('all');
+  const [activeTab, setActiveTab] = useState<'all' | 'custom'>('all');
   const [isProcessing, setIsProcessing] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
@@ -44,18 +41,30 @@ export const ClearDataModal: React.FC = () => {
   const [clearInventory, setClearInventory] = useState(true);
   const [clearQuotesContracts, setClearQuotesContracts] = useState(true);
   const [clearReservesOrders, setClearReservesOrders] = useState(true);
-  const [clearSubUsers, setClearSubUsers] = useState(false);
 
   // Confirmation word
   const [confirmText, setConfirmText] = useState('');
 
-  if (!isClearDataModalOpen) return null;
+  // SECURITY GUARD: Only Level 1 (manager_c1) can access this modal
+  if (!isClearDataModalOpen || currentUser.role !== 'manager_c1') return null;
+
+  const myOrgId = resolveOrganizationId(currentUser, users);
+  const orgName = currentUser.department || 'Doanh Nghiệp của bạn';
+
+  // Filter items belonging to THIS tenant only
+  const myCustomers = customers.filter((c) => c.organizationId === myOrgId);
+  const myProducts = products.filter((p) => (p.organizationId || p.companyId) === myOrgId);
+  const myInventory = inventory.filter((i) => (i.organizationId || i.companyId) === myOrgId);
+  const myQuotes = quotations.filter((q) => q.organizationId === myOrgId);
+  const myContracts = contracts.filter((c) => c.organizationId === myOrgId);
+  const myReserves = reserveItems.filter((r) => r.organizationId === myOrgId);
+  const myOrders = orderItems.filter((o) => o.organizationId === myOrgId);
 
   const handleWipeAll = async () => {
     setIsProcessing(true);
     try {
       await clearAllSystemData();
-      setSuccessMessage('Đã xoá sạch toàn bộ dữ liệu thành công! Hệ thống ở trạng thái trắng.');
+      setSuccessMessage(`Đã xoá toàn bộ dữ liệu nghiệp vụ của ${orgName} thành công! Các tài khoản và dữ liệu tổ chức khác hoàn toàn nguyên vẹn.`);
       setTimeout(() => {
         setIsProcessing(false);
         setSuccessMessage(null);
@@ -74,8 +83,7 @@ export const ClearDataModal: React.FC = () => {
       !clearProducts &&
       !clearInventory &&
       !clearQuotesContracts &&
-      !clearReservesOrders &&
-      !clearSubUsers
+      !clearReservesOrders
     ) {
       alert('Vui lòng chọn ít nhất một danh mục cần xoá.');
       return;
@@ -89,10 +97,9 @@ export const ClearDataModal: React.FC = () => {
         clearInventory,
         clearQuotesAndContracts: clearQuotesContracts,
         clearReservesAndOrders: clearReservesOrders,
-        clearUsers: clearSubUsers,
       });
 
-      setSuccessMessage('Đã xoá các danh mục dữ liệu đã chọn thành công!');
+      setSuccessMessage(`Đã xoá các danh mục dữ liệu đã chọn của ${orgName} thành công!`);
       setTimeout(() => {
         setIsProcessing(false);
         setSuccessMessage(null);
@@ -105,25 +112,6 @@ export const ClearDataModal: React.FC = () => {
     }
   };
 
-  const handleRestoreDemo = async () => {
-    setIsProcessing(true);
-    try {
-      await resetDataToDefault();
-      setSuccessMessage('Đã khôi phục dữ liệu mẫu ban đầu thành công!');
-      setTimeout(() => {
-        setIsProcessing(false);
-        setSuccessMessage(null);
-        setIsClearDataModalOpen(false);
-      }, 1500);
-    } catch (err) {
-      console.error(err);
-      setIsProcessing(false);
-      alert('Có lỗi xảy ra khi khôi phục dữ liệu');
-    }
-  };
-
-  const subUsersCount = users.filter((u) => u.role !== 'super_admin').length;
-
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4">
       <div className="bg-white rounded-xl max-w-lg w-full shadow-2xl border border-slate-200 overflow-hidden animate-in fade-in zoom-in-95 duration-150">
@@ -134,9 +122,9 @@ export const ClearDataModal: React.FC = () => {
               <Trash2 className="w-4 h-4" />
             </div>
             <div>
-              <h3 className="text-sm font-bold text-slate-900">Quản Lý & Xoá Dữ Liệu Hệ Thống</h3>
-              <p className="text-[11px] text-slate-500">
-                Xoá sạch dữ liệu thử nghiệm hoặc làm mới hệ thống
+              <h3 className="text-sm font-bold text-slate-900">Xoá Dữ Liệu Doanh Nghiệp</h3>
+              <p className="text-[11px] text-slate-500 truncate max-w-[280px]">
+                {orgName} (Mã tổ chức: {myOrgId})
               </p>
             </div>
           </div>
@@ -160,7 +148,7 @@ export const ClearDataModal: React.FC = () => {
                 : 'text-slate-600 hover:text-slate-900'
             }`}
           >
-            🔴 Xoá Toàn Bộ Dữ Liệu
+            🔴 Xoá Toàn Bộ Dữ Liệu Doanh Nghiệp
           </button>
 
           <button
@@ -174,18 +162,6 @@ export const ClearDataModal: React.FC = () => {
           >
             🟡 Tuỳ Chọn Từng Mục
           </button>
-
-          <button
-            type="button"
-            onClick={() => setActiveTab('restore')}
-            className={`flex-1 py-1.5 px-2 rounded-md transition text-center cursor-pointer ${
-              activeTab === 'restore'
-                ? 'bg-white text-emerald-600 shadow-xs border border-slate-200/80 font-bold'
-                : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            🔄 Khôi Phục Mẫu
-          </button>
         </div>
 
         {/* Body */}
@@ -197,26 +173,26 @@ export const ClearDataModal: React.FC = () => {
             </div>
           ) : (
             <>
-              {/* TAB 1: Xoá Toàn Bộ Dữ Liệu */}
+              {/* TAB 1: Xoá Toàn Bộ Dữ Liệu Nghiệp Vụ Của Doanh Nghiệp */}
               {activeTab === 'all' && (
                 <div className="space-y-3">
                   <div className="p-3 bg-rose-50 border border-rose-200 rounded-lg text-rose-900 space-y-1.5">
                     <div className="flex items-center space-x-2 font-bold text-xs text-rose-700">
                       <ShieldAlert className="w-4 h-4 shrink-0" />
-                      <span>Cảnh báo: Hành động này sẽ xoá sạch mọi dữ liệu!</span>
+                      <span>Phạm vi: Chỉ áp dụng cho tổ chức {orgName}</span>
                     </div>
                     <p className="text-[11px] text-rose-800 leading-relaxed">
-                      Thao tác này sẽ dọn dẹp trắng toàn bộ cơ sở dữ liệu trên máy và Cloud Firestore:
+                      Thao tác này sẽ xoá sạch các dữ liệu nghiệp vụ của doanh nghiệp bạn trên máy và Cloud Firestore:
                     </p>
                     <ul className="list-disc pl-4 space-y-0.5 text-[11px] text-rose-900 font-medium">
-                      <li>Tất cả <strong>Khách hàng ({customers.length})</strong></li>
-                      <li>Tất cả <strong>Data Giá & Danh mục sản phẩm ({products.length})</strong></li>
-                      <li>Tất cả <strong>Tồn kho hàng ({inventory.length})</strong></li>
-                      <li>Tất cả <strong>Báo giá ({quotations.length})</strong> & <strong>Hợp đồng ({contracts.length})</strong></li>
-                      <li>Tất cả <strong>Bảng giữ hàng & đơn đặt hàng ({reserveItems.length + orderItems.length})</strong></li>
+                      <li>Khách hàng của doanh nghiệp: <strong>{myCustomers.length} KH</strong></li>
+                      <li>Data Giá & Danh mục sản phẩm: <strong>{myProducts.length} SP</strong></li>
+                      <li>Tồn kho hàng của doanh nghiệp: <strong>{myInventory.length} mục</strong></li>
+                      <li>Báo giá ({myQuotes.length}) & Hợp đồng ({myContracts.length})</li>
+                      <li>Bảng giữ hàng & đơn đặt hàng ({myReserves.length + myOrders.length} mục)</li>
                     </ul>
-                    <div className="text-[11px] text-slate-600 bg-white/80 p-2 rounded border border-rose-200/60 mt-1">
-                      🛡️ <strong>Tài khoản Super Admin</strong> ({currentUser.email}) sẽ được bảo toàn để bạn tiếp tục quản trị và nhập dữ liệu thực tế mới.
+                    <div className="text-[11px] text-emerald-800 bg-emerald-50/90 p-2 rounded border border-emerald-200 mt-1">
+                      🛡️ <strong>Bảo vệ tuyệt đối:</strong> Tất cả tài khoản người dùng, tài khoản nhân viên và toàn bộ dữ liệu của các doanh nghiệp khác trên hệ thống sẽ <strong>hoàn toàn không bị ảnh hưởng</strong>.
                     </div>
                   </div>
 
@@ -246,12 +222,12 @@ export const ClearDataModal: React.FC = () => {
                     {isProcessing ? (
                       <>
                         <Loader2 className="w-4 h-4 animate-spin" />
-                        <span>Đang dọn dẹp dữ liệu...</span>
+                        <span>Đang dọn dẹp dữ liệu doanh nghiệp...</span>
                       </>
                     ) : (
                       <>
                         <Trash2 className="w-4 h-4" />
-                        <span>Xác Nhận Xoá Sạch Mọi Dữ Liệu</span>
+                        <span>Xác Nhận Xoá Dữ Liệu Doanh Nghiệp</span>
                       </>
                     )}
                   </button>
@@ -262,7 +238,7 @@ export const ClearDataModal: React.FC = () => {
               {activeTab === 'custom' && (
                 <div className="space-y-3">
                   <p className="text-slate-600 text-[11px]">
-                    Chọn các danh mục dữ liệu cụ thể bạn muốn xoá khỏi hệ thống:
+                    Chọn các danh mục dữ liệu của <strong>{orgName}</strong> bạn muốn xoá:
                   </p>
 
                   <div className="space-y-2 border border-slate-200 rounded-lg p-2.5 bg-slate-50/50">
@@ -273,7 +249,7 @@ export const ClearDataModal: React.FC = () => {
                       </div>
                       <div className="flex items-center space-x-2">
                         <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 font-mono font-bold">
-                          {customers.length} KH
+                          {myCustomers.length} KH
                         </span>
                         <input
                           type="checkbox"
@@ -291,7 +267,7 @@ export const ClearDataModal: React.FC = () => {
                       </div>
                       <div className="flex items-center space-x-2">
                         <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 font-mono font-bold">
-                          {products.length} SP
+                          {myProducts.length} SP
                         </span>
                         <input
                           type="checkbox"
@@ -305,11 +281,11 @@ export const ClearDataModal: React.FC = () => {
                     <label className="flex items-center justify-between p-2 rounded bg-white border border-slate-200 hover:border-blue-300 cursor-pointer transition">
                       <div className="flex items-center space-x-2.5">
                         <Package className="w-4 h-4 text-amber-600" />
-                        <span className="font-semibold text-slate-800">Tồn Kho Kho Hàng (Master)</span>
+                        <span className="font-semibold text-slate-800">Tồn Kho Kho Hàng</span>
                       </div>
                       <div className="flex items-center space-x-2">
                         <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 font-mono font-bold">
-                          {inventory.length} mục
+                          {myInventory.length} mục
                         </span>
                         <input
                           type="checkbox"
@@ -327,7 +303,7 @@ export const ClearDataModal: React.FC = () => {
                       </div>
                       <div className="flex items-center space-x-2">
                         <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 font-mono font-bold">
-                          {quotations.length} BG / {contracts.length} HĐ
+                          {myQuotes.length} BG / {myContracts.length} HĐ
                         </span>
                         <input
                           type="checkbox"
@@ -345,30 +321,12 @@ export const ClearDataModal: React.FC = () => {
                       </div>
                       <div className="flex items-center space-x-2">
                         <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 font-mono font-bold">
-                          {reserveItems.length + orderItems.length} mục
+                          {myReserves.length + myOrders.length} mục
                         </span>
                         <input
                           type="checkbox"
                           checked={clearReservesOrders}
                           onChange={(e) => setClearReservesOrders(e.target.checked)}
-                          className="w-4 h-4 text-blue-600 rounded"
-                        />
-                      </div>
-                    </label>
-
-                    <label className="flex items-center justify-between p-2 rounded bg-white border border-slate-200 hover:border-blue-300 cursor-pointer transition">
-                      <div className="flex items-center space-x-2.5">
-                        <Users className="w-4 h-4 text-rose-500" />
-                        <span className="font-semibold text-slate-800">Tài Khoản Nhân Viên C1 & C2</span>
-                      </div>
-                      <div className="flex items-center space-x-2">
-                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 font-mono font-bold">
-                          {subUsersCount} TK
-                        </span>
-                        <input
-                          type="checkbox"
-                          checked={clearSubUsers}
-                          onChange={(e) => setClearSubUsers(e.target.checked)}
                           className="w-4 h-4 text-blue-600 rounded"
                         />
                       </div>
@@ -389,47 +347,7 @@ export const ClearDataModal: React.FC = () => {
                     ) : (
                       <>
                         <Trash2 className="w-4 h-4" />
-                        <span>Xoá Các Mục Đã Chọn</span>
-                      </>
-                    )}
-                  </button>
-                </div>
-              )}
-
-              {/* TAB 3: Khôi phục mẫu */}
-              {activeTab === 'restore' && (
-                <div className="space-y-3">
-                  <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-lg text-emerald-900 space-y-1.5">
-                    <div className="flex items-center space-x-2 font-bold text-xs text-emerald-800">
-                      <RotateCcw className="w-4 h-4 shrink-0" />
-                      <span>Khôi Phục Dữ Liệu Mẫu Chuẩn SalesFlow CRM</span>
-                    </div>
-                    <p className="text-[11px] text-emerald-800 leading-relaxed">
-                      Nạp lại bộ dữ liệu chuẩn mẫu đầy đủ:
-                    </p>
-                    <ul className="list-disc pl-4 space-y-0.5 text-[11px] text-emerald-900 font-medium">
-                      <li>Tài khoản chuẩn Super Admin, Giám Đốc C1, Sales C2</li>
-                      <li>Khách hàng mẫu theo các giai đoạn phễu</li>
-                      <li>Bảng Data Giá chuẩn đèn & thiết bị điện</li>
-                      <li>Báo giá nhiều đợt & Hợp đồng mẫu</li>
-                    </ul>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={handleRestoreDemo}
-                    disabled={isProcessing}
-                    className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition flex items-center justify-center space-x-2 shadow-xs cursor-pointer active:scale-98"
-                  >
-                    {isProcessing ? (
-                      <>
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                        <span>Đang khôi phục dữ liệu mẫu...</span>
-                      </>
-                    ) : (
-                      <>
-                        <RotateCcw className="w-4 h-4" />
-                        <span>Nạp Lại Dữ Liệu Mẫu</span>
+                        <span>Xoá Các Mục Đã Chọn Của Doanh Nghiệp</span>
                       </>
                     )}
                   </button>
@@ -441,7 +359,7 @@ export const ClearDataModal: React.FC = () => {
 
         {/* Footer */}
         <div className="px-4 py-2.5 bg-slate-50 border-t border-slate-200 flex items-center justify-between text-slate-500 text-[11px]">
-          <span>SalesFlow CRM Data Manager</span>
+          <span>SalesFlow CRM • Multi-Tenant Isolation Mode</span>
           <button
             type="button"
             onClick={() => !isProcessing && setIsClearDataModalOpen(false)}
@@ -455,3 +373,4 @@ export const ClearDataModal: React.FC = () => {
     </div>
   );
 };
+

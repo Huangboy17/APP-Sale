@@ -367,22 +367,25 @@ const ProductPriceMasterContent: React.FC = () => {
                 <span>Import Ảnh Hàng Loạt</span>
               </button>
 
-              <button
-                onClick={() => {
-                  if (products.length === 0) {
-                    alert('Không có dữ liệu giá nào để xoá.');
-                    return;
-                  }
-                  if (window.confirm(`Bạn có chắc chắn muốn xoá toàn bộ ${products.length} sản phẩm trong Data Giá của ${companyScope.companyName} không? Hành động này sẽ xoá trên cả máy và Cloud Firestore.`)) {
-                    clearSpecificData({ clearProducts: true });
-                  }
-                }}
-                className="px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-md text-xs font-bold flex items-center space-x-1 shadow-2xs transition cursor-pointer"
-                title="Xoá toàn bộ danh sách sản phẩm trong Data Giá của công ty"
-              >
-                <Trash2 className="w-3.5 h-3.5 text-rose-600" />
-                <span>Xoá Hết Data Giá</span>
-              </button>
+              {currentUser.role === 'manager_c1' && (
+                <button
+                  onClick={() => {
+                    const myProds = products.filter((p) => (p.organizationId || p.companyId) === companyScope.companyId);
+                    if (myProds.length === 0) {
+                      alert('Không có dữ liệu giá nào để xoá.');
+                      return;
+                    }
+                    if (window.confirm(`Bạn có chắc chắn muốn xoá ${myProds.length} sản phẩm trong Data Giá của ${companyScope.companyName} không? Hành động này sẽ xoá trên cả máy và Cloud Firestore. Dữ liệu của các doanh nghiệp khác không bị ảnh hưởng.`)) {
+                      clearSpecificData({ clearProducts: true });
+                    }
+                  }}
+                  className="px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-md text-xs font-bold flex items-center space-x-1 shadow-2xs transition cursor-pointer"
+                  title="Xoá danh sách sản phẩm trong Data Giá của doanh nghiệp bạn"
+                >
+                  <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+                  <span>Xoá Hết Data Giá</span>
+                </button>
+              )}
 
               <button
                 onClick={handleOpenAddModal}

@@ -688,52 +688,141 @@ export async function getCustomerMembersFromCloud(customerId: string): Promise<{
   }
 }
 
-// Clear a specific collection completely from Firestore
-export async function clearCollectionFromCloud(collectionName: string, exceptIds: string[] = []) {
+/**
+ * Secure Helper: Delete documents from a Firestore collection belonging ONLY to a specific organization/tenant.
+ * Security: Strictly enforces valid organizationId. Rejects missing/empty organizationId to prevent accidental whole-table wipes.
+ * Protected: NEVER allows wiping USERS or ORGANIZATIONS collections.
+ */
+export async function clearTenantCollectionFromCloud(
+  collectionName: string,
+  organizationId: string,
+  docIdPrefix?: string
+): Promise<number> {
+  if (!organizationId || typeof organizationId !== 'string' || organizationId.trim() === '') {
+    console.error(`[CRITICAL SECURITY DENIAL] clearTenantCollectionFromCloud called without valid organizationId for collection: ${collectionName}`);
+    throw new Error(`Không thể xoá dữ liệu ${collectionName} khi thiếu phạm vi tổ chức (organizationId).`);
+  }
+
+  const cleanOrgId = organizationId.trim();
+
+  // Guard: NEVER allow clearing USERS or ORGANIZATIONS via this function
+  if (collectionName === COLLECTIONS.USERS || collectionName === COLLECTIONS.ORGANIZATIONS) {
+    console.error(`[CRITICAL SECURITY DENIAL] Attempted to clear protected account collection: ${collectionName}`);
+    throw new Error(`Không được phép xoá dữ liệu tài khoản hệ thống.`);
+  }
+
   try {
     const snapshot = await getDocs(collection(db, collectionName));
-    if (snapshot.empty) return;
+    if (snapshot.empty) return 0;
 
     const batch = writeBatch(db);
     let count = 0;
+
     snapshot.docs.forEach((d) => {
-      if (!exceptIds.includes(d.id)) {
+      const data = d.data();
+      const itemOrg = data.organizationId || data.companyId;
+      const isDocPrefixed = docIdPrefix ? d.id.startsWith(`${cleanOrgId}_`) : false;
+
+      // Match ONLY documents belonging to this organization
+      if (itemOrg === cleanOrgId || isDocPrefixed) {
         batch.delete(d.ref);
         count++;
       }
     });
+
     if (count > 0) {
       await batch.commit();
+      console.log(`[Cloud Sync] Cleared ${count} items from ${collectionName} for tenant [${cleanOrgId}]`);
     }
+    return count;
   } catch (err) {
-    handleFirestoreError(err, `Clear collection ${collectionName}`);
+    handleFirestoreError(err, `Clear tenant collection ${collectionName} for ${cleanOrgId}`);
+    return 0;
   }
 }
 
-// Clear all data from Google Cloud Firestore
-export async function clearAllDataFromCloud(keepSuperAdmin = true) {
-  try {
-    const superAdminId = 'user-super-admin';
-    const collectionsToClear = [
-      COLLECTIONS.CUSTOMERS,
-      COLLECTIONS.PRODUCTS,
-      COLLECTIONS.INVENTORY,
-      COLLECTIONS.QUOTATIONS,
-      COLLECTIONS.CONTRACTS,
-      COLLECTIONS.RESERVES,
-      COLLECTIONS.ORDERS,
-      COLLECTIONS.ORGANIZATIONS,
-      COLLECTIONS.CUSTOMER_MEMBERS,
-      COLLECTIONS.PURCHASE_ORDERS,
-    ];
+// Tenant-scoped deletion functions for each business entity
+export async function clearTenantCustomersFromCloud(organizationId: string): Promise<number> {
+  return clearTenantCollectionFromCloud(COLLECTIONS.CUSTOMERS, organizationId);
+}
 
-    for (const colName of collectionsToClear) {
-      await clearCollectionFromCloud(colName);
-    }
+export async function clearTenantProductsFromCloud(organizationId: string): Promise<number> {
+  return clearTenantCollectionFromCloud(COLLECTIONS.PRODUCTS, organizationId, organizationId);
+}
 
-    // Clear Users (keep Super Admin if requested)
-    await clearCollectionFromCloud(COLLECTIONS.USERS, keepSuperAdmin ? [superAdminId] : []);
-  } catch (err) {
-    handleFirestoreError(err, 'Clear all data');
+export async function clearTenantInventoryFromCloud(organizationId: string): Promise<number> {
+  return clearTenantCollectionFromCloud(COLLECTIONS.INVENTORY, organizationId, organizationId);
+}
+
+export async function clearTenantQuotationsFromCloud(organizationId: string): Promise<number> {
+  return clearTenantCollectionFromCloud(COLLECTIONS.QUOTATIONS, organizationId);
+}
+
+export async function clearTenantContractsFromCloud(organizationId: string): Promise<number> {
+  return clearTenantCollectionFromCloud(COLLECTIONS.CONTRACTS, organizationId);
+}
+
+export async function clearTenantReservesFromCloud(organizationId: string): Promise<number> {
+  return clearTenantCollectionFromCloud(COLLECTIONS.RESERVES, organizationId);
+}
+
+export async function clearTenantOrdersFromCloud(organizationId: string): Promise<number> {
+  return clearTenantCollectionFromCloud(COLLECTIONS.ORDERS, organizationId);
+}
+
+export async function clearTenantPurchaseOrdersFromCloud(organizationId: string): Promise<number> {
+  return clearTenantCollectionFromCloud(COLLECTIONS.PURCHASE_ORDERS, organizationId);
+}
+
+export async function clearTenantStockVouchersFromCloud(organizationId: string): Promise<void> {
+  await Promise.all([
+    clearTenantCollectionFromCloud(COLLECTIONS.STOCK_TRANSACTIONS, organizationId),
+    clearTenantCollectionFromCloud(COLLECTIONS.STOCK_IN_VOUCHERS, organizationId),
+    clearTenantCollectionFromCloud(COLLECTIONS.STOCK_OUT_VOUCHERS, organizationId),
+    clearTenantCollectionFromCloud(COLLECTIONS.STOCK_AUDIT_VOUCHERS, organizationId),
+  ]);
+}
+
+/**
+ * Clear all business data for a specific tenant.
+ * IMPORTANT: Strictly preserves all user accounts and organization profiles.
+ */
+export async function clearTenantBusinessDataFromCloud(
+  organizationId: string,
+  options: {
+    clearCustomers?: boolean;
+    clearProducts?: boolean;
+    clearInventory?: boolean;
+    clearQuotesAndContracts?: boolean;
+    clearReservesAndOrders?: boolean;
   }
+): Promise<void> {
+  if (!organizationId || typeof organizationId !== 'string' || organizationId.trim() === '') {
+    throw new Error('Thiếu organizationId khi xoá dữ liệu tổ chức.');
+  }
+
+  const cleanOrgId = organizationId.trim();
+  const tasks: Promise<unknown>[] = [];
+
+  if (options.clearCustomers) {
+    tasks.push(clearTenantCustomersFromCloud(cleanOrgId));
+  }
+  if (options.clearProducts) {
+    tasks.push(clearTenantProductsFromCloud(cleanOrgId));
+  }
+  if (options.clearInventory) {
+    tasks.push(clearTenantInventoryFromCloud(cleanOrgId));
+  }
+  if (options.clearQuotesAndContracts) {
+    tasks.push(clearTenantQuotationsFromCloud(cleanOrgId));
+    tasks.push(clearTenantContractsFromCloud(cleanOrgId));
+  }
+  if (options.clearReservesAndOrders) {
+    tasks.push(clearTenantReservesFromCloud(cleanOrgId));
+    tasks.push(clearTenantOrdersFromCloud(cleanOrgId));
+    tasks.push(clearTenantStockVouchersFromCloud(cleanOrgId));
+    tasks.push(clearTenantPurchaseOrdersFromCloud(cleanOrgId));
+  }
+
+  await Promise.all(tasks);
 }

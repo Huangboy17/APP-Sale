@@ -162,22 +162,24 @@ export const CustomerList: React.FC = () => {
             </button>
           </div>
 
-          <button
-            onClick={() => {
-              if (filteredCustomers.length === 0) {
-                alert('Không có khách hàng nào để xoá.');
-                return;
-              }
-              if (window.confirm(`Bạn có chắc chắn muốn xoá toàn bộ ${filteredCustomers.length} khách hàng không? Hành động này sẽ xoá trên cả máy và Cloud Firestore.`)) {
-                clearSpecificData({ clearCustomers: true });
-              }
-            }}
-            className="px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-md text-xs font-bold flex items-center space-x-1 shadow-2xs transition cursor-pointer"
-            title="Xoá toàn bộ danh sách khách hàng"
-          >
-            <Trash2 className="w-3.5 h-3.5 text-rose-600" />
-            <span className="hidden sm:inline">Xoá Hết KH</span>
-          </button>
+          {currentUser.role === 'manager_c1' && (
+            <button
+              onClick={() => {
+                if (filteredCustomers.length === 0) {
+                  alert('Không có khách hàng nào để xoá.');
+                  return;
+                }
+                if (window.confirm(`Bạn có chắc chắn muốn xoá ${filteredCustomers.length} khách hàng của doanh nghiệp bạn không? Hành động này sẽ xoá trên cả máy và Cloud Firestore. Dữ liệu của các doanh nghiệp khác và tài khoản đăng nhập không bị ảnh hưởng.`)) {
+                  clearSpecificData({ clearCustomers: true });
+                }
+              }}
+              className="px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-md text-xs font-bold flex items-center space-x-1 shadow-2xs transition cursor-pointer"
+              title="Xoá danh sách khách hàng của doanh nghiệp"
+            >
+              <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+              <span className="hidden sm:inline">Xoá Hết KH</span>
+            </button>
+          )}
 
           <button
             onClick={handleCreateCustomer}

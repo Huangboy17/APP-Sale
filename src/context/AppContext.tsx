@@ -119,8 +119,16 @@ import {
   syncPurchaseOrderToCloud,
   deletePurchaseOrderFromCloud,
   batchSyncPurchaseOrdersToCloud,
-  clearAllDataFromCloud,
-  clearCollectionFromCloud,
+  clearTenantBusinessDataFromCloud,
+  clearTenantCustomersFromCloud,
+  clearTenantProductsFromCloud,
+  clearTenantInventoryFromCloud,
+  clearTenantQuotationsFromCloud,
+  clearTenantContractsFromCloud,
+  clearTenantReservesFromCloud,
+  clearTenantOrdersFromCloud,
+  clearTenantPurchaseOrdersFromCloud,
+  clearTenantStockVouchersFromCloud,
   syncOrganizationToCloud,
   syncCustomerMemberToCloud,
   deleteCustomerMemberFromCloud,
@@ -136,6 +144,10 @@ import {
   deleteContractTemplateFromCloud,
   batchSyncContractTemplatesToCloud,
 } from '../services/firestoreSync';
+import {
+  clearTenantProductsFromIndexedDB,
+  clearTenantInventoryFromIndexedDB,
+} from '../utils/localDB';
 import {
   INITIAL_CONTRACT_TEMPLATES,
   renderContractContent,
@@ -5181,37 +5193,125 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return stockInVoucher;
   };
 
-  const clearAllSystemData = async () => {
-    // 1. Clear local state
-    setCustomers([]);
-    setProducts([]);
-    setInventory([]);
-    setQuotations([]);
-    setContracts([]);
-    setReserveItems([]);
-    setOrderItems([]);
+  const clearTenantBusinessData = async (options: {
+    clearCustomers?: boolean;
+    clearProducts?: boolean;
+    clearInventory?: boolean;
+    clearQuotesAndContracts?: boolean;
+    clearReservesAndOrders?: boolean;
+  }) => {
+    // SECURITY GUARD: Fail-safe check
+    if (!currentUser || !isAuthenticated) {
+      console.error('[SECURITY DENIED] clearTenantBusinessData: Unauthenticated');
+      alert('Bạn cần đăng nhập để thực hiện thao tác này.');
+      return;
+    }
 
-    // Keep super admin so the user stays logged in
-    const superAdmin = users.find((u) => u.role === 'super_admin') || INITIAL_USERS[0];
-    setUsers([superAdmin]);
-    setCurrentUser(superAdmin);
+    // ROLE GUARD: Super Admin manages accounts, not tenant business data. Level 2 has no tenant clear permissions.
+    if (currentUser.role !== 'manager_c1') {
+      console.error('[PERMISSION DENIED] clearTenantBusinessData: Only Level 1 (manager_c1) can clear organization business data. Role:', currentUser.role);
+      alert('Chỉ Giám Đốc / Quản Lý Doanh Nghiệp (Level 1) mới có quyền xoá dữ liệu nghiệp vụ của tổ chức.');
+      return;
+    }
 
-    // 2. Clear IndexedDB & localStorage
-    saveProductsToIndexedDB([]);
-    saveInventoryToIndexedDB([]);
-    localStorage.removeItem(STORAGE_KEYS.CUSTOMERS);
-    localStorage.removeItem(STORAGE_KEYS.PRODUCTS);
-    localStorage.removeItem(STORAGE_KEYS.INVENTORY);
-    localStorage.removeItem(STORAGE_KEYS.QUOTATIONS);
-    localStorage.removeItem(STORAGE_KEYS.CONTRACTS);
-    localStorage.removeItem(STORAGE_KEYS.RESERVES);
-    localStorage.removeItem(STORAGE_KEYS.ORDERS);
-    localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify([superAdmin]));
-    localStorage.setItem(STORAGE_KEYS.CURRENT_USER_ID, superAdmin.id);
+    const myOrgId = resolveOrganizationId(currentUser, users);
+    if (!myOrgId || myOrgId.trim() === '' || myOrgId === 'org-system') {
+      console.error('[SECURITY DENIED] clearTenantBusinessData: Missing valid organization scope. OrgId:', myOrgId);
+      alert('Không xác định được mã tổ chức của bạn. Thao tác đã bị từ chối.');
+      return;
+    }
 
-    // 3. Clear Google Cloud Firestore
-    await clearAllDataFromCloud(true);
+    console.log(`[DATA CLEAR] Clearing business data for organization [${myOrgId}] with options:`, options);
+
+    // 1. Clear Customers for THIS tenant only (other tenants' customers preserved in state & storage)
+    if (options.clearCustomers) {
+      setCustomers((prev) => {
+        const remaining = prev.filter((c) => c.organizationId !== myOrgId);
+        safeSetLocalStorage(STORAGE_KEYS.CUSTOMERS, remaining);
+        return remaining;
+      });
+      await clearTenantCustomersFromCloud(myOrgId);
+    }
+
+    // 2. Clear Products for THIS tenant only (other tenants' products preserved in state & IndexedDB)
+    if (options.clearProducts) {
+      setProducts((prev) => {
+        const remaining = prev.filter((p) => {
+          const pOrg = p.organizationId || p.companyId;
+          return pOrg !== myOrgId;
+        });
+        return remaining;
+      });
+      await clearTenantProductsFromIndexedDB(myOrgId);
+      await clearTenantProductsFromCloud(myOrgId);
+    }
+
+    // 3. Clear Inventory for THIS tenant only
+    if (options.clearInventory) {
+      setInventory((prev) => {
+        const remaining = prev.filter((i) => {
+          const iOrg = i.organizationId || i.companyId;
+          return iOrg !== myOrgId;
+        });
+        return remaining;
+      });
+      await clearTenantInventoryFromIndexedDB(myOrgId);
+      await clearTenantInventoryFromCloud(myOrgId);
+    }
+
+    // 4. Clear Quotations & Contracts for THIS tenant only
+    if (options.clearQuotesAndContracts) {
+      setQuotations((prev) => {
+        const remaining = prev.filter((q) => q.organizationId !== myOrgId);
+        safeSetLocalStorage(STORAGE_KEYS.QUOTATIONS, remaining);
+        return remaining;
+      });
+      setContracts((prev) => {
+        const remaining = prev.filter((c) => c.organizationId !== myOrgId);
+        safeSetLocalStorage(STORAGE_KEYS.CONTRACTS, remaining);
+        return remaining;
+      });
+      await clearTenantQuotationsFromCloud(myOrgId);
+      await clearTenantContractsFromCloud(myOrgId);
+    }
+
+    // 5. Clear Reserves, Orders, Purchase Orders & Vouchers for THIS tenant only
+    if (options.clearReservesAndOrders) {
+      setReserveItems((prev) => {
+        const remaining = prev.filter((r) => r.organizationId !== myOrgId);
+        safeSetLocalStorage(STORAGE_KEYS.RESERVES, remaining);
+        return remaining;
+      });
+      setOrderItems((prev) => {
+        const remaining = prev.filter((o) => o.organizationId !== myOrgId);
+        safeSetLocalStorage(STORAGE_KEYS.ORDERS, remaining);
+        return remaining;
+      });
+      setPurchaseOrders((prev) => {
+        const remaining = prev.filter((po) => po.organizationId !== myOrgId);
+        safeSetLocalStorage(STORAGE_KEYS.PURCHASE_ORDERS, remaining);
+        return remaining;
+      });
+      await clearTenantReservesFromCloud(myOrgId);
+      await clearTenantOrdersFromCloud(myOrgId);
+      await clearTenantStockVouchersFromCloud(myOrgId);
+      await clearTenantPurchaseOrdersFromCloud(myOrgId);
+    }
+
     setLastCloudSyncTime(new Date());
+    console.log(`[DATA CLEAR] Successfully cleared business data for organization [${myOrgId}]. User accounts and other tenants remain 100% intact.`);
+  };
+
+  const clearAllSystemData = async () => {
+    // When Level 1 triggers "Xóa toàn bộ dữ liệu", it clears ALL business data categories FOR THEIR OWN TENANT ONLY.
+    // ACCOUNTS (users, organizations) are 100% PROTECTED AND NEVER DELETED.
+    await clearTenantBusinessData({
+      clearCustomers: true,
+      clearProducts: true,
+      clearInventory: true,
+      clearQuotesAndContracts: true,
+      clearReservesAndOrders: true,
+    });
   };
 
   const clearSpecificData = async (options: {
@@ -5220,92 +5320,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     clearInventory?: boolean;
     clearQuotesAndContracts?: boolean;
     clearReservesAndOrders?: boolean;
-    clearUsers?: boolean;
+    clearUsers?: boolean; // Deprecated: accounts are NEVER wiped via clearSpecificData
   }) => {
-    if (options.clearCustomers) {
-      setCustomers([]);
-      localStorage.removeItem(STORAGE_KEYS.CUSTOMERS);
-      await clearCollectionFromCloud(COLLECTIONS.CUSTOMERS);
-    }
-
-    if (options.clearProducts) {
-      if (currentUser.role === 'super_admin') {
-        setProducts([]);
-        saveProductsToIndexedDB([]);
-        localStorage.removeItem(STORAGE_KEYS.PRODUCTS);
-        await clearCollectionFromCloud(COLLECTIONS.PRODUCTS);
-      } else {
-        const myCompanyId = companyScope.companyId;
-        setProducts((prev) => {
-          const remaining = prev.filter((p) => p.companyId !== myCompanyId && p.createdBy !== currentUser.id);
-          saveProductsToIndexedDB(remaining);
-          return remaining;
-        });
-        await clearCompanyProductsFromCloud(myCompanyId);
-      }
-    }
-
-    if (options.clearInventory) {
-      if (currentUser.role === 'super_admin') {
-        setInventory([]);
-        saveInventoryToIndexedDB([]);
-        localStorage.removeItem(STORAGE_KEYS.INVENTORY);
-        await clearCollectionFromCloud(COLLECTIONS.INVENTORY);
-      } else {
-        const myCompanyId = companyScope.companyId;
-        setInventory((prev) => {
-          const remaining = prev.filter((i) => i.companyId !== myCompanyId && i.createdBy !== currentUser.id);
-          saveInventoryToIndexedDB(remaining);
-          return remaining;
-        });
-        await clearCompanyInventoryFromCloud(myCompanyId);
-      }
-    }
-
-    if (options.clearQuotesAndContracts) {
-      setQuotations([]);
-      setContracts([]);
-      localStorage.removeItem(STORAGE_KEYS.QUOTATIONS);
-      localStorage.removeItem(STORAGE_KEYS.CONTRACTS);
-      await clearCollectionFromCloud(COLLECTIONS.QUOTATIONS);
-      await clearCollectionFromCloud(COLLECTIONS.CONTRACTS);
-    }
-
-    if (options.clearReservesAndOrders) {
-      setReserveItems([]);
-      setOrderItems([]);
-      localStorage.removeItem(STORAGE_KEYS.RESERVES);
-      localStorage.removeItem(STORAGE_KEYS.ORDERS);
-      await clearCollectionFromCloud(COLLECTIONS.RESERVES);
-      await clearCollectionFromCloud(COLLECTIONS.ORDERS);
-    }
-
-    if (options.clearUsers) {
-      const superAdmin = users.find((u) => u.role === 'super_admin') || INITIAL_USERS[0];
-      setUsers([superAdmin]);
-      setCurrentUser(superAdmin);
-      localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify([superAdmin]));
-      localStorage.setItem(STORAGE_KEYS.CURRENT_USER_ID, superAdmin.id);
-      await clearCollectionFromCloud(COLLECTIONS.USERS, [superAdmin.id]);
-    }
-
-    setLastCloudSyncTime(new Date());
+    await clearTenantBusinessData({
+      clearCustomers: options.clearCustomers,
+      clearProducts: options.clearProducts,
+      clearInventory: options.clearInventory,
+      clearQuotesAndContracts: options.clearQuotesAndContracts,
+      clearReservesAndOrders: options.clearReservesAndOrders,
+    });
   };
 
   const resetDataToDefault = async () => {
-    localStorage.clear();
-    await saveProductsToIndexedDB(INITIAL_PRODUCTS);
-    await saveInventoryToIndexedDB(INITIAL_INVENTORY);
-    setUsers(INITIAL_USERS);
-    setCurrentUser(INITIAL_USERS[0]);
-    setCustomers(INITIAL_CUSTOMERS);
-    setProducts(INITIAL_PRODUCTS);
-    setInventory(INITIAL_INVENTORY);
-    setQuotations(INITIAL_QUOTATIONS);
-    setContracts(INITIAL_CONTRACTS);
-    setReserveItems(INITIAL_RESERVE_ITEMS);
-    setOrderItems(INITIAL_ORDER_ITEMS);
-    await syncAllToCloudNow();
+    // SECURITY: Strictly no localStorage.clear()
+    // In multi-tenant architecture, this is blocked to protect all accounts and multi-tenant isolation.
+    console.warn('[SECURITY] resetDataToDefault is blocked to protect all accounts and multi-tenant isolation.');
   };
 
   return (
