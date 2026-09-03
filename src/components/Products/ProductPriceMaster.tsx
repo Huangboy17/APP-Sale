@@ -1,10 +1,17 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import { useApp } from '../../context/AppContext';
 import { ProductPriceItem, InventoryItem } from '../../types';
 import { formatVND, exportProductsToExcel, downloadProductTemplateExcel } from '../../utils/formatters';
 import { ProductImportModal } from './ProductImportModal';
+import { ProductImageImportModal } from './ProductImageImportModal';
+import { ProductImagePreviewModal } from './ProductImagePreviewModal';
 import { ProductInventoryDrawer } from '../Inventory/ProductInventoryDrawer';
 import { ErrorBoundary } from '../Common/ErrorBoundary';
+import {
+  uploadProductImage,
+  deleteProductImage,
+  optimizeProductImage,
+} from '../../services/productImageService';
 import {
   Tag,
   Plus,
@@ -25,6 +32,8 @@ import {
   Building2,
   ShieldCheck,
   Lock,
+  Image as ImageIcon,
+  FolderUp,
 } from 'lucide-react';
 
 const ProductPriceMasterContent: React.FC = () => {
@@ -35,9 +44,12 @@ const ProductPriceMasterContent: React.FC = () => {
     addProduct,
     updateProduct,
     deleteProduct,
+    updateProductImage: updateContextProductImage,
     clearSpecificData,
     currentUser,
     companyScope,
+    resolveOrganizationId,
+    users,
   } = useApp();
 
   const [searchTerm, setSearchTerm] = useState('');
@@ -49,8 +61,14 @@ const ProductPriceMasterContent: React.FC = () => {
 
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+  const [isImageImportModalOpen, setIsImageImportModalOpen] = useState(false);
   const [productToEdit, setProductToEdit] = useState<ProductPriceItem | null>(null);
   const [selectedItemForHoldModal, setSelectedItemForHoldModal] = useState<InventoryItem | null>(null);
+
+  // Image Preview & Upload States
+  const [selectedProductForPreview, setSelectedProductForPreview] = useState<ProductPriceItem | null>(null);
+  const [isPreviewModalOpen, setIsPreviewModalOpen] = useState(false);
+  const [uploadingSku, setUploadingSku] = useState<string | null>(null);
 
   // Form State for Single Product Add/Edit
   const [sku, setSku] = useState('');
@@ -63,9 +81,44 @@ const ProductPriceMasterContent: React.FC = () => {
   const [listPrice, setListPrice] = useState<number>(0);
   const [dpPrice, setDpPrice] = useState<number>(0);
   const [description, setDescription] = useState('');
+  const [editImageUrl, setEditImageUrl] = useState<string | undefined>(undefined);
+  const [editImageFile, setEditImageFile] = useState<File | null>(null);
+  const [editImagePreview, setEditImagePreview] = useState<string | null>(null);
 
   // Both C1 (Company Manager) and C2 (Sales in company) have full rights over their company price list
   const canManageProducts = currentUser.role === 'manager_c1' || currentUser.role === 'sales_c2';
+
+  const currentOrgId =
+    currentUser.role === 'super_admin'
+      ? 'system_admin'
+      : currentUser.organizationId || resolveOrganizationId(currentUser, users);
+
+  const handleInlineImageUpload = async (product: ProductPriceItem, file: File) => {
+    try {
+      setUploadingSku(product.sku);
+      const optimized = await optimizeProductImage(file, { maxWidth: 1200, maxHeight: 1200, quality: 0.85 });
+      const downloadUrl = await uploadProductImage(optimized, product.sku, currentOrgId);
+      await updateContextProductImage(product.sku, downloadUrl);
+    } catch (err: any) {
+      console.error(err);
+      alert(`Lỗi upload ảnh sản phẩm: ${err.message || 'Không thể tải ảnh'}`);
+    } finally {
+      setUploadingSku(null);
+    }
+  };
+
+  const handleInlineImageDelete = async (product: ProductPriceItem) => {
+    try {
+      setUploadingSku(product.sku);
+      await deleteProductImage(product.sku, currentOrgId, product.imageUrl || product.image_url);
+      await updateContextProductImage(product.sku, undefined);
+    } catch (err: any) {
+      console.error(err);
+      alert(`Lỗi xóa ảnh: ${err.message || 'Không thể xóa'}`);
+    } finally {
+      setUploadingSku(null);
+    }
+  };
 
   // Fast inventory lookup map by normalized SKU
   const inventoryMap = useMemo(() => {
@@ -139,6 +192,9 @@ const ProductPriceMasterContent: React.FC = () => {
     setListPrice(500000);
     setDpPrice(380000);
     setDescription('');
+    setEditImageUrl(undefined);
+    setEditImageFile(null);
+    setEditImagePreview(null);
     setIsEditModalOpen(true);
   };
 
@@ -154,6 +210,9 @@ const ProductPriceMasterContent: React.FC = () => {
     setListPrice(prod.listPrice);
     setDpPrice(prod.dpPrice);
     setDescription(prod.description || '');
+    setEditImageUrl(prod.imageUrl || prod.image_url);
+    setEditImageFile(null);
+    setEditImagePreview(null);
     setIsEditModalOpen(true);
   };
 
@@ -172,7 +231,7 @@ const ProductPriceMasterContent: React.FC = () => {
     setSelectedItemForHoldModal(inv);
   };
 
-  const handleSaveProduct = (e: React.FormEvent) => {
+  const handleSaveProduct = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!sku.trim() || !name.trim()) {
       alert('Vui lòng nhập Mã Hàng (SKU) và Tên Sản Phẩm');
@@ -182,6 +241,19 @@ const ProductPriceMasterContent: React.FC = () => {
     if (dpPrice > listPrice) {
       alert('Giá DP (Giá sàn) không được lớn hơn Giá Niêm Yết!');
       return;
+    }
+
+    let finalImageUrl = editImageUrl;
+
+    // If a new image file was selected in edit modal, upload it now
+    if (editImageFile) {
+      try {
+        const optimized = await optimizeProductImage(editImageFile, { maxWidth: 1200, maxHeight: 1200, quality: 0.85 });
+        finalImageUrl = await uploadProductImage(optimized, sku.trim().toUpperCase(), currentOrgId);
+      } catch (err: any) {
+        console.error(err);
+        alert(`Không thể tải ảnh lên: ${err.message || 'Lỗi lưu trữ'}`);
+      }
     }
 
     const payload: ProductPriceItem = {
@@ -195,6 +267,8 @@ const ProductPriceMasterContent: React.FC = () => {
       listPrice: Number(listPrice) || 0,
       dpPrice: Number(dpPrice) || 0,
       description: description.trim(),
+      imageUrl: finalImageUrl,
+      image_url: finalImageUrl,
       status: 'active',
     };
 
@@ -282,6 +356,15 @@ const ProductPriceMasterContent: React.FC = () => {
               >
                 <Upload className="w-3.5 h-3.5" />
                 <span>Import Data Giá</span>
+              </button>
+
+              <button
+                onClick={() => setIsImageImportModalOpen(true)}
+                className="px-2.5 py-1.5 bg-sky-50 hover:bg-sky-100 text-sky-800 border border-sky-200 rounded-md text-xs font-bold flex items-center space-x-1 transition shadow-2xs cursor-pointer"
+                title="Import hàng loạt ảnh sản phẩm từ thư mục hoặc file Excel"
+              >
+                <ImageIcon className="w-3.5 h-3.5 text-sky-600" />
+                <span>Import Ảnh Hàng Loạt</span>
               </button>
 
               <button
@@ -419,6 +502,7 @@ const ProductPriceMasterContent: React.FC = () => {
             <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-bold uppercase tracking-wider text-[11px]">
               <tr>
                 <th className="px-3 py-2.5">Mã Hàng (SKU)</th>
+                <th className="px-2 py-2.5 w-14 text-center">Ảnh SP</th>
                 <th className="px-3 py-2.5">Tên Hàng Hóa</th>
                 <th className="px-3 py-2.5">Phân Loại & Hãng</th>
                 <th className="px-3 py-2.5">Màu Sắc & Quy Cách</th>
@@ -461,7 +545,7 @@ const ProductPriceMasterContent: React.FC = () => {
             <tbody className="divide-y divide-slate-100 text-slate-700">
               {!isProductsHydrated ? (
                 <tr>
-                  <td colSpan={canManageProducts ? 13 : 12} className="px-4 py-12 text-center text-slate-500">
+                  <td colSpan={canManageProducts ? 14 : 13} className="px-4 py-12 text-center text-slate-500">
                     <div className="flex flex-col items-center justify-center space-y-2">
                       <div className="w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
                       <p className="text-xs font-semibold text-slate-600">Đang nạp dữ liệu Master Data Giá từ IndexedDB...</p>
@@ -470,7 +554,7 @@ const ProductPriceMasterContent: React.FC = () => {
                 </tr>
               ) : displayedProducts.length === 0 ? (
                 <tr>
-                  <td colSpan={canManageProducts ? 13 : 12} className="px-4 py-8 text-center text-slate-400">
+                  <td colSpan={canManageProducts ? 14 : 13} className="px-4 py-8 text-center text-slate-400">
                     {searchTerm || categoryFilter !== 'all' || brandFilter !== 'all' || stockStatusFilter !== 'all'
                       ? 'Không tìm thấy sản phẩm nào khớp với bộ lọc tìm kiếm.'
                       : 'Chưa có sản phẩm nào trong Data Giá. Vui lòng bấm "Import Data Giá" hoặc "+ Thêm Sản Phẩm" để bắt đầu.'}
@@ -489,9 +573,88 @@ const ProductPriceMasterContent: React.FC = () => {
                   const availableQty = inv ? inv.availableQuantity : 0;
                   const onOrderQty = inv ? inv.onOrderQuantity || 0 : 0;
 
+                  const productImg = p.imageUrl || p.image_url;
+                  const isUploadingThis = uploadingSku === p.sku;
+
                   return (
                     <tr key={p.sku || `row-${idx}`} className="hover:bg-slate-50 transition-colors">
                       <td className="px-3 py-2 font-mono font-bold text-blue-700">{p.sku}</td>
+
+                      {/* Cột Ảnh Sản Phẩm */}
+                      <td className="px-2 py-2 text-center">
+                        {isUploadingThis ? (
+                          <div className="w-8 h-8 rounded border border-blue-200 bg-blue-50 flex items-center justify-center mx-auto animate-pulse">
+                            <div className="w-3.5 h-3.5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+                          </div>
+                        ) : productImg ? (
+                          <div className="relative group inline-block">
+                            <img
+                              src={productImg}
+                              alt={p.name}
+                              onClick={() => {
+                                setSelectedProductForPreview(p);
+                                setIsPreviewModalOpen(true);
+                              }}
+                              className="w-8 h-8 rounded-md object-cover border border-slate-200 cursor-pointer shadow-2xs hover:scale-110 hover:shadow-md transition-transform mx-auto bg-white"
+                              title="Bấm để xem ảnh lớn"
+                            />
+                            {canManageProducts && (
+                              <div className="absolute -top-1 -right-1 hidden group-hover:flex items-center space-x-0.5 bg-slate-900/90 rounded-full p-0.5 shadow-md">
+                                <label
+                                  title="Thay ảnh mới"
+                                  className="p-0.5 text-slate-200 hover:text-white rounded-full hover:bg-slate-700 transition cursor-pointer inline-flex items-center justify-center"
+                                >
+                                  <Upload className="w-2.5 h-2.5" />
+                                  <input
+                                    type="file"
+                                    accept="image/*"
+                                    onChange={(e) => {
+                                      if (e.target.files && e.target.files[0]) {
+                                        handleInlineImageUpload(p, e.target.files[0]);
+                                      }
+                                      e.target.value = '';
+                                    }}
+                                    className="hidden"
+                                  />
+                                </label>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (confirm(`Xóa ảnh của sản phẩm ${p.sku}?`)) {
+                                      handleInlineImageDelete(p);
+                                    }
+                                  }}
+                                  title="Xóa ảnh"
+                                  className="p-0.5 text-rose-300 hover:text-rose-100 rounded-full hover:bg-rose-900 transition cursor-pointer inline-flex items-center justify-center"
+                                >
+                                  <Trash2 className="w-2.5 h-2.5" />
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        ) : canManageProducts ? (
+                          <label
+                            title="Thêm ảnh cho sản phẩm này"
+                            className="w-8 h-8 rounded-md border border-dashed border-slate-300 hover:border-blue-400 hover:bg-blue-50/70 text-slate-400 hover:text-blue-600 flex items-center justify-center mx-auto transition cursor-pointer"
+                          >
+                            <Plus className="w-3.5 h-3.5" />
+                            <input
+                              type="file"
+                              accept="image/*"
+                              onChange={(e) => {
+                                if (e.target.files && e.target.files[0]) {
+                                  handleInlineImageUpload(p, e.target.files[0]);
+                                }
+                                e.target.value = '';
+                              }}
+                              className="hidden"
+                            />
+                          </label>
+                        ) : (
+                          <span className="text-[10px] text-slate-300">—</span>
+                        )}
+                      </td>
+
                       <td className="px-3 py-2">
                         <div className="font-bold text-slate-900">{p.name}</div>
                         {p.description && <div className="text-[10px] text-slate-400">{p.description}</div>}
@@ -813,6 +976,76 @@ const ProductPriceMasterContent: React.FC = () => {
                     className="w-full px-2.5 py-1.5 border border-slate-300 rounded text-xs"
                   />
                 </div>
+
+                {/* PRODUCT IMAGE PICKER / PREVIEW */}
+                <div className="sm:col-span-2 p-3 bg-slate-50 rounded-lg border border-slate-200">
+                  <label className="block text-xs font-bold text-slate-800 mb-2 flex items-center space-x-1.5">
+                    <ImageIcon className="w-3.5 h-3.5 text-blue-600" />
+                    <span>Ảnh Sản Phẩm (Lưu trữ Cloud Storage)</span>
+                  </label>
+
+                  <div className="flex items-center space-x-3">
+                    {/* Thumbnail Preview */}
+                    <div className="w-16 h-16 rounded-lg border border-slate-200 bg-white flex items-center justify-center overflow-hidden shrink-0 shadow-2xs">
+                      {editImagePreview ? (
+                        <img
+                          src={editImagePreview}
+                          alt="Preview"
+                          className="w-full h-full object-contain"
+                        />
+                      ) : editImageUrl ? (
+                        <img
+                          src={editImageUrl}
+                          alt="Current"
+                          className="w-full h-full object-contain"
+                        />
+                      ) : (
+                        <div className="text-center text-slate-300">
+                          <ImageIcon className="w-6 h-6 mx-auto stroke-1" />
+                          <span className="text-[9px] block">Chưa có ảnh</span>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="space-y-1.5 flex-1">
+                      <div className="flex items-center space-x-2">
+                        <label className="px-3 py-1.5 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 rounded-md text-xs font-semibold shadow-2xs transition cursor-pointer inline-flex items-center space-x-1.5">
+                          <Upload className="w-3.5 h-3.5 text-slate-500" />
+                          <span>{editImageUrl || editImagePreview ? 'Thay ảnh khác' : 'Chọn file ảnh'}</span>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            onChange={(e) => {
+                              if (e.target.files && e.target.files[0]) {
+                                const f = e.target.files[0];
+                                setEditImageFile(f);
+                                setEditImagePreview(URL.createObjectURL(f));
+                              }
+                            }}
+                            className="hidden"
+                          />
+                        </label>
+
+                        {(editImageUrl || editImagePreview) && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditImageFile(null);
+                              setEditImagePreview(null);
+                              setEditImageUrl(undefined);
+                            }}
+                            className="px-2.5 py-1.5 text-rose-600 hover:bg-rose-50 border border-rose-200 rounded-md text-xs font-semibold transition cursor-pointer"
+                          >
+                            Xóa ảnh
+                          </button>
+                        )}
+                      </div>
+                      <p className="text-[11px] text-slate-400">
+                        Hỗ trợ .jpg, .png, .webp. Ảnh sẽ được tự động nén tối ưu trước khi lưu.
+                      </p>
+                    </div>
+                  </div>
+                </div>
               </div>
 
               <div className="pt-2.5 border-t border-slate-200 flex items-center justify-end space-x-2">
@@ -839,6 +1072,31 @@ const ProductPriceMasterContent: React.FC = () => {
       <ProductImportModal
         isOpen={isImportModalOpen}
         onClose={() => setIsImportModalOpen(false)}
+      />
+
+      {/* Product Image Bulk Import Modal */}
+      <ProductImageImportModal
+        isOpen={isImageImportModalOpen}
+        onClose={() => setIsImageImportModalOpen(false)}
+      />
+
+      {/* Product Image Lightbox Preview Modal */}
+      <ProductImagePreviewModal
+        isOpen={isPreviewModalOpen}
+        onClose={() => {
+          setIsPreviewModalOpen(false);
+          setSelectedProductForPreview(null);
+        }}
+        product={selectedProductForPreview}
+        onReplaceImage={async (prod, file) => {
+          await handleInlineImageUpload(prod, file);
+          setIsPreviewModalOpen(false);
+        }}
+        onDeleteImage={async (prod) => {
+          await handleInlineImageDelete(prod);
+          setIsPreviewModalOpen(false);
+        }}
+        canManage={canManageProducts}
       />
 
       {/* Product Inventory Details Multi-Tab Drawer */}

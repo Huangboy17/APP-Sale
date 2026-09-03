@@ -249,6 +249,8 @@ interface AppContextType {
   addProduct: (product: ProductPriceItem) => void;
   updateProduct: (product: ProductPriceItem) => void;
   deleteProduct: (sku: string) => void;
+  updateProductImage: (sku: string, imageUrl: string | undefined) => Promise<void>;
+  batchUpdateProductImages: (updates: Array<{ sku: string; imageUrl: string }>) => Promise<number>;
   importProducts: (newProducts: ProductPriceItem[]) => Promise<number>;
   importPriceRecords: (records: PriceImportRecord[], mode?: 'upsert' | 'new_only') => Promise<number>;
 
@@ -2243,6 +2245,116 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     deleteInventoryItemFromCloud(sku, myCompanyId);
   };
 
+  const updateProductImage = async (sku: string, imageUrl: string | undefined): Promise<void> => {
+    const myOrgId = resolveOrganizationId(currentUser, users);
+    const myCompanyId = companyScope.companyId || myOrgId;
+
+    let updatedTargetProduct: ProductPriceItem | null = null;
+
+    setProducts((prev) => {
+      const updatedList = prev.map((p) => {
+        const isMatchSku = p.sku.trim().toUpperCase() === sku.trim().toUpperCase();
+        const isMatchOrg =
+          currentUser.role === 'super_admin' ||
+          p.organizationId === myOrgId ||
+          p.companyId === myCompanyId ||
+          !p.organizationId;
+
+        if (isMatchSku && isMatchOrg) {
+          updatedTargetProduct = {
+            ...p,
+            imageUrl: imageUrl || undefined,
+            image_url: imageUrl || undefined,
+            organizationId: p.organizationId || myOrgId,
+            companyId: p.companyId || myCompanyId,
+          };
+          return updatedTargetProduct;
+        }
+        return p;
+      });
+      saveProductsToIndexedDB(updatedList, myOrgId).catch(() => {});
+      return updatedList;
+    });
+
+    if (updatedTargetProduct) {
+      syncProductToCloud(updatedTargetProduct);
+    }
+  };
+
+  const batchUpdateProductImages = async (updates: Array<{ sku: string; imageUrl: string }>): Promise<number> => {
+    const myOrgId = resolveOrganizationId(currentUser, users);
+    const myCompanyId = companyScope.companyId || myOrgId;
+    const updateMap = new Map<string, string>();
+    updates.forEach((u) => {
+      if (u.sku && u.imageUrl) {
+        updateMap.set(u.sku.trim().toUpperCase(), u.imageUrl);
+      }
+    });
+
+    console.log(`[IMAGE_IMPORT] batchUpdateProductImages applying ${updates.length} updates for org: ${myOrgId}`);
+
+    const updatedItemsToSync: ProductPriceItem[] = [];
+
+    setProducts((prev) => {
+      const updatedList = prev.map((p) => {
+        const cleanSku = p.sku.trim().toUpperCase();
+        const isMatchOrg =
+          currentUser.role === 'super_admin' ||
+          p.organizationId === myOrgId ||
+          p.companyId === myCompanyId ||
+          !p.organizationId;
+
+        if (updateMap.has(cleanSku) && isMatchOrg) {
+          const newUrl = updateMap.get(cleanSku);
+          const updatedProd: ProductPriceItem = {
+            ...p,
+            imageUrl: newUrl,
+            image_url: newUrl,
+            organizationId: p.organizationId || myOrgId,
+            companyId: p.companyId || myCompanyId,
+          };
+          return updatedProd;
+        }
+        return p;
+      });
+
+      saveProductsToIndexedDB(updatedList, myOrgId).catch((err) =>
+        console.warn('[LocalDB] batch save error (non-fatal):', err)
+      );
+      return updatedList;
+    });
+
+    // Compute synced items directly from current products list
+    products.forEach((p) => {
+      const cleanSku = p.sku.trim().toUpperCase();
+      const isMatchOrg =
+        currentUser.role === 'super_admin' ||
+        p.organizationId === myOrgId ||
+        p.companyId === myCompanyId ||
+        !p.organizationId;
+
+      if (updateMap.has(cleanSku) && isMatchOrg) {
+        const newUrl = updateMap.get(cleanSku);
+        updatedItemsToSync.push({
+          ...p,
+          imageUrl: newUrl,
+          image_url: newUrl,
+          organizationId: p.organizationId || myOrgId,
+          companyId: p.companyId || myCompanyId,
+        });
+      }
+    });
+
+    if (updatedItemsToSync.length > 0) {
+      batchSyncProductsToCloud(updatedItemsToSync).catch((err) =>
+        console.warn('[Cloud Sync Warning] Product image batch sync:', err)
+      );
+    }
+
+    console.log(`[IMAGE_IMPORT] batchUpdateProductImages finished. Synced ${updatedItemsToSync.length} products.`);
+    return updatedItemsToSync.length || updates.length;
+  };
+
   const importProducts = async (newProducts: ProductPriceItem[]): Promise<number> => {
     const myOrgId = resolveOrganizationId(currentUser, users);
     const myCompanyId = companyScope.companyId || myOrgId;
@@ -2373,6 +2485,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       listPrice: typeof r.price === 'number' && !isNaN(r.price) ? r.price : 0,
       dpPrice: typeof r.dp_price === 'number' && !isNaN(r.dp_price) ? r.dp_price : 0,
       description: (r.description || '').trim(),
+      imageUrl: r.imageUrl || r.image_url || undefined,
+      image_url: r.image_url || r.imageUrl || undefined,
       status: 'active',
     }));
 
@@ -5155,6 +5269,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         addProduct,
         updateProduct,
         deleteProduct,
+        updateProductImage,
+        batchUpdateProductImages,
         importProducts,
         importPriceRecords,
         inventory: filteredInventory,

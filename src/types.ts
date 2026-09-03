@@ -160,6 +160,8 @@ export interface ProductPriceItem {
   listPrice: number; // Giá niêm yết
   dpPrice: number; // Giá DP (Giá thấp nhất có thể bán ra - Floor Price)
   description?: string;
+  imageUrl?: string; // URL ảnh sản phẩm trên Cloud Storage
+  image_url?: string; // Alias for imageUrl compatibility
   status: 'active' | 'discontinued';
   organizationId?: string; // Tenant Level 1 ID
   companyId?: string; // DEPRECATED — use organizationId. Kept for backward compatibility
@@ -179,6 +181,9 @@ export interface PriceImportRecord {
   color?: string; // Màu sắc
   size?: string; // Kích thước / Quy cách
   description?: string; // Mô tả
+  imageUrl?: string; // URL ảnh nếu có
+  image_url?: string; // URL ảnh nếu có
+  image_name?: string; // Tên file ảnh kèm theo (vd: AX-001.jpg)
 }
 
 export interface ValidatedPriceRow {
@@ -197,6 +202,51 @@ export interface PriceImportValidationResult {
   errorCount: number;
   newItemsCount: number;
   updateItemsCount: number;
+}
+
+// =============================================================================
+// PRODUCT IMAGE IMPORT TYPES
+// =============================================================================
+
+export interface MatchedImageItem {
+  file: File;
+  sku: string;
+  fileName: string;
+  fileSize: number;
+  productName: string;
+  brand?: string;
+  unit?: string;
+  existingImageUrl?: string;
+  willOverwrite: boolean;
+  previewUrl?: string;
+}
+
+export interface UnmatchedImageItem {
+  file: File;
+  fileName: string;
+  derivedSku: string;
+  reason: 'NOT_FOUND' | 'INVALID_FORMAT' | 'DUPLICATE' | 'EMPTY_SKU';
+  reasonMessage: string;
+}
+
+export interface ImageImportMatchResult {
+  matched: MatchedImageItem[];
+  unmatched: UnmatchedImageItem[];
+  totalFiles: number;
+  matchedCount: number;
+  unmatchedCount: number;
+  overwriteCount: number;
+  newImageCount: number;
+}
+
+export interface ImageImportProgress {
+  total: number;
+  completed: number;
+  success: number;
+  failed: number;
+  currentSku: string;
+  isProcessing: boolean;
+  errors: Array<{ sku: string; fileName: string; errorMessage: string }>;
 }
 
 // =============================================================================

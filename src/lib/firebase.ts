@@ -25,6 +25,14 @@ import {
   browserLocalPersistence,
   User as FirebaseUser,
 } from 'firebase/auth';
+import {
+  getStorage,
+  ref,
+  uploadBytes,
+  getDownloadURL,
+  deleteObject,
+  FirebaseStorage,
+} from 'firebase/storage';
 import firebaseConfig from '../../firebase-applet-config.json';
 
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
@@ -35,6 +43,12 @@ export const db: Firestore = firebaseConfig.firestoreDatabaseId
   : getFirestore(app);
 
 export const auth = getAuth(app);
+
+// Initialize Firebase Storage
+export const storage: FirebaseStorage = getStorage(
+  app,
+  firebaseConfig.storageBucket ? `gs://${firebaseConfig.storageBucket}` : undefined
+);
 
 // Enforce browserLocalPersistence so session stays active across page refreshes and deploys
 if (typeof window !== 'undefined') {
@@ -66,6 +80,10 @@ export {
   onAuthStateChanged,
   setPersistence,
   browserLocalPersistence,
+  ref,
+  uploadBytes,
+  getDownloadURL,
+  deleteObject,
 };
 
 export type { FirebaseUser };

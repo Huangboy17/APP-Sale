@@ -54,6 +54,8 @@ export function normalizeProductPriceItem(
   const orgId = raw.organizationId || raw.companyId || defaultOrgId || '';
   const createdBy = raw.createdBy || defaultUserId || 'system';
   const createdByName = raw.createdByName || defaultUserName || 'System Manager';
+  const rawImageUrl = raw.imageUrl || raw.image_url || raw.image || undefined;
+  const imageUrl = typeof rawImageUrl === 'string' && rawImageUrl.trim() !== '' ? rawImageUrl.trim() : undefined;
 
   return {
     sku,
@@ -66,6 +68,8 @@ export function normalizeProductPriceItem(
     listPrice: listPrice > 0 ? listPrice : 0,
     dpPrice: dpPrice > 0 ? dpPrice : 0,
     description,
+    imageUrl,
+    image_url: imageUrl,
     status: raw.status === 'discontinued' ? 'discontinued' : 'active',
     organizationId: orgId,
     companyId: orgId,
@@ -175,6 +179,19 @@ export async function parseExcelToPriceRecords(
           const rawSize = r['size'] || r['Kích thước / Quy cách'] || r['Size'] || r['Quy cách'] || 'Tiêu chuẩn';
           const rawDesc = r['description'] || r['Mô tả chi tiết'] || r['Mô tả'] || r['Description'] || '';
 
+          const rawImageVal =
+            r['image_url'] ||
+            r['imageUrl'] ||
+            r['image'] ||
+            r['Image'] ||
+            r['Ảnh sản phẩm'] ||
+            r['Ảnh'] ||
+            r['Hình ảnh'] ||
+            r['Hình'] ||
+            r['Tên file ảnh'] ||
+            r['File ảnh'] ||
+            '';
+
           // Skip completely blank rows
           if (!rawSku && !rawName && !rawPrice) {
             return;
@@ -182,6 +199,18 @@ export async function parseExcelToPriceRecords(
 
           const productCode = cleanExcelString(rawSku).toUpperCase();
           const productName = cleanExcelString(rawName);
+
+          const imageString = cleanExcelString(rawImageVal);
+          let imageUrl: string | undefined = undefined;
+          let imageName: string | undefined = undefined;
+
+          if (imageString) {
+            if (imageString.startsWith('http://') || imageString.startsWith('https://')) {
+              imageUrl = imageString;
+            } else {
+              imageName = imageString;
+            }
+          }
 
           records.push({
             product_code: productCode,
@@ -194,6 +223,9 @@ export async function parseExcelToPriceRecords(
             color: cleanExcelString(rawColor, 'Tiêu chuẩn'),
             size: cleanExcelString(rawSize, 'Tiêu chuẩn'),
             description: cleanExcelString(rawDesc, ''),
+            imageUrl,
+            image_url: imageUrl,
+            image_name: imageName,
           });
         });
 

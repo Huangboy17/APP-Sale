@@ -6,10 +6,11 @@
 import { ProductPriceItem, InventoryItem } from '../types';
 
 const DB_NAME = 'SalesFlow_LocalDB';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 export const IDB_STORES = {
   PRODUCTS: 'products_store',
   INVENTORY: 'inventory_store',
+  PRODUCT_IMAGES: 'product_images_store',
 } as const;
 
 const IDB_KEYS = {
@@ -39,6 +40,9 @@ function openDB(): Promise<IDBDatabase> {
       }
       if (!db.objectStoreNames.contains(IDB_STORES.INVENTORY)) {
         db.createObjectStore(IDB_STORES.INVENTORY);
+      }
+      if (!db.objectStoreNames.contains(IDB_STORES.PRODUCT_IMAGES)) {
+        db.createObjectStore(IDB_STORES.PRODUCT_IMAGES);
       }
     };
 
@@ -248,4 +252,64 @@ export function safeGetLocalStorage<T>(storageKey: string, defaultValue: T): T {
     console.warn(`[LocalDB] LocalStorage parse error for ${storageKey}:`, err);
   }
   return defaultValue;
+}
+
+export async function saveProductImageBlobToIDB(key: string, blob: Blob): Promise<string> {
+  try {
+    await saveToIDB(IDB_STORES.PRODUCT_IMAGES, key, blob);
+  } catch (idbErr) {
+    console.warn('[LocalDB] saveProductImageBlobToIDB non-fatal warning (fallback to DataURL):', idbErr);
+  }
+
+  return new Promise((resolve) => {
+    if (typeof FileReader !== 'undefined') {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        resolve((reader.result as string) || `local-blob://${key}`);
+      };
+      reader.onerror = () => {
+        resolve(`local-blob://${key}`);
+      };
+      try {
+        reader.readAsDataURL(blob);
+      } catch {
+        resolve(`local-blob://${key}`);
+      }
+    } else {
+      resolve(`local-blob://${key}`);
+    }
+  });
+}
+
+export async function loadProductImageBlobFromIDB(key: string): Promise<string | null> {
+  try {
+    const blob = await loadFromIDB<Blob>(IDB_STORES.PRODUCT_IMAGES, key);
+    if (blob && blob instanceof Blob) {
+      return new Promise((resolve) => {
+        if (typeof FileReader !== 'undefined') {
+          const reader = new FileReader();
+          reader.onloadend = () => {
+            resolve(reader.result as string);
+          };
+          reader.onerror = () => {
+            resolve(null);
+          };
+          reader.readAsDataURL(blob);
+        } else {
+          resolve(null);
+        }
+      });
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+export async function deleteProductImageBlobFromIDB(key: string): Promise<void> {
+  try {
+    await deleteFromIDB(IDB_STORES.PRODUCT_IMAGES, key);
+  } catch (err) {
+    console.warn(`[LocalDB] Failed to delete image blob for ${key}:`, err);
+  }
 }
