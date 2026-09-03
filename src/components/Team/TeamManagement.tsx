@@ -113,7 +113,7 @@ export const TeamManagement: React.FC = () => {
     const assignedPass = newUserPassword.trim() || '123456';
     const assignedRole: UserRole = isSuperAdmin ? 'manager_c1' : 'sales_c2';
 
-    addUser({
+    const result = addUser({
       name: newUserName.trim(),
       email: newUserEmail.trim(),
       phone: newUserPhone.trim() || '0901234567',
@@ -125,6 +125,9 @@ export const TeamManagement: React.FC = () => {
       status: 'active',
       avatar: `https://images.unsplash.com/photo-${1534528741775 + Math.floor(Math.random() * 50)}?w=120&auto=format&fit=crop&q=80`,
     });
+
+    // If addUser returned null, email was duplicate — don't close modal or reset form
+    if (!result) return;
 
     setCreatedUserInfo({
       name: newUserName.trim(),

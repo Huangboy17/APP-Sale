@@ -214,8 +214,8 @@ interface AppContextType {
   filteredUsers: User[];
   approveManagerC1: (userId: string) => void;
   rejectManagerC1: (userId: string) => void;
-  createSalesC2: (user: Omit<User, 'id' | 'createdAt' | 'status'>) => void;
-  addUser: (user: Omit<User, 'id' | 'createdAt'>) => User;
+  createSalesC2: (user: Omit<User, 'id' | 'createdAt' | 'status'>) => User | null;
+  addUser: (user: Omit<User, 'id' | 'createdAt'>) => User | null;
   approveUser: (userId: string) => void;
   updateUser: (user: User) => void;
   deleteUser: (userId: string) => void;
@@ -734,13 +734,26 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         const unsubCustomers = onSnapshot(
           collection(db, COLLECTIONS.CUSTOMERS),
           (snap) => {
-            const list: Customer[] = [];
+            const cloudList: Customer[] = [];
             snap.forEach((d) => {
               const item = d.data() as Customer;
-              if (item && item.id) list.push(item);
+              if (item && item.id) cloudList.push(item);
             });
-            list.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
-            setCustomers(list);
+
+            // CRITICAL SAFEGUARD: Only merge cloud data if cloud actually has records.
+            // If cloud is empty (quota exceeded, offline, failed writes), do NOT wipe local customers!
+            if (cloudList.length > 0) {
+              cloudList.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+              setCustomers((prevLocal) => {
+                // Merge: cloud is source of truth for docs that exist there,
+                // but preserve any local-only customers not yet synced to cloud
+                const cloudIds = new Set(cloudList.map((c) => c.id));
+                const localOnly = prevLocal.filter((c) => !cloudIds.has(c.id));
+                const merged = [...cloudList, ...localOnly];
+                merged.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+                return merged;
+              });
+            }
             setCloudSyncStatus((prev) => (prev === 'quota-exceeded' ? 'quota-exceeded' : 'connected'));
             setLastCloudSyncTime(new Date());
           },
@@ -873,13 +886,26 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         const unsubQuotes = onSnapshot(
           collection(db, COLLECTIONS.QUOTATIONS),
           (snap) => {
-            const list: Quotation[] = [];
+            const cloudList: Quotation[] = [];
             snap.forEach((d) => {
               const item = d.data() as Quotation;
-              if (item && item.id) list.push(item);
+              if (item && item.id) cloudList.push(item);
             });
-            list.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
-            setQuotations(list);
+
+            // CRITICAL SAFEGUARD: Only merge cloud data if cloud actually has records.
+            // If cloud is empty (quota exceeded, offline, failed writes), do NOT wipe local quotations!
+            if (cloudList.length > 0) {
+              cloudList.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+              setQuotations((prevLocal) => {
+                // Merge: cloud is source of truth for docs that exist there,
+                // but preserve any local-only quotations not yet synced to cloud
+                const cloudIds = new Set(cloudList.map((q) => q.id));
+                const localOnly = prevLocal.filter((q) => !cloudIds.has(q.id));
+                const merged = [...cloudList, ...localOnly];
+                merged.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+                return merged;
+              });
+            }
             setCloudSyncStatus((prev) => (prev === 'quota-exceeded' ? 'quota-exceeded' : 'connected'));
             setLastCloudSyncTime(new Date());
           },
@@ -893,13 +919,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         const unsubContracts = onSnapshot(
           collection(db, COLLECTIONS.CONTRACTS),
           (snap) => {
-            const list: Contract[] = [];
+            const cloudList: Contract[] = [];
             snap.forEach((d) => {
               const item = d.data() as Contract;
-              if (item && item.id) list.push(item);
+              if (item && item.id) cloudList.push(item);
             });
-            list.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
-            setContracts(list);
+
+            // CRITICAL SAFEGUARD: Only merge cloud data if cloud actually has records.
+            if (cloudList.length > 0) {
+              cloudList.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+              setContracts((prevLocal) => {
+                const cloudIds = new Set(cloudList.map((c) => c.id));
+                const localOnly = prevLocal.filter((c) => !cloudIds.has(c.id));
+                const merged = [...cloudList, ...localOnly];
+                merged.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+                return merged;
+              });
+            }
             setCloudSyncStatus((prev) => (prev === 'quota-exceeded' ? 'quota-exceeded' : 'connected'));
             setLastCloudSyncTime(new Date());
           },
@@ -1366,11 +1402,25 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
 
-  const createSalesC2 = (userData: Omit<User, 'id' | 'createdAt' | 'status'>) => {
+  const createSalesC2 = (userData: Omit<User, 'id' | 'createdAt' | 'status'>): User | null => {
+    // GLOBAL EMAIL UNIQUENESS CHECK — email must be unique across ALL roles/orgs/statuses
+    const cleanEmail = (userData.email || '').trim().toLowerCase();
+    if (!cleanEmail) {
+      console.error('[createSalesC2] Email is required');
+      return null;
+    }
+    const existingUser = users.find((u) => u.email.trim().toLowerCase() === cleanEmail);
+    if (existingUser) {
+      console.warn(`[createSalesC2] Email "${cleanEmail}" already exists (user: ${existingUser.id}, role: ${existingUser.role})`);
+      alert(`Email "${cleanEmail}" đã được sử dụng để đăng ký tài khoản. Vui lòng sử dụng email khác.`);
+      return null;
+    }
+
     const myOrgId = resolveOrganizationId(currentUser, users);
     const newUser: User = {
       ...userData,
       id: `user-sales-${Date.now()}`,
+      email: cleanEmail, // Always store normalized (lowercase, trimmed)
       status: 'active',
       role: 'sales_c2', // Always Level 2
       organizationId: myOrgId, // AUTO-STAMP: inherit manager's organization
@@ -1387,12 +1437,27 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return newUser;
   };
 
-  const addUser = (userData: Omit<User, 'id' | 'createdAt'>) => {
+  const addUser = (userData: Omit<User, 'id' | 'createdAt'>): User | null => {
+    // GLOBAL EMAIL UNIQUENESS CHECK — email must be unique across ALL roles/orgs/statuses
+    const cleanEmail = (userData.email || '').trim().toLowerCase();
+    if (!cleanEmail) {
+      console.error('[addUser] Email is required');
+      alert('Vui lòng nhập email.');
+      return null;
+    }
+    const existingUser = users.find((u) => u.email.trim().toLowerCase() === cleanEmail);
+    if (existingUser) {
+      console.warn(`[addUser] Email "${cleanEmail}" already exists (user: ${existingUser.id}, role: ${existingUser.role})`);
+      alert(`Email "${cleanEmail}" đã được sử dụng để đăng ký tài khoản. Vui lòng sử dụng email khác.`);
+      return null;
+    }
+
     const isC1 = currentUser.role === 'manager_c1';
     const myOrgId = resolveOrganizationId(currentUser, users);
     const newUser: User = {
       ...userData,
       id: `user-${Date.now()}`,
+      email: cleanEmail, // Always store normalized (lowercase, trimmed)
       role: isC1 ? 'sales_c2' : userData.role, // Level 1 can only create Level 2
       organizationId: myOrgId, // AUTO-STAMP: inherit manager's organization
       managerId: isC1 ? currentUser.id : userData.managerId,
@@ -1427,6 +1492,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             parentId: targetUser.parentId,
           };
         }
+      }
+
+      // EMAIL UNIQUENESS CHECK — if email is being changed, verify new email is globally unique
+      const newEmail = (updated.email || '').trim().toLowerCase();
+      const oldEmail = (targetUser.email || '').trim().toLowerCase();
+      if (newEmail && newEmail !== oldEmail) {
+        const emailOwner = users.find((u) => u.id !== updated.id && u.email.trim().toLowerCase() === newEmail);
+        if (emailOwner) {
+          console.warn(`[updateUser] Email "${newEmail}" already belongs to user ${emailOwner.id}`);
+          alert(`Email "${newEmail}" đã được sử dụng bởi tài khoản khác. Vui lòng sử dụng email khác.`);
+          return;
+        }
+        updated = { ...updated, email: newEmail }; // Normalize email to lowercase
       }
     }
     
@@ -1598,26 +1676,35 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     managerId?: string;
   }) => {
     const cleanEmail = userData.email.trim().toLowerCase();
-    const existing = users.find((u) => u.email.toLowerCase() === cleanEmail);
+    const existing = users.find((u) => u.email.trim().toLowerCase() === cleanEmail);
 
     if (existing) {
       return {
         success: false,
-        message: `Email "${userData.email}" đã tồn tại trên hệ thống. Vui lòng chuyển sang Đăng nhập hoặc sử dụng email khác.`,
+        message: `Email này đã được sử dụng để đăng ký tài khoản. Vui lòng sử dụng email khác hoặc đăng nhập bằng tài khoản hiện có.`,
       };
     }
 
     let userId = `user-c1-${Date.now()}`;
     const password = userData.password || '123456';
 
-    // 1. Attempt to create user in Firebase Auth (Source of Truth)
+    // 1. Attempt to create user in Firebase Auth (Source of Truth for email uniqueness)
     try {
       const cred = await createUserWithEmailAndPassword(auth, cleanEmail, password);
       if (cred.user?.uid) {
         userId = cred.user.uid;
       }
     } catch (fbErr: any) {
-      console.info('[Firebase Auth] Register fallback (offline or existing):', fbErr?.message || fbErr);
+      const errorCode = fbErr?.code || '';
+      // Firebase Auth enforces global email uniqueness — respect it
+      if (errorCode === 'auth/email-already-in-use') {
+        return {
+          success: false,
+          message: `Email này đã được sử dụng để đăng ký tài khoản. Vui lòng sử dụng email khác hoặc đăng nhập bằng tài khoản hiện có.`,
+        };
+      }
+      // Other errors (offline, quota, etc.) — proceed with local-only registration
+      console.info('[Firebase Auth] Register fallback (offline):', fbErr?.message || fbErr);
     }
 
     const orgId = `org-${userId}`;
@@ -1634,7 +1721,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const newUser: User = {
       id: userId,
       name: userData.name.trim(),
-      email: userData.email.trim(),
+      email: cleanEmail, // Always store normalized (lowercase, trimmed)
       phone: userData.phone.trim() || '0901234567',
       password,
       role: 'manager_c1', // Always Level 1
