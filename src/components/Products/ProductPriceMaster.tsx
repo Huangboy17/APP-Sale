@@ -88,10 +88,7 @@ const ProductPriceMasterContent: React.FC = () => {
   // Both C1 (Company Manager) and C2 (Sales in company) have full rights over their company price list
   const canManageProducts = currentUser.role === 'manager_c1' || currentUser.role === 'sales_c2';
 
-  const currentOrgId =
-    currentUser.role === 'super_admin'
-      ? 'system_admin'
-      : currentUser.organizationId || resolveOrganizationId(currentUser, users);
+  const currentOrgId = currentUser.organizationId || resolveOrganizationId(currentUser, users);
 
   const handleInlineImageUpload = async (product: ProductPriceItem, file: File) => {
     try {

@@ -14,6 +14,26 @@ export const IDB_STORES = {
   USERS: 'users_store',
 } as const;
 
+export const STORAGE_KEYS = {
+  USERS: 'salesflow_users_v1',
+  CURRENT_USER_ID: 'salesflow_current_user_id_v1',
+  IS_AUTHENTICATED: 'salesflow_is_authenticated_v1',
+  COMPANY: 'salesflow_company_info_v1',
+  CUSTOMERS: 'salesflow_customers_v1',
+  PRODUCTS: 'salesflow_products_v1',
+  INVENTORY: 'salesflow_inventory_v1',
+  QUOTATIONS: 'salesflow_quotations_v1',
+  CONTRACTS: 'salesflow_contracts_v1',
+  RESERVES: 'salesflow_reserves_v1',
+  ORDERS: 'salesflow_orders_v1',
+  PURCHASE_ORDERS: 'salesflow_purchase_orders_v1',
+  CONTRACT_TEMPLATES: 'salesflow_contract_templates_v1',
+  STOCK_TRANSACTIONS: 'salesflow_stock_transactions_v1',
+  STOCK_IN_VOUCHERS: 'salesflow_stock_in_vouchers_v1',
+  STOCK_OUT_VOUCHERS: 'salesflow_stock_out_vouchers_v1',
+  STOCK_AUDIT_VOUCHERS: 'salesflow_stock_audit_vouchers_v1',
+} as const;
+
 const IDB_KEYS = {
   PRODUCTS: 'master_products_data',
   INVENTORY: 'master_inventory_data',

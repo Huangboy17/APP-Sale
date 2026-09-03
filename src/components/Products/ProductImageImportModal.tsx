@@ -51,10 +51,7 @@ export const ProductImageImportModal: React.FC<ProductImageImportModalProps> = (
 
   if (!isOpen) return null;
 
-  const currentOrgId =
-    currentUser.role === 'super_admin'
-      ? 'system_admin'
-      : currentUser.organizationId || resolveOrganizationId(currentUser, users);
+  const currentOrgId = currentUser.organizationId || resolveOrganizationId(currentUser, users);
 
   const handleFilesSelected = (selectedFiles: FileList | File[]) => {
     const fileList = Array.from(selectedFiles);

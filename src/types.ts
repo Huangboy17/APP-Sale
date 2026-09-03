@@ -881,7 +881,7 @@ export interface OrderItem {
  * - Level 2: inherited from their Level 1 manager's organizationId
  */
 export function resolveOrganizationId(user: User, allUsers?: User[]): string {
-  if (user.role === 'super_admin') return 'system_admin';
+  if (user.role === 'super_admin') return 'org-system';
   
   // Use organizationId if set
   if (user.organizationId && user.organizationId !== '') return user.organizationId;

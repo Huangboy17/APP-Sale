@@ -181,7 +181,7 @@ export const CreatePurchaseOrderModal: React.FC<CreatePurchaseOrderModalProps> =
         notes: notes.trim() || undefined,
         createdById: currentUser.id,
         createdByName: currentUser.name,
-        organizationId: currentUser.organizationId || 'system_admin',
+        organizationId: currentUser.organizationId || 'org-system',
       });
 
       if (onSuccess) onSuccess(createdPO);

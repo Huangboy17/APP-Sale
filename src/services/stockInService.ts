@@ -1,4 +1,4 @@
-﻿import {
+import {
   PurchaseOrder,
   PurchaseOrderItem,
   OrderItem,
@@ -133,7 +133,7 @@ export function processPOInboundReceiving(params: {
         // Create or allocate ReserveItem for this customer/contract
         const newReserve: ReserveItem = {
           id: `res-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
-          organizationId: user.organizationId || 'system_admin',
+          organizationId: user.organizationId || 'org-system',
           contractId: demand.contractId,
           contractNumber: demand.contractNumber,
           quoteNumber: existingOrder.quoteNumber || '',
@@ -197,7 +197,7 @@ export function processPOInboundReceiving(params: {
     createdById: user.id,
     createdByName: user.name,
     confirmedAt: nowIso,
-    organizationId: user.organizationId || 'system_admin',
+    organizationId: user.organizationId || 'org-system',
     notes: notes || `Nhập kho theo đơn đặt NCC ${po.poNumber}`,
     createdAt: nowIso,
     updatedAt: nowIso,

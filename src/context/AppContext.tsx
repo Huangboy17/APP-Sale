@@ -53,6 +53,7 @@ import {
   migrateAndCleanupLegacyStorage,
   safeSetLocalStorage,
   safeGetLocalStorage,
+  STORAGE_KEYS,
 } from '../utils/localDB';
 import { normalizeProductPriceItem } from '../utils/priceImportEngine';
 import {
@@ -405,29 +406,11 @@ interface AppContextType {
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
-const STORAGE_KEYS = {
-  USERS: 'salesflow_users_v1',
-  CURRENT_USER_ID: 'salesflow_current_user_id_v1',
-  IS_AUTHENTICATED: 'salesflow_is_authenticated_v1',
-  COMPANY: 'salesflow_company_info_v1',
-  CUSTOMERS: 'salesflow_customers_v1',
-  PRODUCTS: 'salesflow_products_v1',
-  INVENTORY: 'salesflow_inventory_v1',
-  QUOTATIONS: 'salesflow_quotations_v1',
-  CONTRACTS: 'salesflow_contracts_v1',
-  RESERVES: 'salesflow_reserves_v1',
-  ORDERS: 'salesflow_orders_v1',
-  PURCHASE_ORDERS: 'salesflow_purchase_orders_v1',
-  CONTRACT_TEMPLATES: 'salesflow_contract_templates_v1',
-};
-
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   // Local cache initialization
   const [users, setUsers] = useState<User[]>(() => {
-    const saved = localStorage.getItem(STORAGE_KEYS.USERS);
-    if (!saved) return INITIAL_USERS;
+    const parsed = safeGetLocalStorage<User[]>(STORAGE_KEYS.USERS, INITIAL_USERS);
     try {
-      const parsed: User[] = JSON.parse(saved);
       // Ensure super admin is buiviethoangktxd@gmail.com
       const superAdminIndex = parsed.findIndex((u) => u.role === 'super_admin' || u.id === 'user-super-admin');
       if (superAdminIndex >= 0) {
@@ -446,18 +429,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   });
 
   const [currentUser, setCurrentUser] = useState<User>(() => {
-    const savedId = localStorage.getItem(STORAGE_KEYS.CURRENT_USER_ID);
-    const savedAuth = localStorage.getItem(STORAGE_KEYS.IS_AUTHENTICATED);
+    const savedId = safeGetLocalStorage<string>(STORAGE_KEYS.CURRENT_USER_ID, '');
+    const savedAuth = safeGetLocalStorage<string>(STORAGE_KEYS.IS_AUTHENTICATED, 'false');
     if (savedAuth === 'true' && savedId) {
-      const savedUsersStr = localStorage.getItem(STORAGE_KEYS.USERS);
-      let list = INITIAL_USERS;
-      if (savedUsersStr) {
-        try {
-          list = JSON.parse(savedUsersStr);
-        } catch {
-          list = INITIAL_USERS;
-        }
-      }
+      const list = safeGetLocalStorage<User[]>(STORAGE_KEYS.USERS, INITIAL_USERS);
       const found = list.find((u: User) => u.id === savedId);
       if (found && found.status !== 'inactive') return found;
     }
@@ -465,9 +440,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   });
 
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
-    const saved = localStorage.getItem(STORAGE_KEYS.IS_AUTHENTICATED);
-    const savedId = localStorage.getItem(STORAGE_KEYS.CURRENT_USER_ID);
-    if (saved === 'true' && savedId) return true;
+    const savedAuth = safeGetLocalStorage<string>(STORAGE_KEYS.IS_AUTHENTICATED, 'false');
+    const savedId = safeGetLocalStorage<string>(STORAGE_KEYS.CURRENT_USER_ID, '');
+    if (savedAuth === 'true' && savedId) return true;
     return false; // Default to requiring explicit login
   });
 
@@ -475,41 +450,33 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [isAuthModalOpen, setIsAuthModalOpen] = useState<boolean>(false);
 
   const [customers, setCustomers] = useState<Customer[]>(() => {
-    const saved = localStorage.getItem(STORAGE_KEYS.CUSTOMERS);
-    return saved ? JSON.parse(saved) : INITIAL_CUSTOMERS;
+    return safeGetLocalStorage<Customer[]>(STORAGE_KEYS.CUSTOMERS, INITIAL_CUSTOMERS);
   });
 
   const [isProductsHydrated, setIsProductsHydrated] = useState<boolean>(false);
   const [isInventoryHydrated, setIsInventoryHydrated] = useState<boolean>(false);
-  const [isCustomersHydrated, setIsCustomersHydrated] = useState<boolean>(false);
-  const [isQuotationsHydrated, setIsQuotationsHydrated] = useState<boolean>(false);
-  const [isContractsHydrated, setIsContractsHydrated] = useState<boolean>(false);
-  const [isReservesHydrated, setIsReservesHydrated] = useState<boolean>(false);
-  const [isOrdersHydrated, setIsOrdersHydrated] = useState<boolean>(false);
-  const [isPurchaseOrdersHydrated, setIsPurchaseOrdersHydrated] = useState<boolean>(false);
+  const [isCustomersHydrated, setIsCustomersHydrated] = useState<boolean>(true);
+  const [isQuotationsHydrated, setIsQuotationsHydrated] = useState<boolean>(true);
+  const [isContractsHydrated, setIsContractsHydrated] = useState<boolean>(true);
+  const [isReservesHydrated, setIsReservesHydrated] = useState<boolean>(true);
+  const [isOrdersHydrated, setIsOrdersHydrated] = useState<boolean>(true);
+  const [isPurchaseOrdersHydrated, setIsPurchaseOrdersHydrated] = useState<boolean>(true);
 
   const [products, setProducts] = useState<ProductPriceItem[]>(INITIAL_PRODUCTS);
   const [inventory, setInventory] = useState<InventoryItem[]>(INITIAL_INVENTORY);
 
   const [quotations, setQuotations] = useState<Quotation[]>(() => {
-    const saved = localStorage.getItem(STORAGE_KEYS.QUOTATIONS);
-    return saved ? JSON.parse(saved) : INITIAL_QUOTATIONS;
+    return safeGetLocalStorage<Quotation[]>(STORAGE_KEYS.QUOTATIONS, INITIAL_QUOTATIONS);
   });
 
   const [contracts, setContracts] = useState<Contract[]>(() => {
-    const saved = localStorage.getItem(STORAGE_KEYS.CONTRACTS);
-    return saved ? JSON.parse(saved) : INITIAL_CONTRACTS;
+    return safeGetLocalStorage<Contract[]>(STORAGE_KEYS.CONTRACTS, INITIAL_CONTRACTS);
   });
 
   const [contractTemplates, setContractTemplates] = useState<ContractTemplate[]>(() => {
-    const saved = localStorage.getItem(STORAGE_KEYS.CONTRACT_TEMPLATES);
-    if (!saved) return INITIAL_CONTRACT_TEMPLATES;
-    try {
-      const parsed = JSON.parse(saved);
-      return Array.isArray(parsed) && parsed.length > 0 ? parsed : INITIAL_CONTRACT_TEMPLATES;
-    } catch {
-      return INITIAL_CONTRACT_TEMPLATES;
-    }
+    const saved = safeGetLocalStorage<ContractTemplate[] | null>(STORAGE_KEYS.CONTRACT_TEMPLATES, null);
+    if (saved && Array.isArray(saved) && saved.length > 0) return saved;
+    return INITIAL_CONTRACT_TEMPLATES;
   });
 
   // Create Contract from Quote Modal state
@@ -517,27 +484,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [contractModalQuote, setContractModalQuote] = useState<Quotation | null>(null);
 
   const [reserveItems, setReserveItems] = useState<ReserveItem[]>(() => {
-    const saved = localStorage.getItem(STORAGE_KEYS.RESERVES);
-    return saved ? JSON.parse(saved) : INITIAL_RESERVE_ITEMS;
+    return safeGetLocalStorage<ReserveItem[]>(STORAGE_KEYS.RESERVES, INITIAL_RESERVE_ITEMS);
   });
 
   const [orderItems, setOrderItems] = useState<OrderItem[]>(() => {
-    const saved = localStorage.getItem(STORAGE_KEYS.ORDERS);
-    return saved ? JSON.parse(saved) : INITIAL_ORDER_ITEMS;
+    return safeGetLocalStorage<OrderItem[]>(STORAGE_KEYS.ORDERS, INITIAL_ORDER_ITEMS);
   });
 
   const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>(() => {
-    const saved = localStorage.getItem(STORAGE_KEYS.PURCHASE_ORDERS);
-    if (!saved) return [];
-    try {
-      const parsed = JSON.parse(saved);
-      if (Array.isArray(parsed)) {
-        return parsed.map((p) => normalizePurchaseOrder(p));
-      }
-      return [];
-    } catch {
-      return [];
+    const saved = safeGetLocalStorage<any[]>(STORAGE_KEYS.PURCHASE_ORDERS, []);
+    if (Array.isArray(saved) && saved.length > 0) {
+      return saved.map((p) => normalizePurchaseOrder(p));
     }
+    return [];
   });
 
   // BOOTSTRAP & AUTH RESTORE: Listen to Firebase Auth state & Hydrate tenant data
@@ -561,18 +520,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               return [...prev, profile];
             });
             setIsAuthenticated(true);
-            localStorage.setItem(STORAGE_KEYS.IS_AUTHENTICATED, 'true');
-            localStorage.setItem(STORAGE_KEYS.CURRENT_USER_ID, profile.id);
+            safeSetLocalStorage(STORAGE_KEYS.IS_AUTHENTICATED, 'true');
+            safeSetLocalStorage(STORAGE_KEYS.CURRENT_USER_ID, profile.id);
 
             // Load tenant cache from IndexedDB
             const orgId = profile.organizationId || resolveOrganizationId(profile, users);
             if (orgId) {
               const tenantProds = await loadProductsFromIndexedDB(orgId);
-              if (tenantProds && isMounted) {
+              if (tenantProds && tenantProds.length > 0 && isMounted) {
                 setProducts(tenantProds.map((p) => normalizeProductPriceItem(p, orgId, profile.id, profile.name)));
               }
               const tenantInv = await loadInventoryFromIndexedDB(orgId);
-              if (tenantInv && isMounted) {
+              if (tenantInv && tenantInv.length > 0 && isMounted) {
                 setInventory(tenantInv);
               }
             }
@@ -589,17 +548,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         if (matched && isMounted) {
           setCurrentUser(matched);
           setIsAuthenticated(true);
-          localStorage.setItem(STORAGE_KEYS.IS_AUTHENTICATED, 'true');
-          localStorage.setItem(STORAGE_KEYS.CURRENT_USER_ID, matched.id);
+          safeSetLocalStorage(STORAGE_KEYS.IS_AUTHENTICATED, 'true');
+          safeSetLocalStorage(STORAGE_KEYS.CURRENT_USER_ID, matched.id);
 
           const orgId = matched.organizationId || resolveOrganizationId(matched, users);
           if (orgId) {
             const tenantProds = await loadProductsFromIndexedDB(orgId);
-            if (tenantProds && isMounted) {
+            if (tenantProds && tenantProds.length > 0 && isMounted) {
               setProducts(tenantProds.map((p) => normalizeProductPriceItem(p, orgId, matched.id, matched.name)));
             }
             const tenantInv = await loadInventoryFromIndexedDB(orgId);
-            if (tenantInv && isMounted) {
+            if (tenantInv && tenantInv.length > 0 && isMounted) {
               setInventory(tenantInv);
             }
           }
@@ -629,25 +588,25 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         console.warn('[LocalDB] Users bootstrap error:', err);
       }
 
-      if (!isAuthenticated) {
-        setIsProductsHydrated(true);
-        setIsInventoryHydrated(true);
-        return;
-      }
+      const savedAuth = safeGetLocalStorage<string>(STORAGE_KEYS.IS_AUTHENTICATED, 'false');
+      const savedId = safeGetLocalStorage<string>(STORAGE_KEYS.CURRENT_USER_ID, '');
+      const currentList = safeGetLocalStorage<User[]>(STORAGE_KEYS.USERS, INITIAL_USERS);
+      const activeUser = (savedAuth === 'true' && savedId)
+        ? (currentList.find((u) => u.id === savedId) || currentUser)
+        : currentUser;
 
-      const activeOrgId = resolveOrganizationId(currentUser, users);
+      const activeOrgId = activeUser.organizationId || resolveOrganizationId(activeUser, currentList);
 
       // Load Products from IndexedDB for the active tenant
       try {
         const cachedProds = await loadProductsFromIndexedDB(activeOrgId);
         if (isMounted) {
           if (cachedProds && Array.isArray(cachedProds) && cachedProds.length > 0) {
-            const normalizedProds = cachedProds.map((p) => normalizeProductPriceItem(p, activeOrgId, currentUser.id, currentUser.name));
+            const normalizedProds = cachedProds.map((p) => normalizeProductPriceItem(p, activeOrgId, activeUser.id, activeUser.name));
             console.log(`[LocalDB] Bootstrap hydrated ${normalizedProds.length} products for org [${activeOrgId}]`);
             setProducts(normalizedProds);
           } else {
             console.log(`[LocalDB] Bootstrap: No cached products for org [${activeOrgId}] (0 records)`);
-            setProducts([]);
           }
           setIsProductsHydrated(true);
         }
@@ -665,7 +624,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             setInventory(cachedInv);
           } else {
             console.log(`[LocalDB] Bootstrap: No cached inventory for org [${activeOrgId}] (0 records)`);
-            setInventory([]);
           }
           setIsInventoryHydrated(true);
         }
@@ -685,20 +643,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Master Company Information (Synced to all C1 & C2 users)
   const [companyInfo, setCompanyInfo] = useState<CompanyInfo>(() => {
-    const saved = localStorage.getItem(STORAGE_KEYS.COMPANY);
-    if (!saved) return INITIAL_COMPANY_INFO;
-    try {
-      return JSON.parse(saved);
-    } catch {
-      return INITIAL_COMPANY_INFO;
-    }
+    return safeGetLocalStorage<CompanyInfo>(STORAGE_KEYS.COMPANY, INITIAL_COMPANY_INFO);
   });
 
-  // Warehouse Vouchers & Stock Transaction Ledger State
-  const [stockTransactions, setStockTransactions] = useState<StockTransaction[]>([]);
-  const [stockInVouchers, setStockInVouchers] = useState<StockInVoucher[]>([]);
-  const [stockOutVouchers, setStockOutVouchers] = useState<StockOutVoucher[]>([]);
-  const [stockAuditVouchers, setStockAuditVouchers] = useState<StockAuditVoucher[]>([]);
+  // Warehouse Vouchers & Stock Transaction Ledger State (Persistent Local Cache)
+  const [stockTransactions, setStockTransactions] = useState<StockTransaction[]>(() => {
+    return safeGetLocalStorage<StockTransaction[]>(STORAGE_KEYS.STOCK_TRANSACTIONS, []);
+  });
+  const [stockInVouchers, setStockInVouchers] = useState<StockInVoucher[]>(() => {
+    return safeGetLocalStorage<StockInVoucher[]>(STORAGE_KEYS.STOCK_IN_VOUCHERS, []);
+  });
+  const [stockOutVouchers, setStockOutVouchers] = useState<StockOutVoucher[]>(() => {
+    return safeGetLocalStorage<StockOutVoucher[]>(STORAGE_KEYS.STOCK_OUT_VOUCHERS, []);
+  });
+  const [stockAuditVouchers, setStockAuditVouchers] = useState<StockAuditVoucher[]>(() => {
+    return safeGetLocalStorage<StockAuditVoucher[]>(STORAGE_KEYS.STOCK_AUDIT_VOUCHERS, []);
+  });
 
   // Profile & Company Identity Modal
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
@@ -825,7 +785,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                 if (tmpl && tmpl.id) list.push(tmpl);
               });
               if (list.length > 0) {
-                setContractTemplates(list);
+                setContractTemplates((prevLocal) => {
+                  const cloudIds = new Set(list.map((t) => t.id));
+                  const localOnly = prevLocal.filter((t) => !cloudIds.has(t.id));
+                  return [...list, ...localOnly];
+                });
               }
             }
           },
@@ -1081,12 +1045,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         const unsubReserves = onSnapshot(
           collection(db, COLLECTIONS.RESERVES),
           (snap) => {
-            const list: ReserveItem[] = [];
+            const cloudList: ReserveItem[] = [];
             snap.forEach((d) => {
               const item = d.data() as ReserveItem;
-              if (item && item.id) list.push(item);
+              if (item && item.id) cloudList.push(item);
             });
-            setReserveItems(list);
+            if (cloudList.length > 0) {
+              setReserveItems((prevLocal) => {
+                const cloudIds = new Set(cloudList.map((r) => r.id));
+                const localOnly = prevLocal.filter((r) => !cloudIds.has(r.id));
+                return [...cloudList, ...localOnly];
+              });
+            }
             setIsReservesHydrated(true);
             setCloudSyncStatus((prev) => (prev === 'quota-exceeded' ? 'quota-exceeded' : 'connected'));
             setLastCloudSyncTime(new Date());
@@ -1101,12 +1071,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         const unsubOrders = onSnapshot(
           collection(db, COLLECTIONS.ORDERS),
           (snap) => {
-            const list: OrderItem[] = [];
+            const cloudList: OrderItem[] = [];
             snap.forEach((d) => {
               const item = d.data() as OrderItem;
-              if (item && item.id) list.push(item);
+              if (item && item.id) cloudList.push(item);
             });
-            setOrderItems(list);
+            if (cloudList.length > 0) {
+              setOrderItems((prevLocal) => {
+                const cloudIds = new Set(cloudList.map((o) => o.id));
+                const localOnly = prevLocal.filter((o) => !cloudIds.has(o.id));
+                return [...cloudList, ...localOnly];
+              });
+            }
             setIsOrdersHydrated(true);
             setCloudSyncStatus((prev) => (prev === 'quota-exceeded' ? 'quota-exceeded' : 'connected'));
             setLastCloudSyncTime(new Date());
@@ -1121,14 +1097,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         const unsubStockTx = onSnapshot(
           collection(db, COLLECTIONS.STOCK_TRANSACTIONS),
           (snap) => {
-            const list: StockTransaction[] = [];
+            const cloudList: StockTransaction[] = [];
             snap.forEach((d) => {
               const tx = d.data() as StockTransaction;
-              if (tx && tx.id) list.push(tx);
+              if (tx && tx.id) cloudList.push(tx);
             });
-            // Sort by timestamp desc
-            list.sort((a, b) => new Date(b.timestamp || b.date).getTime() - new Date(a.timestamp || a.date).getTime());
-            setStockTransactions(list);
+            if (cloudList.length > 0) {
+              cloudList.sort((a, b) => new Date(b.timestamp || b.date).getTime() - new Date(a.timestamp || a.date).getTime());
+              setStockTransactions((prevLocal) => {
+                const cloudIds = new Set(cloudList.map((t) => t.id));
+                const localOnly = prevLocal.filter((t) => !cloudIds.has(t.id));
+                const merged = [...cloudList, ...localOnly];
+                merged.sort((a, b) => new Date(b.timestamp || b.date).getTime() - new Date(a.timestamp || a.date).getTime());
+                return merged;
+              });
+            }
           },
           (err) => {
             handleFirestoreError(err, 'Stock transactions listener');
@@ -1140,13 +1123,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         const unsubStockIn = onSnapshot(
           collection(db, COLLECTIONS.STOCK_IN_VOUCHERS),
           (snap) => {
-            const list: StockInVoucher[] = [];
+            const cloudList: StockInVoucher[] = [];
             snap.forEach((d) => {
               const v = d.data() as StockInVoucher;
-              if (v && v.id) list.push(v);
+              if (v && v.id) cloudList.push(v);
             });
-            list.sort((a, b) => new Date(b.createdAt || b.date).getTime() - new Date(a.createdAt || a.date).getTime());
-            setStockInVouchers(list);
+            if (cloudList.length > 0) {
+              cloudList.sort((a, b) => new Date(b.createdAt || b.date).getTime() - new Date(a.createdAt || a.date).getTime());
+              setStockInVouchers((prevLocal) => {
+                const cloudIds = new Set(cloudList.map((v) => v.id));
+                const localOnly = prevLocal.filter((v) => !cloudIds.has(v.id));
+                const merged = [...cloudList, ...localOnly];
+                merged.sort((a, b) => new Date(b.createdAt || b.date).getTime() - new Date(a.createdAt || a.date).getTime());
+                return merged;
+              });
+            }
           },
           (err) => {
             handleFirestoreError(err, 'Stock In vouchers listener');
@@ -1158,13 +1149,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         const unsubStockOut = onSnapshot(
           collection(db, COLLECTIONS.STOCK_OUT_VOUCHERS),
           (snap) => {
-            const list: StockOutVoucher[] = [];
+            const cloudList: StockOutVoucher[] = [];
             snap.forEach((d) => {
               const v = d.data() as StockOutVoucher;
-              if (v && v.id) list.push(v);
+              if (v && v.id) cloudList.push(v);
             });
-            list.sort((a, b) => new Date(b.createdAt || b.date).getTime() - new Date(a.createdAt || a.date).getTime());
-            setStockOutVouchers(list);
+            if (cloudList.length > 0) {
+              cloudList.sort((a, b) => new Date(b.createdAt || b.date).getTime() - new Date(a.createdAt || a.date).getTime());
+              setStockOutVouchers((prevLocal) => {
+                const cloudIds = new Set(cloudList.map((v) => v.id));
+                const localOnly = prevLocal.filter((v) => !cloudIds.has(v.id));
+                const merged = [...cloudList, ...localOnly];
+                merged.sort((a, b) => new Date(b.createdAt || b.date).getTime() - new Date(a.createdAt || a.date).getTime());
+                return merged;
+              });
+            }
           },
           (err) => {
             handleFirestoreError(err, 'Stock Out vouchers listener');
@@ -1176,13 +1175,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         const unsubStockAudit = onSnapshot(
           collection(db, COLLECTIONS.STOCK_AUDIT_VOUCHERS),
           (snap) => {
-            const list: StockAuditVoucher[] = [];
+            const cloudList: StockAuditVoucher[] = [];
             snap.forEach((d) => {
               const v = d.data() as StockAuditVoucher;
-              if (v && v.id) list.push(v);
+              if (v && v.id) cloudList.push(v);
             });
-            list.sort((a, b) => new Date(b.createdAt || b.date).getTime() - new Date(a.createdAt || a.date).getTime());
-            setStockAuditVouchers(list);
+            if (cloudList.length > 0) {
+              cloudList.sort((a, b) => new Date(b.createdAt || b.date).getTime() - new Date(a.createdAt || a.date).getTime());
+              setStockAuditVouchers((prevLocal) => {
+                const cloudIds = new Set(cloudList.map((v) => v.id));
+                const localOnly = prevLocal.filter((v) => !cloudIds.has(v.id));
+                const merged = [...cloudList, ...localOnly];
+                merged.sort((a, b) => new Date(b.createdAt || b.date).getTime() - new Date(a.createdAt || a.date).getTime());
+                return merged;
+              });
+            }
           },
           (err) => {
             handleFirestoreError(err, 'Stock Audit vouchers listener');
@@ -1194,13 +1201,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         const unsubPurchaseOrders = onSnapshot(
           collection(db, COLLECTIONS.PURCHASE_ORDERS),
           (snap) => {
-            const list: PurchaseOrder[] = [];
+            const cloudList: PurchaseOrder[] = [];
             snap.forEach((d) => {
               const po = d.data();
-              if (po && po.id) list.push(normalizePurchaseOrder(po));
+              if (po && po.id) cloudList.push(normalizePurchaseOrder(po));
             });
-            list.sort((a, b) => new Date(b.createdAt || b.orderDate).getTime() - new Date(a.createdAt || a.orderDate).getTime());
-            setPurchaseOrders(list);
+            if (cloudList.length > 0) {
+              cloudList.sort((a, b) => new Date(b.createdAt || b.orderDate).getTime() - new Date(a.createdAt || a.orderDate).getTime());
+              setPurchaseOrders((prevLocal) => {
+                const cloudIds = new Set(cloudList.map((p) => p.id));
+                const localOnly = prevLocal.filter((p) => !cloudIds.has(p.id));
+                const merged = [...cloudList, ...localOnly];
+                merged.sort((a, b) => new Date(b.createdAt || b.orderDate).getTime() - new Date(a.createdAt || a.orderDate).getTime());
+                return merged;
+              });
+            }
             setIsPurchaseOrdersHydrated(true);
           },
           (err) => {
@@ -1233,13 +1248,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, [currentUser]);
 
   useEffect(() => {
-    if (!isCustomersHydrated) return; // GUARD: Block write during logout/init
+    if (!isCustomersHydrated) return;
     safeSetLocalStorage(STORAGE_KEYS.CUSTOMERS, customers);
   }, [customers, isCustomersHydrated]);
 
   useEffect(() => {
     if (!isProductsHydrated) {
-      // GUARD: Do NOT write products to storage before bootstrap hydration completes!
       return;
     }
     const currentOrgId = currentUser.organizationId || resolveOrganizationId(currentUser, users);
@@ -1250,7 +1264,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   useEffect(() => {
     if (!isInventoryHydrated) {
-      // GUARD: Do NOT write inventory to storage before bootstrap hydration completes!
       return;
     }
     const currentOrgId = currentUser.organizationId || resolveOrganizationId(currentUser, users);
@@ -1260,12 +1273,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, [inventory, isInventoryHydrated, currentUser, users]);
 
   useEffect(() => {
-    if (!isQuotationsHydrated) return; // GUARD: Block write during logout/init
+    if (!isQuotationsHydrated) return;
     safeSetLocalStorage(STORAGE_KEYS.QUOTATIONS, quotations);
   }, [quotations, isQuotationsHydrated]);
 
   useEffect(() => {
-    if (!isContractsHydrated) return; // GUARD: Block write during logout/init
+    if (!isContractsHydrated) return;
     safeSetLocalStorage(STORAGE_KEYS.CONTRACTS, contracts);
   }, [contracts, isContractsHydrated]);
 
@@ -1274,17 +1287,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, [contractTemplates]);
 
   useEffect(() => {
-    if (!isReservesHydrated) return; // GUARD: Block write during logout/init
+    if (!isReservesHydrated) return;
     safeSetLocalStorage(STORAGE_KEYS.RESERVES, reserveItems);
   }, [reserveItems, isReservesHydrated]);
 
   useEffect(() => {
-    if (!isOrdersHydrated) return; // GUARD: Block write during logout/init
+    if (!isOrdersHydrated) return;
     safeSetLocalStorage(STORAGE_KEYS.ORDERS, orderItems);
   }, [orderItems, isOrdersHydrated]);
 
   useEffect(() => {
-    if (!isPurchaseOrdersHydrated) return; // GUARD: Block write during logout/init
+    if (!isPurchaseOrdersHydrated) return;
     safeSetLocalStorage(STORAGE_KEYS.PURCHASE_ORDERS, purchaseOrders);
   }, [purchaseOrders, isPurchaseOrdersHydrated]);
 
@@ -1292,69 +1305,27 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     safeSetLocalStorage(STORAGE_KEYS.COMPANY, companyInfo);
   }, [companyInfo]);
 
-  // Automated Self-Healing Orphan Data Reconciliation:
-  // Automatically detects and purges any orphan reserve items, order items, contracts, and quotes
-  // whose customerId no longer exists in customers, and restores locked inventory to available stock.
+  useEffect(() => {
+    safeSetLocalStorage(STORAGE_KEYS.STOCK_TRANSACTIONS, stockTransactions);
+  }, [stockTransactions]);
+
+  useEffect(() => {
+    safeSetLocalStorage(STORAGE_KEYS.STOCK_IN_VOUCHERS, stockInVouchers);
+  }, [stockInVouchers]);
+
+  useEffect(() => {
+    safeSetLocalStorage(STORAGE_KEYS.STOCK_OUT_VOUCHERS, stockOutVouchers);
+  }, [stockOutVouchers]);
+
+  useEffect(() => {
+    safeSetLocalStorage(STORAGE_KEYS.STOCK_AUDIT_VOUCHERS, stockAuditVouchers);
+  }, [stockAuditVouchers]);
+
+  // Automated Self-Healing Reconciliation:
+  // Synchronizes sales representative and customer names across ReserveItems and OrderItems with current Customer Master.
   useEffect(() => {
     if (customers.length === 0) return;
 
-    const validCustomerIds = new Set(customers.map((c) => c.id));
-
-    // 1. Identify orphan reserves
-    const orphanReserves = reserveItems.filter(
-      (r) => !r.customerId || !validCustomerIds.has(r.customerId)
-    );
-
-    // 2. Identify orphan orders
-    const orphanOrders = orderItems.filter(
-      (o) => !o.customerId || !validCustomerIds.has(o.customerId)
-    );
-
-    // 3. Identify orphan contracts
-    const orphanContracts = contracts.filter(
-      (c) => !c.customerId || !validCustomerIds.has(c.customerId)
-    );
-
-    // 4. Identify orphan quotations
-    const orphanQuotes = quotations.filter(
-      (q) => !q.customerId || !validCustomerIds.has(q.customerId)
-    );
-
-    let hadOrphans = false;
-
-    if (orphanReserves.length > 0) {
-      hadOrphans = true;
-      const orphanIds = orphanReserves.map((r) => r.id);
-      console.log(`[OrphanCleanup] Purging ${orphanReserves.length} orphan reserve items:`, orphanIds);
-      setReserveItems((prev) => prev.filter((r) => r.customerId && validCustomerIds.has(r.customerId)));
-      batchDeleteReservesFromCloud(orphanIds);
-    }
-
-    if (orphanOrders.length > 0) {
-      hadOrphans = true;
-      const orphanIds = orphanOrders.map((o) => o.id);
-      console.log(`[OrphanCleanup] Purging ${orphanOrders.length} orphan order items:`, orphanIds);
-      setOrderItems((prev) => prev.filter((o) => o.customerId && validCustomerIds.has(o.customerId)));
-      batchDeleteOrdersFromCloud(orphanIds);
-    }
-
-    if (orphanContracts.length > 0) {
-      hadOrphans = true;
-      const orphanIds = orphanContracts.map((c) => c.id);
-      console.log(`[OrphanCleanup] Purging ${orphanContracts.length} orphan contracts:`, orphanIds);
-      setContracts((prev) => prev.filter((c) => c.customerId && validCustomerIds.has(c.customerId)));
-      batchDeleteContractsFromCloud(orphanIds);
-    }
-
-    if (orphanQuotes.length > 0) {
-      hadOrphans = true;
-      const orphanIds = orphanQuotes.map((q) => q.id);
-      console.log(`[OrphanCleanup] Purging ${orphanQuotes.length} orphan quotations:`, orphanIds);
-      setQuotations((prev) => prev.filter((q) => q.customerId && validCustomerIds.has(q.customerId)));
-      batchDeleteQuotationsFromCloud(orphanIds);
-    }
-
-    // 5. Self-Healing: Reconcile Sales Rep assignments in ReserveItems and OrderItems with current Customer Master
     const customerMap = new Map<string, Customer>(customers.map((c) => [c.id, c]));
     let reservesReconciled = false;
     const reconciledReserves = reserveItems.map((r) => {
@@ -1378,7 +1349,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (reservesReconciled) {
       console.log('[SalesReconciliation] Reconciling reserve items with Customer Master assigned Sales');
       setReserveItems(reconciledReserves);
-      batchSyncReservesToCloud(reconciledReserves.filter((r) => r.customerId && validCustomerIds.has(r.customerId)));
+      batchSyncReservesToCloud(reconciledReserves);
     }
 
     let ordersReconciled = false;
@@ -1403,7 +1374,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (ordersReconciled) {
       console.log('[SalesReconciliation] Reconciling order items with Customer Master assigned Sales');
       setOrderItems(reconciledOrders);
-      batchSyncOrdersToCloud(reconciledOrders.filter((o) => o.customerId && validCustomerIds.has(o.customerId)));
+      batchSyncOrdersToCloud(reconciledOrders);
     }
   }, [customers]);
 
@@ -5185,7 +5156,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       status: poData.status || 'ordered',
       createdById: currentUser.id,
       createdByName: currentUser.name,
-      organizationId: currentUser.organizationId || 'system_admin',
+      organizationId: currentUser.organizationId || 'org-system',
       createdAt: nowIso,
       updatedAt: nowIso,
     });
@@ -5382,7 +5353,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           partnerName: stockInVoucher.supplierName,
           performedById: currentUser.id,
           performedByName: currentUser.name,
-          organizationId: currentUser.organizationId || 'system_admin',
+          organizationId: currentUser.organizationId || 'org-system',
           notes: `Nhập theo PO ${targetPO.poNumber}`,
         };
         newTransactions.push(tx);

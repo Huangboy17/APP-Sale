@@ -1,4 +1,4 @@
-﻿import {
+import {
   PurchaseOrder,
   PurchaseOrderItem,
   PurchaseOrderStatus,
@@ -264,7 +264,7 @@ export function normalizePurchaseOrder(raw: any): PurchaseOrder {
     totalAmount: raw?.totalAmount !== undefined ? Number(raw.totalAmount) : undefined,
     createdById: String(raw?.createdById || ''),
     createdByName: String(raw?.createdByName || ''),
-    organizationId: String(raw?.organizationId || 'system_admin'),
+    organizationId: String(raw?.organizationId || 'org-system'),
     notes: raw?.notes ? String(raw.notes) : undefined,
     inboundVoucherIds: Array.isArray(raw?.inboundVoucherIds) ? raw.inboundVoucherIds.map(String) : [],
     createdAt: String(raw?.createdAt || new Date().toISOString()),
