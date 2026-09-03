@@ -127,22 +127,62 @@ export const StandardQuotationDocument: React.FC<StandardQuotationDocumentProps>
   const groupKeys = Object.keys(categoryGroups);
   const hasMultipleGroups = groupKeys.length > 1;
 
+  // Tenant-isolated product lookup for images and master data
+  const productsMap = React.useMemo(() => {
+    const map = new Map<string, any>();
+    if (appContext?.products) {
+      appContext.products.forEach((p) => {
+        if (p.sku) {
+          map.set(p.sku.trim().toUpperCase(), p);
+        }
+      });
+    }
+    return map;
+  }, [appContext?.products]);
+
   // Payment milestones if available
   const milestones = quote?.milestones && quote.milestones.length > 0 ? quote.milestones : null;
 
   return (
     <div
       id="a4-quotation-root"
-      className="bg-white text-slate-900 font-sans text-xs space-y-4 max-w-[794px] w-full mx-auto print:max-w-none print:w-full print:p-0 print:space-y-3"
+      className="bg-white text-slate-900 font-sans text-xs space-y-4 max-w-[1100px] w-full mx-auto print:max-w-none print:w-full print:p-0 print:space-y-3"
       style={{ boxSizing: 'border-box' }}
     >
+      <style>{`
+        @page {
+          size: A4 landscape;
+          margin: 8mm 10mm 10mm 10mm;
+        }
+        @media print {
+          body {
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+          }
+          thead {
+            display: table-header-group !important;
+          }
+          tfoot {
+            display: table-footer-group !important;
+          }
+          tr {
+            page-break-inside: avoid !important;
+            break-inside: avoid !important;
+          }
+          .page-break-inside-avoid {
+            page-break-inside: avoid !important;
+            break-inside: avoid !important;
+          }
+        }
+      `}</style>
+
       {/* ============================================================== */}
       {/* 1. TOP BRANDING & DOCUMENT HEADER (A4 OPTIMIZED)               */}
       {/* ============================================================== */}
       <div className="border-b-2 border-slate-900 pb-3 page-break-inside-avoid">
         <div className="flex justify-between items-start gap-4">
           {/* Company Brand Logo & Info */}
-          <div className="flex items-start space-x-3 max-w-[500px]">
+          <div className="flex items-start space-x-3 max-w-[650px]">
             {companyLogo ? (
               <div className="h-12 min-w-12 max-w-[140px] rounded-lg overflow-hidden border border-slate-200 bg-white shrink-0 flex items-center justify-center p-1 shadow-2xs">
                 <img
@@ -200,7 +240,7 @@ export const StandardQuotationDocument: React.FC<StandardQuotationDocumentProps>
           </div>
 
           {/* Quotation Identity Card (Compact Official Box) */}
-          <div className="border border-slate-400 rounded bg-slate-50/80 p-2 text-right shrink-0 min-w-[190px] text-[10px] space-y-1">
+          <div className="border border-slate-400 rounded bg-slate-50/80 p-2 text-right shrink-0 min-w-[210px] text-[10px] space-y-1">
             <div className="flex items-center justify-between space-x-2">
               <span className="font-bold text-slate-500 uppercase text-[9px]">SỐ BÁO GIÁ:</span>
               <span className="font-mono font-black text-xs text-blue-900 bg-blue-50 px-1.5 py-0.5 rounded border border-blue-200">
@@ -293,25 +333,26 @@ export const StandardQuotationDocument: React.FC<StandardQuotationDocumentProps>
         <table className="w-full border-collapse border border-slate-400 text-[9.5px] text-left">
           <thead>
             <tr className="bg-slate-900 text-white font-bold uppercase tracking-wider text-center text-[9px]">
-              <th className="border border-slate-700 p-1.5 w-6">STT</th>
-              <th className="border border-slate-700 p-1.5 w-20">MÃ HÀNG</th>
-              <th className="border border-slate-700 p-1.5 min-w-[160px] text-left">TÊN HÀNG HÓA & QUY CÁCH</th>
-              <th className="border border-slate-700 p-1.5 w-16">HÃNG SX</th>
-              <th className="border border-slate-700 p-1.5 w-14">XUẤT XỨ</th>
-              <th className="border border-slate-700 p-1.5 w-16">MÀU/KT</th>
-              <th className="border border-slate-700 p-1.5 w-9">ĐVT</th>
-              <th className="border border-slate-700 p-1.5 w-9">SL</th>
-              <th className="border border-slate-700 p-1.5 w-20 text-right">GIÁ NIÊM YẾT</th>
-              <th className="border border-slate-700 p-1.5 w-11 text-center">CK (%)</th>
-              <th className="border border-slate-700 p-1.5 w-20 text-right">ĐƠN GIÁ</th>
-              <th className="border border-slate-700 p-1.5 w-22 text-right">THÀNH TIỀN</th>
-              <th className="border border-slate-700 p-1.5 w-14">GHI CHÚ</th>
+              <th className="border border-slate-700 p-1.5 w-7 text-center">STT</th>
+              <th className="border border-slate-700 p-1.5 w-24 text-center">MÃ HÀNG</th>
+              <th className="border border-slate-700 p-1.5 min-w-[200px] text-left">TÊN HÀNG HÓA & QUY CÁCH</th>
+              <th className="border border-slate-700 p-1.5 w-12 text-center">ẢNH SP</th>
+              <th className="border border-slate-700 p-1.5 w-16 text-center">HÃNG SX</th>
+              <th className="border border-slate-700 p-1.5 w-14 text-center">XUẤT XỨ</th>
+              <th className="border border-slate-700 p-1.5 w-16 text-center">MÀU/KT</th>
+              <th className="border border-slate-700 p-1.5 w-10 text-center">ĐVT</th>
+              <th className="border border-slate-700 p-1.5 w-10 text-center">SL</th>
+              <th className="border border-slate-700 p-1.5 w-22 text-right">GIÁ NIÊM YẾT</th>
+              <th className="border border-slate-700 p-1.5 w-12 text-center">CK (%)</th>
+              <th className="border border-slate-700 p-1.5 w-22 text-right">ĐƠN GIÁ</th>
+              <th className="border border-slate-700 p-1.5 w-24 text-right">THÀNH TIỀN</th>
+              <th className="border border-slate-700 p-1.5 w-16 text-center">GHI CHÚ</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-300 text-slate-900">
             {items.length === 0 ? (
               <tr>
-                <td colSpan={13} className="border border-slate-300 p-6 text-center text-slate-400 italic">
+                <td colSpan={14} className="border border-slate-300 p-6 text-center text-slate-400 italic">
                   Chưa có sản phẩm nào trong bảng báo giá
                 </td>
               </tr>
@@ -327,7 +368,7 @@ export const StandardQuotationDocument: React.FC<StandardQuotationDocumentProps>
                     <React.Fragment key={groupName}>
                       {/* Zone / Room Section Header */}
                       <tr className="bg-slate-800 text-white font-extrabold border-y border-slate-700 page-break-inside-avoid">
-                        <td colSpan={13} className="border border-slate-700 p-1.5 px-2.5">
+                        <td colSpan={14} className="border border-slate-700 p-1.5 px-2.5">
                           <div className="flex items-center justify-between">
                             <div className="flex items-center space-x-2 text-[10px] uppercase tracking-wider text-slate-100 font-black">
                               <Layers className="w-3 h-3 text-blue-300" />
@@ -349,50 +390,65 @@ export const StandardQuotationDocument: React.FC<StandardQuotationDocumentProps>
                         const itemIdx = continuousIndex;
                         const listPrice = item.listPrice || item.quotedPrice;
                         const discount = item.discountPercent || (listPrice > 0 ? ((listPrice - item.quotedPrice) / listPrice) * 100 : 0);
+                        const matchedProd = productsMap.get((item.sku || '').trim().toUpperCase());
+                        const itemImage = item.imageUrl || item.image_url || matchedProd?.imageUrl || matchedProd?.image_url;
 
                         return (
                           <tr
                             key={item.id || `${groupName}-${itemIdx}`}
                             className="hover:bg-slate-50 page-break-inside-avoid"
                           >
-                            <td className="border border-slate-300 p-1.5 text-center font-medium text-slate-500">
+                            <td className="border border-slate-300 p-1 text-center font-medium text-slate-500">
                               {itemIdx}
                             </td>
-                            <td className="border border-slate-300 p-1.5 font-mono font-bold text-blue-900 text-center">
+                            <td className="border border-slate-300 p-1 font-mono font-bold text-blue-900 text-center">
                               {item.sku}
                             </td>
-                            <td className="border border-slate-300 p-1.5">
+                            <td className="border border-slate-300 p-1">
                               <div className="font-bold text-slate-950 text-[10px]">{item.name}</div>
                               {item.notes && (
                                 <div className="text-[8.5px] text-slate-500 italic mt-0.5">{item.notes}</div>
                               )}
                             </td>
-                            <td className="border border-slate-300 p-1.5 text-center font-semibold">
+                            {/* Product Image Column (Sau Tên hàng hóa & quy cách) */}
+                            <td className="border border-slate-300 p-1 text-center w-12 align-middle">
+                              {itemImage ? (
+                                <div className="w-10 h-10 mx-auto flex items-center justify-center bg-white rounded border border-slate-200 overflow-hidden shadow-2xs">
+                                  <img
+                                    src={itemImage}
+                                    alt={item.name || item.sku}
+                                    className="max-h-full max-w-full object-contain"
+                                    referrerPolicy="no-referrer"
+                                  />
+                                </div>
+                              ) : null}
+                            </td>
+                            <td className="border border-slate-300 p-1 text-center font-semibold">
                               {item.brand || '-'}
                             </td>
-                            <td className="border border-slate-300 p-1.5 text-center text-slate-600 text-[9px]">
+                            <td className="border border-slate-300 p-1 text-center text-slate-600 text-[9px]">
                               {item.brand?.includes('Axor') || item.brand?.includes('Hansgrohe') ? 'Đức' : 'Chính hãng'}
                             </td>
-                            <td className="border border-slate-300 p-1.5 text-center text-slate-700 text-[9px]">
+                            <td className="border border-slate-300 p-1 text-center text-slate-700 text-[9px]">
                               {item.color || item.size || '-'}
                             </td>
-                            <td className="border border-slate-300 p-1.5 text-center">{item.unit}</td>
-                            <td className="border border-slate-300 p-1.5 text-center font-black text-slate-950">
+                            <td className="border border-slate-300 p-1 text-center">{item.unit}</td>
+                            <td className="border border-slate-300 p-1 text-center font-black text-slate-950">
                               {item.quantity}
                             </td>
-                            <td className="border border-slate-300 p-1.5 text-right font-mono text-slate-600">
+                            <td className="border border-slate-300 p-1 text-right font-mono text-slate-600">
                               {formatNumber(listPrice)}
                             </td>
-                            <td className="border border-slate-300 p-1.5 text-center font-bold text-amber-900">
+                            <td className="border border-slate-300 p-1 text-center font-bold text-amber-900">
                               {discount > 0 ? `${discount.toFixed(0)}%` : '0%'}
                             </td>
-                            <td className="border border-slate-300 p-1.5 text-right font-mono text-slate-900 font-semibold">
+                            <td className="border border-slate-300 p-1 text-right font-mono text-slate-900 font-semibold">
                               {formatNumber(item.quotedPrice)}
                             </td>
-                            <td className="border border-slate-300 p-1.5 text-right font-mono font-black text-slate-950">
+                            <td className="border border-slate-300 p-1 text-right font-mono font-black text-slate-950">
                               {formatVND(item.totalAmount)}
                             </td>
-                            <td className="border border-slate-300 p-1.5 text-center text-[8.5px] text-slate-500">
+                            <td className="border border-slate-300 p-1 text-center text-[8.5px] text-slate-500">
                               {item.notes || '-'}
                             </td>
                           </tr>
@@ -401,7 +457,7 @@ export const StandardQuotationDocument: React.FC<StandardQuotationDocumentProps>
 
                       {/* Subtotal row for this Section / Area */}
                       <tr className="bg-slate-100 font-bold border-y-2 border-slate-300 page-break-inside-avoid">
-                        <td colSpan={10} className="border border-slate-300 p-1.5 px-3 text-right text-[9.5px] uppercase font-black text-slate-800">
+                        <td colSpan={11} className="border border-slate-300 p-1.5 px-3 text-right text-[9.5px] uppercase font-black text-slate-800">
                           Cộng tiền {groupName}:
                         </td>
                         <td colSpan={2} className="border border-slate-300 p-1.5 text-right font-mono font-black text-blue-950 text-[10.5px]">
@@ -418,47 +474,62 @@ export const StandardQuotationDocument: React.FC<StandardQuotationDocumentProps>
               items.map((item, idx) => {
                 const listPrice = item.listPrice || item.quotedPrice;
                 const discount = item.discountPercent || (listPrice > 0 ? ((listPrice - item.quotedPrice) / listPrice) * 100 : 0);
+                const matchedProd = productsMap.get((item.sku || '').trim().toUpperCase());
+                const itemImage = item.imageUrl || item.image_url || matchedProd?.imageUrl || matchedProd?.image_url;
 
                 return (
                   <tr key={item.id || idx} className="hover:bg-slate-50 page-break-inside-avoid">
-                    <td className="border border-slate-300 p-1.5 text-center font-medium text-slate-500">
+                    <td className="border border-slate-300 p-1 text-center font-medium text-slate-500">
                       {idx + 1}
                     </td>
-                    <td className="border border-slate-300 p-1.5 font-mono font-bold text-blue-900 text-center">
+                    <td className="border border-slate-300 p-1 font-mono font-bold text-blue-900 text-center">
                       {item.sku}
                     </td>
-                    <td className="border border-slate-300 p-1.5">
+                    <td className="border border-slate-300 p-1">
                       <div className="font-bold text-slate-950 text-[10px]">{item.name}</div>
                       {item.notes && (
                         <div className="text-[8.5px] text-slate-500 italic mt-0.5">{item.notes}</div>
                       )}
                     </td>
-                    <td className="border border-slate-300 p-1.5 text-center font-semibold">
+                    {/* Product Image Column (Sau Tên hàng hóa & quy cách) */}
+                    <td className="border border-slate-300 p-1 text-center w-12 align-middle">
+                      {itemImage ? (
+                        <div className="w-10 h-10 mx-auto flex items-center justify-center bg-white rounded border border-slate-200 overflow-hidden shadow-2xs">
+                          <img
+                            src={itemImage}
+                            alt={item.name || item.sku}
+                            className="max-h-full max-w-full object-contain"
+                            referrerPolicy="no-referrer"
+                          />
+                        </div>
+                      ) : null}
+                    </td>
+                    <td className="border border-slate-300 p-1 text-center font-semibold">
                       {item.brand || '-'}
                     </td>
-                    <td className="border border-slate-300 p-1.5 text-center text-slate-600 text-[9px]">
+                    <td className="border border-slate-300 p-1 text-center text-slate-600 text-[9px]">
                       {item.brand?.includes('Axor') || item.brand?.includes('Hansgrohe') ? 'Đức' : 'Chính hãng'}
                     </td>
-                    <td className="border border-slate-300 p-1.5 text-center text-slate-700 text-[9px]">
+                    <td className="border border-slate-300 p-1 text-center text-slate-700 text-[9px]">
                       {item.color || item.size || '-'}
                     </td>
-                    <td className="border border-slate-300 p-1.5 text-center">{item.unit}</td>
-                    <td className="border border-slate-300 p-1.5 text-center font-black text-slate-950">
+                    <td className="border border-slate-300 p-1 text-center">{item.unit}</td>
+                    <td className="border border-slate-300 p-1 text-center font-black text-slate-950">
                       {item.quantity}
                     </td>
-                    <td className="border border-slate-300 p-1.5 text-right font-mono text-slate-600">
+                    <td className="border border-slate-300 p-1 text-right font-mono text-slate-600">
                       {formatNumber(listPrice)}
                     </td>
-                    <td className="border border-slate-300 p-1.5 text-center font-bold text-amber-900">
+                    <td className="border border-slate-300 p-1 text-center font-bold text-amber-900">
                       {discount > 0 ? `${discount.toFixed(0)}%` : '0%'}
                     </td>
-                    <td className="border border-slate-300 p-1.5 text-right font-mono text-slate-900 font-semibold">
+                    <td className="border border-slate-300 p-1 text-right font-mono text-slate-900 font-semibold">
                       {formatNumber(item.quotedPrice)}
                     </td>
-                    <td className="border border-slate-300 p-1.5 text-right font-mono font-black text-slate-950">
+                    <td className="border border-slate-300 p-1 text-right font-mono font-black text-slate-950">
                       {formatVND(item.totalAmount)}
                     </td>
-                    <td className="border border-slate-300 p-1.5 text-center text-[8.5px] text-slate-500">
+                    <td className="border border-slate-300 p-1 text-center text-[8.5px] text-slate-500">
                       {item.notes || '-'}
                     </td>
                   </tr>

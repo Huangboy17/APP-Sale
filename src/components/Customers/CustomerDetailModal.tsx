@@ -68,15 +68,15 @@ export const CustomerDetailModal: React.FC<CustomerDetailModalProps> = ({
   onEditCustomer,
 }) => {
   const {
-    customers,
-    users,
-    contracts,
-    filteredQuotations,
-    filteredReserveItems,
-    filteredOrderItems,
-    purchaseOrders,
-    stockInVouchers,
-    stockOutVouchers,
+    customers = [],
+    users = [],
+    contracts = [],
+    filteredQuotations = [],
+    filteredReserveItems = [],
+    filteredOrderItems = [],
+    purchaseOrders = [],
+    stockInVouchers = [],
+    stockOutVouchers = [],
     updateCustomer,
     updateCustomerStage,
     updateQuotationStatus,
@@ -89,14 +89,17 @@ export const CustomerDetailModal: React.FC<CustomerDetailModalProps> = ({
     currentUser,
   } = useApp();
 
+  // All State Hooks (Unconditionally at the top)
   const [activeTab, setActiveTab] = useState<'overview' | 'contracts' | 'quotations' | 'logistics'>('overview');
   const [isEditing, setIsEditing] = useState(false);
   const [selectedItemForTimeline, setSelectedItemForTimeline] = useState<Customer360ItemRow | null>(null);
+  const [createContractQuote, setCreateContractQuote] = useState<Quotation | null>(null);
+  const [isCreateContractOpen, setIsCreateContractOpen] = useState(false);
 
   // Retrieve latest live customer from state
   const liveCustomer = useMemo(() => {
     if (!customer) return null;
-    return customers.find((c) => c.id === customer.id) || customer;
+    return (customers || []).find((c) => c && c.id === customer.id) || customer;
   }, [customers, customer]);
 
   // Editable Form State
@@ -134,7 +137,7 @@ export const CustomerDetailModal: React.FC<CustomerDetailModalProps> = ({
         assignedToId: liveCustomer.assignedToId || '',
         stage: liveCustomer.stage || 'new',
         notes: liveCustomer.notes || '',
-        expectedValue: liveCustomer.expectedValue || 0,
+        expectedValue: Number(liveCustomer.expectedValue) || 0,
       });
       setIsEditing(false);
     }
@@ -143,30 +146,35 @@ export const CustomerDetailModal: React.FC<CustomerDetailModalProps> = ({
   // Customer Quotations (sorted by version desc)
   const customerQuotes = useMemo(() => {
     if (!liveCustomer) return [];
-    return filteredQuotations
-      .filter((q) => q.customerId === liveCustomer.id)
-      .sort((a, b) => b.version - a.version);
+    return (filteredQuotations || [])
+      .filter((q) => q && q.customerId === liveCustomer.id)
+      .sort((a, b) => (Number(b.version) || 0) - (Number(a.version) || 0));
   }, [filteredQuotations, liveCustomer]);
 
   // Customer Contracts
   const customerContracts = useMemo(() => {
     if (!liveCustomer) return [];
-    return contracts.filter((c) => c.customerId === liveCustomer.id);
+    return (contracts || []).filter((c) => c && c.customerId === liveCustomer.id);
   }, [contracts, liveCustomer]);
 
   // Customer 360 Items with Live Logistics Pipeline
   const customer360Items = useMemo(() => {
     if (!liveCustomer) return [];
-    return getCustomer360Items(
-      liveCustomer.id,
-      contracts,
-      filteredQuotations,
-      filteredReserveItems,
-      filteredOrderItems,
-      purchaseOrders,
-      stockInVouchers,
-      stockOutVouchers
-    );
+    try {
+      return getCustomer360Items(
+        liveCustomer.id,
+        contracts || [],
+        filteredQuotations || [],
+        filteredReserveItems || [],
+        filteredOrderItems || [],
+        purchaseOrders || [],
+        stockInVouchers || [],
+        stockOutVouchers || []
+      );
+    } catch (e) {
+      console.error('Error computing customer360Items:', e);
+      return [];
+    }
   }, [
     liveCustomer,
     contracts,
@@ -181,21 +189,32 @@ export const CustomerDetailModal: React.FC<CustomerDetailModalProps> = ({
   // Customer 360 Summary KPIs
   const summary = useMemo(() => {
     if (!liveCustomer) return null;
-    return getCustomer360Summary(liveCustomer, contracts, filteredQuotations, customer360Items);
+    try {
+      return getCustomer360Summary(liveCustomer, contracts || [], filteredQuotations || [], customer360Items || []);
+    } catch (e) {
+      console.error('Error computing summary:', e);
+      return {
+        totalContractValue: 0,
+        totalContractsCount: 0,
+        signedContractsCount: 0,
+        quotationRoundsCount: 0,
+        totalItemsCount: 0,
+        totalContractQuantity: 0,
+        totalReceivedQuantity: 0,
+        totalDeliveredQuantity: 0,
+        overallFulfillmentPercent: 0,
+      };
+    }
   }, [liveCustomer, contracts, filteredQuotations, customer360Items]);
 
-  if (!isOpen || !liveCustomer || !summary) return null;
-
-  const stageCfg = getCustomerStageConfig(liveCustomer.stage);
-  const contractQuote = customerQuotes.find((q) => q.isContractQuote);
-
   const handleSaveCustomer = () => {
+    if (!liveCustomer) return;
     if (!formData.name.trim()) {
       alert('Tên khách hàng không được để trống!');
       return;
     }
 
-    const assignedUser = users.find((u) => u.id === formData.assignedToId);
+    const assignedUser = (users || []).find((u) => u && u.id === formData.assignedToId);
 
     const updatedCust: Customer = {
       ...liveCustomer,
@@ -227,6 +246,7 @@ export const CustomerDetailModal: React.FC<CustomerDetailModalProps> = ({
   };
 
   const handleCreateNewQuoteRound = () => {
+    if (!liveCustomer) return;
     setSelectedQuoteForModal(null);
     setSelectedCustomerIdForQuote(liveCustomer.id);
     setIsCreateQuoteModalOpen(true);
@@ -239,10 +259,6 @@ export const CustomerDetailModal: React.FC<CustomerDetailModalProps> = ({
       setIsCreateQuoteModalOpen(true);
     }
   };
-
-  // Contract Generation Modal State
-  const [createContractQuote, setCreateContractQuote] = useState<Quotation | null>(null);
-  const [isCreateContractOpen, setIsCreateContractOpen] = useState(false);
 
   const handleOpenCreateContract = (quote: Quotation) => {
     setCreateContractQuote(quote);
@@ -258,6 +274,24 @@ export const CustomerDetailModal: React.FC<CustomerDetailModalProps> = ({
     }
   };
 
+  // Safe early return only AFTER all hooks have been invoked
+  if (!isOpen || !liveCustomer) return null;
+
+  const safeSummary = summary || {
+    totalContractValue: 0,
+    totalContractsCount: 0,
+    signedContractsCount: 0,
+    quotationRoundsCount: 0,
+    totalItemsCount: 0,
+    totalContractQuantity: 0,
+    totalReceivedQuantity: 0,
+    totalDeliveredQuantity: 0,
+    overallFulfillmentPercent: 0,
+  };
+
+  const stageCfg = getCustomerStageConfig(liveCustomer.stage || 'new');
+  const contractQuote = customerQuotes.find((q) => q && q.isContractQuote);
+
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 animate-in fade-in duration-150">
       <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-6xl max-h-[94vh] flex flex-col overflow-hidden">
@@ -267,15 +301,15 @@ export const CustomerDetailModal: React.FC<CustomerDetailModalProps> = ({
         <div className="p-4 sm:p-5 bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 text-white flex flex-col sm:flex-row sm:items-center justify-between gap-3 shrink-0">
           <div className="flex items-center space-x-3">
             <div className="w-11 h-11 rounded-xl bg-rose-600 text-white flex items-center justify-center font-black text-sm shadow-md border border-rose-400/30">
-              {liveCustomer.code.slice(-3) || 'KH'}
+              {(liveCustomer.code || 'KH').slice(-3)}
             </div>
             <div>
               <div className="flex flex-wrap items-center gap-2">
                 <span className="font-mono text-xs font-bold text-rose-300 bg-rose-500/20 px-2 py-0.5 rounded border border-rose-400/30">
-                  {liveCustomer.code}
+                  {liveCustomer.code || 'KH-NEW'}
                 </span>
                 <h2 className="text-base sm:text-lg font-bold text-white tracking-tight">
-                  {liveCustomer.name}
+                  {liveCustomer.name || 'Khách Hàng'}
                 </h2>
                 <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold border ${stageCfg.bg}`}>
                   {stageCfg.label}
@@ -296,10 +330,10 @@ export const CustomerDetailModal: React.FC<CustomerDetailModalProps> = ({
                 )}
                 <span className="flex items-center space-x-1 text-slate-400">
                   <User className="w-3.5 h-3.5" />
-                  <span>Sale: <strong className="text-white font-medium">{liveCustomer.assignedToName}</strong></span>
+                  <span>Sale: <strong className="text-white font-medium">{liveCustomer.assignedToName || 'Chưa phân công'}</strong></span>
                 </span>
                 <span className="text-slate-400">
-                  Tạo ngày: {formatDate(liveCustomer.createdAt)}
+                  Tạo ngày: {formatDate(liveCustomer.createdAt || '')}
                 </span>
               </div>
             </div>
@@ -419,49 +453,49 @@ export const CustomerDetailModal: React.FC<CustomerDetailModalProps> = ({
                 <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-2xs">
                   <span className="text-[10px] text-slate-400 font-bold uppercase block">Tổng Giá Trị HĐ</span>
                   <span className="text-sm sm:text-base font-black font-mono text-slate-900 truncate block mt-0.5">
-                    {formatVND(summary.totalContractValue)}
+                    {formatVND(safeSummary.totalContractValue)}
                   </span>
                 </div>
 
                 <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-2xs">
                   <span className="text-[10px] text-slate-400 font-bold uppercase block">Số HĐ Ký</span>
                   <span className="text-sm sm:text-base font-black font-mono text-blue-700 block mt-0.5">
-                    {summary.signedContractsCount} / {summary.totalContractsCount} <span className="text-xs font-normal text-slate-400">HĐ</span>
+                    {safeSummary.signedContractsCount} / {safeSummary.totalContractsCount} <span className="text-xs font-normal text-slate-400">HĐ</span>
                   </span>
                 </div>
 
                 <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-2xs">
                   <span className="text-[10px] text-slate-400 font-bold uppercase block">Số Đợt Báo Giá</span>
                   <span className="text-sm sm:text-base font-black font-mono text-purple-700 block mt-0.5">
-                    {summary.quotationRoundsCount} <span className="text-xs font-normal text-slate-400">đợt</span>
+                    {safeSummary.quotationRoundsCount} <span className="text-xs font-normal text-slate-400">đợt</span>
                   </span>
                 </div>
 
                 <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-2xs">
                   <span className="text-[10px] text-slate-400 font-bold uppercase block">Tổng Mặt Hàng</span>
                   <span className="text-sm sm:text-base font-black font-mono text-slate-700 block mt-0.5">
-                    {summary.totalItemsCount} <span className="text-xs font-normal text-slate-400">mã</span>
+                    {safeSummary.totalItemsCount} <span className="text-xs font-normal text-slate-400">mã</span>
                   </span>
                 </div>
 
                 <div className="bg-white p-3 rounded-xl border border-orange-200 bg-orange-50/20 shadow-2xs">
                   <span className="text-[10px] text-orange-700 font-bold uppercase block">SL Đã Về Kho</span>
                   <span className="text-sm sm:text-base font-black font-mono text-orange-900 block mt-0.5">
-                    {summary.totalReceivedQuantity.toLocaleString()} <span className="text-xs font-normal text-slate-400">sp</span>
+                    {safeSummary.totalReceivedQuantity.toLocaleString()} <span className="text-xs font-normal text-slate-400">sp</span>
                   </span>
                 </div>
 
                 <div className="bg-white p-3 rounded-xl border border-emerald-200 bg-emerald-50/20 shadow-2xs">
                   <span className="text-[10px] text-emerald-700 font-bold uppercase block">SL Đã Giao</span>
                   <span className="text-sm sm:text-base font-black font-mono text-emerald-900 block mt-0.5">
-                    {summary.totalDeliveredQuantity.toLocaleString()} <span className="text-xs font-normal text-slate-400">sp</span>
+                    {safeSummary.totalDeliveredQuantity.toLocaleString()} <span className="text-xs font-normal text-slate-400">sp</span>
                   </span>
                 </div>
 
                 <div className="bg-white p-3 rounded-xl border border-rose-200 bg-rose-50/20 shadow-2xs">
                   <span className="text-[10px] text-rose-700 font-bold uppercase block">Tiến Độ Giao</span>
                   <span className="text-sm sm:text-base font-black font-mono text-rose-900 block mt-0.5">
-                    {summary.overallFulfillmentPercent}%
+                    {safeSummary.overallFulfillmentPercent}%
                   </span>
                 </div>
               </div>

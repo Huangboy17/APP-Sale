@@ -195,6 +195,8 @@ export const ProductPickerModal: React.FC<ProductPickerModalProps> = ({
       inventoryAvailable: avail,
       isBelowDP,
       notes: '',
+      imageUrl: prod.imageUrl || prod.image_url || undefined,
+      image_url: prod.image_url || prod.imageUrl || undefined,
     };
 
     onAddProduct(newRow, 'merge');
@@ -269,6 +271,8 @@ export const ProductPickerModal: React.FC<ProductPickerModalProps> = ({
       inventoryAvailable: avail,
       isBelowDP,
       notes: itemNotes,
+      imageUrl: selectedProduct.imageUrl || selectedProduct.image_url || undefined,
+      image_url: selectedProduct.image_url || selectedProduct.imageUrl || undefined,
     };
 
     onAddProduct(newRow, existingRow ? duplicateHandling : 'append');
@@ -582,6 +586,17 @@ export const ProductPickerModal: React.FC<ProductPickerModalProps> = ({
                           : 'bg-white border-slate-200 hover:border-blue-400 hover:bg-slate-50/80'
                       }`}
                     >
+                      {/* Thumbnail (if product has image) */}
+                      {Boolean(prod.imageUrl || prod.image_url) && (
+                        <div className="w-10 h-10 shrink-0 rounded-md overflow-hidden border border-slate-200 bg-white flex items-center justify-center shadow-2xs">
+                          <img
+                            src={prod.imageUrl || prod.image_url}
+                            alt={prod.name}
+                            className="w-full h-full object-contain"
+                          />
+                        </div>
+                      )}
+
                       {/* Product identity */}
                       <div className="flex-1 space-y-0.5 min-w-0">
                         <div className="flex items-center space-x-1.5 flex-wrap">

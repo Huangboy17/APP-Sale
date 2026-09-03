@@ -514,6 +514,17 @@ export const QuotationModal: React.FC<QuotationModalProps> = ({
     );
   }, [grandTotal]);
 
+  // Quick O(1) Product lookup for images and master data
+  const productsMap = useMemo(() => {
+    const map = new Map<string, ProductPriceItem>();
+    products.forEach((p) => {
+      if (p.sku) {
+        map.set(p.sku.trim().toUpperCase(), p);
+      }
+    });
+    return map;
+  }, [products]);
+
   if (!isOpen) return null;
 
   // Add or merge product from ProductPickerModal (Matching SKU AND Category/Section)
@@ -1287,6 +1298,7 @@ export const QuotationModal: React.FC<QuotationModalProps> = ({
                                 <th className="px-2.5 py-2 w-10 text-center">STT</th>
                                 <th className="px-2.5 py-2 w-36">Mã SP & Hãng</th>
                                 <th className="px-2.5 py-2 min-w-[200px]">Tên Sản Phẩm & Quy Cách</th>
+                                <th className="px-2 py-2 w-12 text-center">Ảnh SP</th>
                                 <th className="px-2.5 py-2 w-24 text-center">Tồn Khả Dụng</th>
                                 <th className="px-2.5 py-2 w-18 text-center">Số Lượng</th>
                                 <th className="px-2.5 py-2 w-24 text-right">Giá Niêm Yết</th>
@@ -1301,7 +1313,7 @@ export const QuotationModal: React.FC<QuotationModalProps> = ({
                             <tbody className="divide-y divide-slate-100">
                               {secItems.length === 0 ? (
                                 <tr>
-                                  <td colSpan={12} className="px-4 py-6 text-center text-slate-400 bg-slate-50/30">
+                                  <td colSpan={13} className="px-4 py-6 text-center text-slate-400 bg-slate-50/30">
                                     <div className="space-y-1.5">
                                       <p className="text-xs font-medium text-slate-600">
                                         Chưa có sản phẩm nào trong {secName}
@@ -1322,6 +1334,8 @@ export const QuotationModal: React.FC<QuotationModalProps> = ({
                                   const itemSTT = globalStartSTT + rowIdx + 1;
                                   const willBeReserved = Math.min(row.quantity, row.inventoryAvailable);
                                   const willBeOrdered = Math.max(0, row.quantity - row.inventoryAvailable);
+                                  const matchedProd = productsMap.get((row.sku || '').trim().toUpperCase());
+                                  const productImageUrl = row.imageUrl || matchedProd?.imageUrl || matchedProd?.image_url;
 
                                   return (
                                     <tr
@@ -1351,6 +1365,16 @@ export const QuotationModal: React.FC<QuotationModalProps> = ({
                                             </span>
                                           )}
                                         </div>
+                                      </td>
+                                      {/* Cột Ảnh Sản Phẩm (Sau Tên SP & Quy Cách) */}
+                                      <td className="px-2 py-1.5 text-center w-12">
+                                        {productImageUrl ? (
+                                          <img
+                                            src={productImageUrl}
+                                            alt={row.name || row.sku}
+                                            className="w-10 h-10 rounded-md object-contain border border-slate-200 mx-auto bg-white shadow-2xs"
+                                          />
+                                        ) : null}
                                       </td>
                                       <td className="px-2.5 py-2 text-center">
                                         <span
@@ -1442,7 +1466,7 @@ export const QuotationModal: React.FC<QuotationModalProps> = ({
                             {secItems.length > 0 && (
                               <tfoot>
                                 <tr className="bg-slate-50/80 border-t border-slate-200 text-xs font-bold">
-                                  <td colSpan={9} className="px-3 py-2 text-right text-slate-700 uppercase tracking-tight">
+                                  <td colSpan={10} className="px-3 py-2 text-right text-slate-700 uppercase tracking-tight">
                                     CỘNG TIỀN {secName}:
                                   </td>
                                   <td className="px-2.5 py-2 text-right font-mono font-black text-blue-900 bg-blue-50/50">
@@ -1743,7 +1767,7 @@ export const QuotationModal: React.FC<QuotationModalProps> = ({
           {/* STEP 3: PREVIEW & FINAL SUMMARY (CHUẨN FORM A4 NHƯ MẪU ẢNH)   */}
           {/* ============================================================== */}
           {currentStep === 'preview' && selectedCustomer && (
-            <div className="space-y-4 max-w-4xl mx-auto animate-in fade-in duration-150">
+            <div className="space-y-4 max-w-6xl mx-auto animate-in fade-in duration-150">
               <div className="bg-slate-100 p-2 sm:p-4 rounded-xl border border-slate-300 shadow-lg">
                 <div className="bg-white p-6 sm:p-8 rounded-lg shadow-sm border border-slate-200 space-y-4">
                   <StandardQuotationDocument

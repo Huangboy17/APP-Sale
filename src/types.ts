@@ -446,6 +446,8 @@ export interface QuoteProductRow {
   inventoryAvailable: number; // Số tồn khả dụng tại thời điểm báo
   isBelowDP: boolean; // Cảnh báo dưới giá sàn DP
   notes?: string;
+  imageUrl?: string;
+  image_url?: string;
 }
 
 // =============================================================================

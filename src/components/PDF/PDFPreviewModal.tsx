@@ -46,24 +46,24 @@ export const PDFPreviewModal: React.FC = () => {
     try {
       const element = printAreaRef.current;
       
-      // Render canvas with scale 2 for crisp print quality
+      // Render canvas with scale 2.2 for crisp print quality
       const canvas = await html2canvas(element, {
         scale: 2.2,
         useCORS: true,
         logging: false,
         backgroundColor: '#ffffff',
-        windowWidth: 1024,
+        windowWidth: isQuote ? 1200 : 1024,
       });
 
       const imgData = canvas.toDataURL('image/jpeg', 0.98);
       const pdf = new jsPDF({
-        orientation: 'portrait',
+        orientation: isQuote ? 'landscape' : 'portrait',
         unit: 'mm',
         format: 'a4',
       });
 
-      const imgWidth = 210; // A4 mm width
-      const pageHeight = 297; // A4 mm height
+      const imgWidth = isQuote ? 297 : 210; // A4 mm width (297mm landscape, 210mm portrait)
+      const pageHeight = isQuote ? 210 : 297; // A4 mm height (210mm landscape, 297mm portrait)
       const imgHeight = (canvas.height * imgWidth) / canvas.width;
       let heightLeft = imgHeight;
       let position = 0;
@@ -75,7 +75,7 @@ export const PDFPreviewModal: React.FC = () => {
       // If document spans multiple pages, add additional pages
       while (heightLeft > 2) {
         position = heightLeft - imgHeight;
-        pdf.addPage();
+        pdf.addPage('a4', isQuote ? 'landscape' : 'portrait');
         pdf.addImage(imgData, 'JPEG', 0, position, imgWidth, imgHeight, undefined, 'FAST');
         heightLeft -= pageHeight;
       }
@@ -104,7 +104,7 @@ export const PDFPreviewModal: React.FC = () => {
 
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-950/85 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4">
-      <div className="bg-slate-900 rounded-xl max-w-5xl w-full shadow-2xl border border-slate-700 overflow-hidden flex flex-col max-h-[96vh]">
+      <div className={`bg-slate-900 rounded-xl w-full shadow-2xl border border-slate-700 overflow-hidden flex flex-col max-h-[96vh] ${isQuote ? 'max-w-6xl' : 'max-w-5xl'}`}>
         {/* Top Control Bar */}
         <div className="px-4 py-2.5 bg-slate-900 text-white flex flex-wrap items-center justify-between gap-2 shrink-0 border-b border-slate-800">
           <div className="flex items-center space-x-2.5">
@@ -125,7 +125,7 @@ export const PDFPreviewModal: React.FC = () => {
                     : `Hợp Đồng: ${contractData?.contractNumber}`}
                 </h3>
                 <span className="px-2 py-0.5 rounded-full text-[9.5px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
-                  Khổ A4 Chuẩn In (210 × 297 mm)
+                  {isQuote ? 'Khổ A4 Ngang Chuẩn In (297 × 210 mm)' : 'Khổ A4 Chuẩn In (210 × 297 mm)'}
                 </span>
               </div>
               <p className="text-[10px] text-slate-400">
@@ -200,7 +200,11 @@ export const PDFPreviewModal: React.FC = () => {
             <div
               id="print-document-area"
               ref={printAreaRef}
-              className="bg-white p-8 sm:p-10 w-[794px] max-w-[794px] min-h-[1123px] text-slate-900 shadow-2xl rounded-sm border border-slate-300 font-sans text-xs space-y-4 print:p-0 print:shadow-none print:border-none print:min-h-0"
+              className={`bg-white text-slate-900 shadow-2xl rounded-sm border border-slate-300 font-sans text-xs space-y-4 print:p-0 print:shadow-none print:border-none print:min-h-0 print:w-full print:max-w-none ${
+                isQuote
+                  ? 'p-6 sm:p-8 w-[1100px] max-w-[1100px] min-h-[770px]'
+                  : 'p-8 sm:p-10 w-[794px] max-w-[794px] min-h-[1123px]'
+              }`}
             >
               {isQuote && quoteData ? (
                 <StandardQuotationDocument quote={quoteData} />

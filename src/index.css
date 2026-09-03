@@ -3,8 +3,8 @@
 @layer utilities {
   @media print {
     @page {
-      size: A4 portrait;
-      margin: 8mm 8mm 8mm 8mm;
+      size: A4 landscape;
+      margin: 8mm 10mm 10mm 10mm;
     }
     body {
       background: white !important;
@@ -33,6 +33,16 @@
     }
     .no-print {
       display: none !important;
+    }
+    thead {
+      display: table-header-group !important;
+    }
+    tfoot {
+      display: table-footer-group !important;
+    }
+    tr {
+      page-break-inside: avoid !important;
+      break-inside: avoid !important;
     }
     .page-break-inside-avoid {
       break-inside: avoid !important;

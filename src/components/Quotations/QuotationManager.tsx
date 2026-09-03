@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
-import { Quotation, QuotationStatus } from '../../types';
+import { Quotation, QuotationStatus, Customer } from '../../types';
 import { useApp } from '../../context/AppContext';
 import { formatVND, formatDate, getQuotationStatusConfig } from '../../utils/formatters';
 import { CreateContractFromQuoteModal } from '../Contracts/CreateContractFromQuoteModal';
+import { CustomerDetailModal } from '../Customers/CustomerDetailModal';
 import confetti from 'canvas-confetti';
 import {
   Plus,
@@ -48,6 +49,7 @@ export const QuotationManager: React.FC = () => {
   const [selectedCustomerIdFilter, setSelectedCustomerIdFilter] = useState<string>('all');
   const [activeViewMode, setActiveViewMode] = useState<'by_customer' | 'all_table'>('by_customer');
   const [expandedCustomerIds, setExpandedCustomerIds] = useState<Record<string, boolean>>({});
+  const [selectedCustomerForDetail, setSelectedCustomerForDetail] = useState<Customer | null>(null);
 
   // Contract Generation Modal State
   const [createContractQuote, setCreateContractQuote] = useState<Quotation | null>(null);
@@ -272,10 +274,21 @@ export const QuotationManager: React.FC = () => {
 
                         <div>
                           <div className="flex items-center space-x-2">
-                            <span className="font-mono text-[10px] font-bold text-blue-700 bg-blue-100 px-1.5 py-0.5 rounded">
+                            <button
+                              type="button"
+                              onClick={() => setSelectedCustomerForDetail(cust)}
+                              className="font-mono text-[10px] font-bold text-blue-700 bg-blue-100 hover:bg-blue-200 px-1.5 py-0.5 rounded transition cursor-pointer"
+                              title="Xem chi tiết khách hàng"
+                            >
                               {cust.code}
-                            </span>
-                            <h3 className="font-bold text-sm text-slate-900">{cust.name}</h3>
+                            </button>
+                            <h3
+                              onClick={() => setSelectedCustomerForDetail(cust)}
+                              className="font-bold text-sm text-slate-900 hover:text-blue-600 hover:underline cursor-pointer transition"
+                              title="Xem chi tiết khách hàng"
+                            >
+                              {cust.name}
+                            </h3>
                             {cust.company && (
                               <span className="text-xs text-slate-500 flex items-center space-x-1">
                                 <Building className="w-3 h-3 text-slate-400" />
@@ -602,6 +615,13 @@ export const QuotationManager: React.FC = () => {
         isOpen={isCreateContractOpen}
         onClose={() => setIsCreateContractOpen(false)}
         quote={createContractQuote}
+      />
+
+      {/* Modal: Xem chi tiết khách hàng & Customer 360 */}
+      <CustomerDetailModal
+        isOpen={!!selectedCustomerForDetail}
+        customer={selectedCustomerForDetail}
+        onClose={() => setSelectedCustomerForDetail(null)}
       />
     </div>
   );

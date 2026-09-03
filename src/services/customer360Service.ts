@@ -605,8 +605,22 @@ export function getCustomer360Summary(
   quotations: Quotation[] = [],
   items: Customer360ItemRow[] = []
 ): Customer360Summary {
-  const customerContracts = (contracts || []).filter((c) => c.customerId === customer.id);
-  const customerQuotes = (quotations || []).filter((q) => q.customerId === customer.id);
+  if (!customer) {
+    return {
+      totalContractValue: 0,
+      totalContractsCount: 0,
+      signedContractsCount: 0,
+      quotationRoundsCount: 0,
+      totalItemsCount: 0,
+      totalContractQuantity: 0,
+      totalReceivedQuantity: 0,
+      totalDeliveredQuantity: 0,
+      overallFulfillmentPercent: 0,
+    };
+  }
+
+  const customerContracts = (contracts || []).filter((c) => c && c.customerId === customer.id);
+  const customerQuotes = (quotations || []).filter((q) => q && q.customerId === customer.id);
 
   const totalContractValue = customerContracts.reduce(
     (sum, c) => sum + (Number(c.totalValue) || 0),
@@ -614,12 +628,12 @@ export function getCustomer360Summary(
   );
 
   const signedContractsCount = customerContracts.filter(
-    (c) => c.status === 'signed' || c.status === 'completed' || c.status === 'delivering'
+    (c) => c && (c.status === 'signed' || c.status === 'completed' || c.status === 'delivering')
   ).length;
 
-  const totalContractQty = items.reduce((sum, it) => sum + it.contractQuantity, 0);
-  const totalReceivedQty = items.reduce((sum, it) => sum + it.logistics.receivedQuantity, 0);
-  const totalDeliveredQty = items.reduce((sum, it) => sum + it.logistics.deliveredQuantity, 0);
+  const totalContractQty = (items || []).reduce((sum, it) => sum + (Number(it?.contractQuantity) || 0), 0);
+  const totalReceivedQty = (items || []).reduce((sum, it) => sum + (Number(it?.logistics?.receivedQuantity) || 0), 0);
+  const totalDeliveredQty = (items || []).reduce((sum, it) => sum + (Number(it?.logistics?.deliveredQuantity) || 0), 0);
 
   const overallFulfillmentPercent =
     totalContractQty > 0
@@ -631,7 +645,7 @@ export function getCustomer360Summary(
     totalContractsCount: customerContracts.length,
     signedContractsCount,
     quotationRoundsCount: customerQuotes.length,
-    totalItemsCount: items.length,
+    totalItemsCount: (items || []).length,
     totalContractQuantity: totalContractQty,
     totalReceivedQuantity: totalReceivedQty,
     totalDeliveredQuantity: totalDeliveredQty,
