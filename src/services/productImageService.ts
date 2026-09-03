@@ -70,8 +70,110 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, errorMessage = '
 }
 
 /**
+ * Reads EXIF orientation from a JPEG file's raw bytes.
+ * Returns orientation value 1-8, or 1 (normal) if not found / not JPEG.
+ */
+function readExifOrientation(file: File | Blob): Promise<number> {
+  return new Promise((resolve) => {
+    if (!(file instanceof Blob)) { resolve(1); return; }
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const view = new DataView(reader.result as ArrayBuffer);
+        // Check JPEG SOI marker
+        if (view.getUint16(0, false) !== 0xFFD8) { resolve(1); return; }
+        let offset = 2;
+        const length = view.byteLength;
+        while (offset < length - 2) {
+          const marker = view.getUint16(offset, false);
+          offset += 2;
+          if (marker === 0xFFE1) {
+            // APP1 (EXIF)
+            // Check "Exif\0\0"
+            if (view.getUint32(offset + 2, false) !== 0x45786966) { resolve(1); return; }
+            const tiffStart = offset + 8;
+            const littleEndian = view.getUint16(tiffStart, false) === 0x4949;
+            const ifdOffset = view.getUint32(tiffStart + 4, littleEndian);
+            const numEntries = view.getUint16(tiffStart + ifdOffset, littleEndian);
+            for (let i = 0; i < numEntries; i++) {
+              const entryOffset = tiffStart + ifdOffset + 2 + i * 12;
+              if (entryOffset + 12 > length) break;
+              if (view.getUint16(entryOffset, littleEndian) === 0x0112) {
+                // Orientation tag
+                resolve(view.getUint16(entryOffset + 8, littleEndian));
+                return;
+              }
+            }
+            resolve(1);
+            return;
+          } else if ((marker & 0xFF00) === 0xFF00) {
+            offset += view.getUint16(offset, false);
+          } else {
+            break;
+          }
+        }
+        resolve(1);
+      } catch {
+        resolve(1);
+      }
+    };
+    reader.onerror = () => resolve(1);
+    // Read first 64KB (enough for EXIF)
+    reader.readAsArrayBuffer(file.slice(0, 65536));
+  });
+}
+
+/**
+ * Applies EXIF orientation transform to canvas context.
+ * Adjusts canvas dimensions and transforms ctx so drawImage renders correctly.
+ */
+function applyExifOrientation(
+  canvas: HTMLCanvasElement,
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  orientation: number
+): void {
+  // Orientations 5-8 swap width/height
+  if (orientation >= 5 && orientation <= 8) {
+    canvas.width = height;
+    canvas.height = width;
+  } else {
+    canvas.width = width;
+    canvas.height = height;
+  }
+  switch (orientation) {
+    case 2: ctx.transform(-1, 0, 0, 1, width, 0); break;
+    case 3: ctx.transform(-1, 0, 0, -1, width, height); break;
+    case 4: ctx.transform(1, 0, 0, -1, 0, height); break;
+    case 5: ctx.transform(0, 1, 1, 0, 0, 0); break;
+    case 6: ctx.transform(0, 1, -1, 0, height, 0); break;
+    case 7: ctx.transform(0, -1, -1, 0, height, width); break;
+    case 8: ctx.transform(0, -1, 1, 0, 0, width); break;
+    default: break; // orientation 1 = normal
+  }
+}
+
+/** Target max file size after optimization (500 KB) */
+const TARGET_MAX_BYTES = 500 * 1024;
+/** Minimum quality floor to prevent over-compression */
+const MIN_QUALITY = 0.50;
+/** Quality step for iterative compression */
+const QUALITY_STEP = 0.05;
+/** Max file size threshold below which we skip aggressive re-compression (100 KB) */
+const SKIP_OPTIMIZE_THRESHOLD = 100 * 1024;
+
+/**
  * Resizes and compresses an image in the browser using HTML5 Canvas.
- * Guaranteed to resolve within 4 seconds even on corrupt files or non-browser environments.
+ *
+ * Features:
+ * - Resize to max 1200px (configurable) preserving aspect ratio; never upscales
+ * - EXIF orientation correction (phone photos)
+ * - WebP output with JPEG fallback
+ * - Iterative compression to reach ≤500 KB target with min quality floor
+ * - Dev-mode logging of original → optimized size & reduction %
+ * - Safety timeout (8s) to prevent hanging on corrupt files
+ * - Guaranteed to resolve (never rejects/throws)
  */
 export async function optimizeProductImage(
   file: File | Blob,
@@ -83,32 +185,63 @@ export async function optimizeProductImage(
   } = {}
 ): Promise<Blob> {
   const { maxWidth = 1200, maxHeight = 1200, quality = 0.85, format = 'image/webp' } = options;
+  const originalSize = file.size;
 
   // Non-browser or SVG environments: return original blob immediately
   if (typeof window === 'undefined' || typeof document === 'undefined' || file.type === 'image/svg+xml') {
     return file;
   }
 
+  // If file is already very small (< 100KB), skip heavy processing
+  if (originalSize <= SKIP_OPTIMIZE_THRESHOLD && file.type && file.type.startsWith('image/')) {
+    if (import.meta.env?.DEV) {
+      console.log(
+        `[🖼 Image Optimize] SKIP (already small)\n` +
+        `  Original: ${(originalSize / 1024).toFixed(1)} KB\n` +
+        `  Action: No optimization needed`
+      );
+    }
+    return file;
+  }
+
+  // Read EXIF orientation before loading into Image (which strips EXIF)
+  let orientation = 1;
+  try {
+    orientation = await readExifOrientation(file);
+  } catch { /* default 1 */ }
+
   return new Promise((resolve) => {
     let hasFinished = false;
+    let objectUrl = '';
+
     const finish = (result: Blob) => {
       if (hasFinished) return;
       hasFinished = true;
       if (objectUrl) {
-        try {
-          URL.revokeObjectURL(objectUrl);
-        } catch {}
+        try { URL.revokeObjectURL(objectUrl); } catch {}
+      }
+      // Dev-mode logging
+      if (import.meta.env?.DEV) {
+        const optimizedSize = result.size;
+        const reduction = originalSize > 0 ? ((1 - optimizedSize / originalSize) * 100).toFixed(1) : '0';
+        console.log(
+          `[🖼 Image Optimize] Complete\n` +
+          `  Original:  ${(originalSize / 1024).toFixed(1)} KB\n` +
+          `  Optimized: ${(optimizedSize / 1024).toFixed(1)} KB\n` +
+          `  Reduction: ${reduction}%\n` +
+          `  Format:    ${result.type || 'unknown'}\n` +
+          `  EXIF:      orientation=${orientation}`
+        );
       }
       resolve(result);
     };
 
-    // Safety timeout: 3500ms max for canvas processing
+    // Safety timeout: 8s max for the entire optimization pipeline
     const safetyTimer = setTimeout(() => {
-      console.warn('[Image Optimize] Safety timeout triggered. Using raw file.');
+      console.warn('[Image Optimize] Safety timeout (8s) triggered. Using raw file.');
       finish(file);
-    }, 3500);
+    }, 8000);
 
-    let objectUrl = '';
     try {
       objectUrl = URL.createObjectURL(file);
       const img = new Image();
@@ -116,9 +249,10 @@ export async function optimizeProductImage(
       img.onload = () => {
         clearTimeout(safetyTimer);
         try {
-          let width = img.width;
-          let height = img.height;
+          let width = img.naturalWidth || img.width;
+          let height = img.naturalHeight || img.height;
 
+          // Resize keeping aspect ratio; never upscale
           if (width > maxWidth || height > maxHeight) {
             if (width > height) {
               height = Math.round((height * maxWidth) / width);
@@ -130,36 +264,55 @@ export async function optimizeProductImage(
           }
 
           const canvas = document.createElement('canvas');
-          canvas.width = Math.max(1, width);
-          canvas.height = Math.max(1, height);
           const ctx = canvas.getContext('2d');
-
           if (!ctx) {
             finish(file);
             return;
           }
 
+          // Apply EXIF orientation (handles phone portrait/landscape)
+          if (orientation > 1) {
+            applyExifOrientation(canvas, ctx, width, height, orientation);
+          } else {
+            canvas.width = Math.max(1, width);
+            canvas.height = Math.max(1, height);
+          }
+
           ctx.imageSmoothingEnabled = true;
           ctx.imageSmoothingQuality = 'high';
-          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          ctx.drawImage(img, 0, 0, width, height);
 
-          canvas.toBlob(
-            (blob) => {
-              if (blob) {
-                finish(blob);
-              } else {
-                canvas.toBlob(
-                  (fallbackBlob) => {
-                    finish(fallbackBlob || file);
-                  },
-                  'image/jpeg',
-                  quality
-                );
-              }
-            },
-            format,
-            quality
-          );
+          // Iterative compression: start at requested quality, step down until ≤ 500KB or min quality
+          const tryCompress = (currentQuality: number, targetFormat: string) => {
+            canvas.toBlob(
+              (blob) => {
+                if (!blob) {
+                  // Format not supported — fallback to JPEG
+                  if (targetFormat !== 'image/jpeg') {
+                    tryCompress(currentQuality, 'image/jpeg');
+                    return;
+                  }
+                  // Even JPEG failed — return original
+                  finish(file);
+                  return;
+                }
+
+                // Check if within target or at minimum quality
+                if (blob.size <= TARGET_MAX_BYTES || currentQuality <= MIN_QUALITY) {
+                  finish(blob);
+                  return;
+                }
+
+                // Step down quality and try again
+                const nextQuality = Math.max(MIN_QUALITY, currentQuality - QUALITY_STEP);
+                tryCompress(nextQuality, targetFormat);
+              },
+              targetFormat,
+              currentQuality
+            );
+          };
+
+          tryCompress(quality, format);
         } catch (canvasErr) {
           console.warn('[Canvas Optimize Error]:', canvasErr);
           finish(file);
@@ -445,7 +598,7 @@ export async function uploadBatchProductImages(
       updateProgress(item.sku, true);
 
       try {
-        // Step 1: Optimize / resize image in client canvas with 4s safety
+        // Step 1: Optimize image (resize → EXIF fix → WebP → iterative compress ≤500KB)
         const optimizedBlob = await optimizeProductImage(item.file, {
           maxWidth: 1200,
           maxHeight: 1200,
