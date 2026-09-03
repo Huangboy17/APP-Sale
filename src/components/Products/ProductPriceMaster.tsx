@@ -135,43 +135,62 @@ const ProductPriceMasterContent: React.FC = () => {
   const categories = useMemo(() => Array.from(new Set(products.map((p) => p.category))).filter(Boolean), [products]);
   const brands = useMemo(() => Array.from(new Set(products.map((p) => p.brand))).filter(Boolean), [products]);
 
-  // Filter products
+  // Filter products (Optimized for 9,380+ items)
   const displayedProducts = useMemo(() => {
+    const sTerm = (searchTerm || '').trim().toLowerCase();
+    const hasSearch = sTerm.length > 0;
+    const hasCatFilter = categoryFilter !== 'all';
+    const hasBrandFilter = brandFilter !== 'all';
+    const hasStockFilter = stockStatusFilter !== 'all';
+
+    // Fast-path: When no filter is active, return all products directly in O(1)
+    if (!hasSearch && !hasCatFilter && !hasBrandFilter && !hasStockFilter) {
+      return products;
+    }
+
     return products.filter((p) => {
-      const cleanSku = (p.sku || '').trim().toLowerCase();
-      const inv = inventoryMap.get(cleanSku);
-      const avail = inv ? inv.availableQuantity : 0;
-      const total = inv ? inv.totalQuantity : 0;
-
-      const sTerm = (searchTerm || '').toLowerCase();
-      const pSku = (p.sku || '').toLowerCase();
-      const pName = (p.name || '').toLowerCase();
-      const pBrand = (p.brand || '').toLowerCase();
-      const pCat = (p.category || '').toLowerCase();
-      const pColor = (p.color || '').toLowerCase();
-      const pSize = (p.size || '').toLowerCase();
-
-      const matchSearch =
-        pSku.includes(sTerm) ||
-        pName.includes(sTerm) ||
-        pBrand.includes(sTerm) ||
-        pCat.includes(sTerm) ||
-        pColor.includes(sTerm) ||
-        pSize.includes(sTerm);
-
-      const matchCat = categoryFilter === 'all' || p.category === categoryFilter;
-      const matchBrand = brandFilter === 'all' || p.brand === brandFilter;
-
-      let matchStock = true;
-      if (stockStatusFilter === 'available') {
-        matchStock = avail > 5;
-      } else if (stockStatusFilter === 'low') {
-        matchStock = avail > 0 && avail <= 5;
-      } else if (stockStatusFilter === 'out_of_stock') {
-        matchStock = total === 0 || avail <= 0;
+      // 1. Fast Category Filter
+      if (hasCatFilter && p.category !== categoryFilter) {
+        return false;
       }
 
-      return matchSearch && matchCat && matchBrand && matchStock;
+      // 2. Fast Brand Filter
+      if (hasBrandFilter && p.brand !== brandFilter) {
+        return false;
+      }
+
+      // 3. Fast Stock Status Filter
+      if (hasStockFilter) {
+        const cleanSku = (p.sku || '').trim().toLowerCase();
+        const inv = inventoryMap.get(cleanSku);
+        const avail = inv ? inv.availableQuantity : 0;
+        const total = inv ? inv.totalQuantity : 0;
+
+        if (stockStatusFilter === 'available' && avail <= 5) return false;
+        if (stockStatusFilter === 'low' && (avail <= 0 || avail > 5)) return false;
+        if (stockStatusFilter === 'out_of_stock' && (total > 0 && avail > 0)) return false;
+      }
+
+      // 4. Fast Text Search
+      if (hasSearch) {
+        const pSku = (p.sku || '').toLowerCase();
+        const pName = (p.name || '').toLowerCase();
+        const pBrand = (p.brand || '').toLowerCase();
+        const pCat = (p.category || '').toLowerCase();
+        const pColor = (p.color || '').toLowerCase();
+        const pSize = (p.size || '').toLowerCase();
+
+        return (
+          pSku.includes(sTerm) ||
+          pName.includes(sTerm) ||
+          pBrand.includes(sTerm) ||
+          pCat.includes(sTerm) ||
+          pColor.includes(sTerm) ||
+          pSize.includes(sTerm)
+        );
+      }
+
+      return true;
     });
   }, [products, searchTerm, categoryFilter, brandFilter, stockStatusFilter, inventoryMap]);
 

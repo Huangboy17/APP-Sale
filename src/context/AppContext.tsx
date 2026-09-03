@@ -580,6 +580,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           setIsAuthenticated(true);
           localStorage.setItem(STORAGE_KEYS.IS_AUTHENTICATED, 'true');
           localStorage.setItem(STORAGE_KEYS.CURRENT_USER_ID, matched.id);
+
+          const orgId = matched.organizationId || resolveOrganizationId(matched, users);
+          if (orgId) {
+            const tenantProds = await loadProductsFromIndexedDB(orgId);
+            if (tenantProds && isMounted) {
+              setProducts(tenantProds.map((p) => normalizeProductPriceItem(p, orgId, matched.id, matched.name)));
+            }
+            const tenantInv = await loadInventoryFromIndexedDB(orgId);
+            if (tenantInv && isMounted) {
+              setInventory(tenantInv);
+            }
+          }
+          setIsProductsHydrated(true);
+          setIsInventoryHydrated(true);
         }
       }
     });
@@ -807,19 +821,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             if (cloudList.length > 0) {
               setProducts((prevLocal) => {
                 const map = new Map<string, ProductPriceItem>();
+                const skuToKeyMap = new Map<string, string>();
                 
-                // Layer 1: Preserve all existing local products
+                // Layer 1: Preserve all existing local products (O(N))
                 prevLocal.forEach((p) => {
                   const normalized = normalizeProductPriceItem(p);
                   const orgKey = normalized.organizationId || normalized.companyId || 'global';
-                  map.set(`${orgKey}_${normalized.sku}`, normalized);
+                  const targetKey = `${orgKey}_${normalized.sku}`;
+                  map.set(targetKey, normalized);
+                  skuToKeyMap.set(normalized.sku, targetKey);
                 });
 
-                // Layer 2: Overlay cloud data without losing tenant ownership
+                // Layer 2: Overlay cloud data with O(1) lookup
                 cloudList.forEach((cloudItem) => {
                   const skuUpper = cloudItem.sku;
-                  let existingLocalKey = Array.from(map.keys()).find((k) => k.endsWith(`_${skuUpper}`));
-                  let existingLocal = existingLocalKey ? map.get(existingLocalKey) : undefined;
+                  const existingLocalKey = skuToKeyMap.get(skuUpper);
+                  const existingLocal = existingLocalKey ? map.get(existingLocalKey) : undefined;
 
                   const orgId = cloudItem.organizationId || cloudItem.companyId || existingLocal?.organizationId || existingLocal?.companyId;
                   const createdBy = cloudItem.createdBy || existingLocal?.createdBy;
@@ -838,15 +855,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                     map.delete(existingLocalKey);
                   }
                   map.set(targetKey, mergedItem);
+                  skuToKeyMap.set(skuUpper, targetKey);
                 });
 
-                const mergedResult = Array.from(map.values());
-                if (mergedResult.length > 0) {
-                  saveProductsToIndexedDB(mergedResult).catch(() => {});
-                }
-                return mergedResult;
+                return Array.from(map.values());
               });
             }
+            setIsProductsHydrated(true);
             setCloudSyncStatus((prev) => (prev === 'quota-exceeded' ? 'quota-exceeded' : 'connected'));
             setLastCloudSyncTime(new Date());
           },
@@ -891,13 +906,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                   const key = `${i.organizationId || i.companyId || 'global'}_${(i.sku || '').trim().toUpperCase()}`;
                   map.set(key, i);
                 });
-                const mergedResult = Array.from(map.values());
-                if (mergedResult.length > 0) {
-                  saveInventoryToIndexedDB(mergedResult).catch(() => {});
-                }
-                return mergedResult;
+                return Array.from(map.values());
               });
             }
+            setIsInventoryHydrated(true);
             setCloudSyncStatus((prev) => (prev === 'quota-exceeded' ? 'quota-exceeded' : 'connected'));
             setLastCloudSyncTime(new Date());
           },
@@ -1182,20 +1194,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       // GUARD: Do NOT write products to storage before bootstrap hydration completes!
       return;
     }
-    saveProductsToIndexedDB(products).catch((err) => {
+    const currentOrgId = currentUser.organizationId || resolveOrganizationId(currentUser, users);
+    saveProductsToIndexedDB(products, currentOrgId).catch((err) => {
       console.warn('[LocalDB] Auto-save products to IndexedDB warning:', err);
     });
-  }, [products, isProductsHydrated]);
+  }, [products, isProductsHydrated, currentUser, users]);
 
   useEffect(() => {
     if (!isInventoryHydrated) {
       // GUARD: Do NOT write inventory to storage before bootstrap hydration completes!
       return;
     }
-    saveInventoryToIndexedDB(inventory).catch((err) => {
+    const currentOrgId = currentUser.organizationId || resolveOrganizationId(currentUser, users);
+    saveInventoryToIndexedDB(inventory, currentOrgId).catch((err) => {
       console.warn('[LocalDB] Auto-save inventory to IndexedDB warning:', err);
     });
-  }, [inventory, isInventoryHydrated]);
+  }, [inventory, isInventoryHydrated, currentUser, users]);
 
   useEffect(() => {
     if (!isQuotationsHydrated) return; // GUARD: Block write during logout/init
@@ -1679,6 +1693,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setInventory([]);
       }
     }
+    setIsProductsHydrated(true);
+    setIsInventoryHydrated(true);
 
     // 3. Set auth state
     setCurrentUser(user);

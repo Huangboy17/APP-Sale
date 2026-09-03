@@ -175,7 +175,17 @@ export async function saveProductsToIndexedDB(products: ProductPriceItem[], orgI
 
 export async function loadProductsFromIndexedDB(orgId?: string): Promise<ProductPriceItem[] | null> {
   const storeKey = getTenantProductStoreKey(orgId);
-  const result = await loadFromIDB<ProductPriceItem[]>(IDB_STORES.PRODUCTS, storeKey);
+  let result = await loadFromIDB<ProductPriceItem[]>(IDB_STORES.PRODUCTS, storeKey);
+  
+  // Fallback: If tenant-specific key is empty or null, check master/legacy key so 9380+ products aren't lost
+  if ((!result || result.length === 0) && orgId && storeKey !== IDB_KEYS.PRODUCTS) {
+    const fallback = await loadFromIDB<ProductPriceItem[]>(IDB_STORES.PRODUCTS, IDB_KEYS.PRODUCTS);
+    if (fallback && Array.isArray(fallback) && fallback.length > 0) {
+      console.log(`[LocalDB] Fallback loaded ${fallback.length} products from [${IDB_KEYS.PRODUCTS}] for org [${orgId}]`);
+      result = fallback;
+    }
+  }
+
   if (result && Array.isArray(result)) {
     console.log(`[LocalDB] LOADED ${result.length} products from IndexedDB [${storeKey}]`);
   }
@@ -200,7 +210,17 @@ export async function saveInventoryToIndexedDB(inventory: InventoryItem[], orgId
 
 export async function loadInventoryFromIndexedDB(orgId?: string): Promise<InventoryItem[] | null> {
   const storeKey = getTenantInventoryStoreKey(orgId);
-  const result = await loadFromIDB<InventoryItem[]>(IDB_STORES.INVENTORY, storeKey);
+  let result = await loadFromIDB<InventoryItem[]>(IDB_STORES.INVENTORY, storeKey);
+
+  // Fallback: If tenant-specific key is empty or null, check master/legacy key
+  if ((!result || result.length === 0) && orgId && storeKey !== IDB_KEYS.INVENTORY) {
+    const fallback = await loadFromIDB<InventoryItem[]>(IDB_STORES.INVENTORY, IDB_KEYS.INVENTORY);
+    if (fallback && Array.isArray(fallback) && fallback.length > 0) {
+      console.log(`[LocalDB] Fallback loaded ${fallback.length} inventory items from [${IDB_KEYS.INVENTORY}] for org [${orgId}]`);
+      result = fallback;
+    }
+  }
+
   if (result && Array.isArray(result)) {
     console.log(`[LocalDB] LOADED ${result.length} inventory items from IndexedDB [${storeKey}]`);
   }
