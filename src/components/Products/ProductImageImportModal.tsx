@@ -9,6 +9,7 @@ import {
   ImageImportProgress,
   MatchedImageItem,
   UnmatchedImageItem,
+  resolveOrganizationId,
 } from '../../types';
 import {
   Upload,
@@ -29,7 +30,7 @@ interface ProductImageImportModalProps {
 }
 
 export const ProductImageImportModal: React.FC<ProductImageImportModalProps> = ({ isOpen, onClose }) => {
-  const { products, batchUpdateProductImages, currentUser, resolveOrganizationId, users } = useApp();
+  const { products, batchUpdateProductImages, currentUser, users } = useApp();
 
   const [isDragging, setIsDragging] = useState(false);
   const [isScanning, setIsScanning] = useState(false);

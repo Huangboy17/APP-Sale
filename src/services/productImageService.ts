@@ -1,10 +1,4 @@
-import {
-  storage,
-  ref,
-  uploadBytes,
-  getDownloadURL,
-  deleteObject,
-} from '../lib/firebase';
+import { supabase } from '../lib/supabase';
 import {
   ProductPriceItem,
   MatchedImageItem,
@@ -346,26 +340,30 @@ export async function uploadProductImage(
   const timestamp = Date.now();
   const storagePath = `organizations/${orgId}/products/${cleanSku}/image_${timestamp}.webp`;
 
-  // Step 1: Attempt Cloud Storage with 6s strict timeout
+  // Step 1: Attempt Supabase Storage with 6s strict timeout
   try {
-    const storageRef = ref(storage, storagePath);
     const metadata = {
       contentType: fileOrBlob.type || 'image/webp',
-      customMetadata: {
-        sku: cleanSku,
-        organizationId: orgId,
-        uploadedAt: new Date().toISOString(),
-      },
     };
 
-    const uploadTask = uploadBytes(storageRef, fileOrBlob, metadata);
-    const uploadResult = await withTimeout(uploadTask, 6000, 'Cloud Storage upload timeout (6s)');
-    const downloadUrl = await withTimeout(getDownloadURL(uploadResult.ref), 4000, 'Cloud Storage getDownloadURL timeout (4s)');
-    console.log(`[Storage] Cloud upload success for ${cleanSku}: ${downloadUrl.substring(0, 40)}...`);
+    const uploadTask = supabase.storage
+      .from('product-images')
+      .upload(storagePath, fileOrBlob, {
+        contentType: metadata.contentType,
+        upsert: true,
+      });
+    const { data: uploadResult, error: uploadError } = await withTimeout(uploadTask, 6000, 'Supabase Storage upload timeout (6s)');
+    if (uploadError) throw uploadError;
+
+    const { data: urlData } = supabase.storage
+      .from('product-images')
+      .getPublicUrl(storagePath);
+    const downloadUrl = urlData.publicUrl;
+    console.log(`[Storage] Supabase upload success for ${cleanSku}: ${downloadUrl.substring(0, 40)}...`);
     return downloadUrl;
   } catch (storageError: any) {
     console.warn(
-      `[Storage Warning] Firebase Cloud Storage upload skipped/failed for ${cleanSku} (${storageError?.message || storageError}). Using IndexedDB store fallback.`
+      `[Storage Warning] Supabase Storage upload skipped/failed for ${cleanSku} (${storageError?.message || storageError}). Using IndexedDB store fallback.`
     );
     // Step 2: Reliable Fallback - Store optimized Blob into IndexedDB (zero localStorage quota used)
     const localKey = `${orgId}_${cleanSku}`;
@@ -390,10 +388,14 @@ export async function deleteProductImage(
     await deleteProductImageBlobFromIDB(localKey);
   } catch {}
 
-  if (currentImageUrl && currentImageUrl.includes('firebasestorage.googleapis.com')) {
+  if (currentImageUrl && currentImageUrl.includes('supabase')) {
     try {
-      const fileRef = ref(storage, currentImageUrl);
-      await deleteObject(fileRef);
+      // Extract path from Supabase public URL
+      const urlParts = currentImageUrl.split('/product-images/');
+      if (urlParts.length > 1) {
+        const filePath = urlParts[1];
+        await supabase.storage.from('product-images').remove([filePath]);
+      }
     } catch (err) {
       console.warn('[Storage] Delete image warning (ignored if not found):', err);
     }
@@ -456,7 +458,7 @@ export function matchImageFilesToProducts(
   files: FileList | File[] | Array<{ file: File; name?: string }>,
   products: ProductPriceItem[]
 ): ImageImportMatchResult {
-  const fileArray: File[] = Array.from(files).map((f: any) => (f.file ? f.file : f));
+  const fileArray: File[] = Array.from(files as any).map((f: any) => (f.file ? f.file : f));
 
   const matched: MatchedImageItem[] = [];
   const unmatched: UnmatchedImageItem[] = [];

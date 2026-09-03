@@ -75,81 +75,87 @@ import {
   INITIAL_CONTRACTS,
   INITIAL_RESERVE_ITEMS,
   INITIAL_ORDER_ITEMS,
+  INITIAL_ORGANIZATIONS,
 } from '../data/initialData';
 import {
-  db,
   auth,
-  collection,
-  doc,
-  getDoc,
-  getDocs,
-  onSnapshot,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   signOut,
   onAuthStateChanged,
 } from '../lib/firebase';
 import {
-  COLLECTIONS,
-  seedInitialDataIfEmpty,
-  setOnQuotaExceededListener,
-  handleFirestoreError,
-  syncUserToCloud,
-  fetchUserFromCloud,
-  syncCompanyInfoToCloud,
-  deleteUserFromCloud,
-  syncCustomerToCloud,
-  deleteCustomerFromCloud,
-  syncProductToCloud,
-  batchSyncProductsToCloud,
-  deleteProductFromCloud,
-  clearCompanyProductsFromCloud,
-  syncInventoryItemToCloud,
-  batchSyncInventoryToCloud,
-  deleteInventoryItemFromCloud,
-  clearCompanyInventoryFromCloud,
-  syncQuotationToCloud,
-  deleteQuotationFromCloud,
-  batchDeleteQuotationsFromCloud,
-  syncContractToCloud,
-  deleteContractFromCloud,
-  batchDeleteContractsFromCloud,
-  syncReserveItemToCloud,
-  deleteReserveItemFromCloud,
-  batchSyncReservesToCloud,
-  batchDeleteReservesFromCloud,
-  syncOrderItemToCloud,
-  deleteOrderItemFromCloud,
-  batchSyncOrdersToCloud,
-  batchDeleteOrdersFromCloud,
-  syncPurchaseOrderToCloud,
-  deletePurchaseOrderFromCloud,
-  batchSyncPurchaseOrdersToCloud,
-  clearTenantBusinessDataFromCloud,
-  clearTenantCustomersFromCloud,
-  clearTenantProductsFromCloud,
-  clearTenantInventoryFromCloud,
-  clearTenantQuotationsFromCloud,
-  clearTenantContractsFromCloud,
-  clearTenantReservesFromCloud,
-  clearTenantOrdersFromCloud,
-  clearTenantPurchaseOrdersFromCloud,
-  clearTenantStockVouchersFromCloud,
-  syncOrganizationToCloud,
-  syncCustomerMemberToCloud,
-  deleteCustomerMemberFromCloud,
-  syncStockTransactionToCloud,
-  batchSyncStockTransactionsToCloud,
-  syncStockInVoucherToCloud,
-  deleteStockInVoucherFromCloud,
-  syncStockOutVoucherToCloud,
-  deleteStockOutVoucherFromCloud,
-  syncStockAuditVoucherToCloud,
-  deleteStockAuditVoucherFromCloud,
-  syncContractTemplateToCloud,
-  deleteContractTemplateFromCloud,
-  batchSyncContractTemplatesToCloud,
-} from '../services/firestoreSync';
+  upsertProfile,
+  deleteProfileById,
+  fetchProfileByFirebaseUid,
+  fetchProfileByEmail,
+  fetchAllProfiles,
+  upsertOrganization,
+  upsertCompanyInfo,
+  fetchCompanyInfoByOrg,
+  upsertCustomer,
+  deleteCustomerById,
+  fetchCustomersByOrg,
+  upsertCustomerMember,
+  deleteCustomerMemberById,
+  fetchCustomerMembersByCustomer,
+  upsertProduct,
+  batchUpsertProducts,
+  deleteProductBySku,
+  fetchProductsByOrg,
+  clearProductsByOrg,
+  upsertInventoryItem,
+  batchUpsertInventory,
+  deleteInventoryBySku,
+  fetchInventoryByOrg,
+  clearInventoryByOrg,
+  upsertQuotation,
+  deleteQuotationById,
+  batchDeleteQuotations,
+  fetchQuotationsByOrg,
+  clearQuotationsByOrg,
+  upsertContract,
+  deleteContractById,
+  batchDeleteContracts,
+  fetchContractsByOrg,
+  clearContractsByOrg,
+  upsertContractTemplate,
+  deleteContractTemplateById,
+  fetchContractTemplatesByOrg,
+  upsertReserveItem,
+  deleteReserveItemById,
+  batchUpsertReserves,
+  batchDeleteReserves,
+  fetchReservesByOrg,
+  clearReservesByOrg,
+  upsertOrderItem,
+  deleteOrderItemById,
+  batchUpsertOrders,
+  batchDeleteOrders,
+  fetchOrdersByOrg,
+  clearOrdersByOrg,
+  upsertPurchaseOrder,
+  deletePurchaseOrderById,
+  batchUpsertPurchaseOrders,
+  fetchPurchaseOrdersByOrg,
+  clearPurchaseOrdersByOrg,
+  upsertStockTransaction,
+  batchUpsertStockTransactions,
+  fetchStockTransactionsByOrg,
+  clearStockTransactionsByOrg,
+  upsertStockInVoucher,
+  deleteStockInVoucherById,
+  fetchStockInVouchersByOrg,
+  clearStockInVouchersByOrg,
+  upsertStockOutVoucher,
+  deleteStockOutVoucherById,
+  fetchStockOutVouchersByOrg,
+  clearStockOutVouchersByOrg,
+  upsertStockAuditVoucher,
+  deleteStockAuditVoucherById,
+  fetchStockAuditVouchersByOrg,
+  clearStockAuditVouchersByOrg,
+} from '../services/supabaseSync';
 import {
   clearTenantProductsFromIndexedDB,
   clearTenantInventoryFromIndexedDB,
@@ -600,8 +606,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (fbUser && isMounted) {
         console.log('[Firebase Auth] Session restored for user:', fbUser.email, fbUser.uid);
         try {
-          // Look up user doc from Firestore by UID or email
-          const profile = await fetchUserFromCloud(fbUser.uid, fbUser.email || undefined);
+          // Look up user profile from Supabase by Firebase UID, then email fallback
+          let profile = await fetchProfileByFirebaseUid(fbUser.uid);
+          if (!profile && fbUser.email) {
+            profile = await fetchProfileByEmail(fbUser.email);
+          }
           if (profile && isMounted) {
             setCurrentUser(profile);
             setUsers((prev) => {
@@ -770,127 +779,67 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // Always active on any device so user accounts and company info are immediately available.
   // -------------------------------------------------------------
   useEffect(() => {
-    let unsubs: (() => void)[] = [];
-
-    // Register quota exceeded callback
-    setOnQuotaExceededListener(() => {
-      setCloudSyncStatus('quota-exceeded');
-    });
-
-    const initializeGlobalRealtime = async () => {
+    const initializeGlobalData = async () => {
       try {
         setCloudSyncStatus('syncing');
-        await seedInitialDataIfEmpty();
 
-        // 1. Users real-time listener (Cross-device account discovery)
-        const unsubUsers = onSnapshot(
-          collection(db, COLLECTIONS.USERS),
-          (snap) => {
-            // CRITICAL: Merge cloud data WITH existing local users.
-            setUsers((prevLocalUsers) => {
-              const map = new Map<string, User>();
-              
-              // Layer 1: Start with INITIAL_USERS as baseline
-              INITIAL_USERS.forEach((u) => map.set(u.id, u));
-              
-              // Layer 2: Preserve ALL existing local users (includes recently registered ones)
-              prevLocalUsers.forEach((u) => {
-                if (u && u.id) map.set(u.id, u);
-              });
-              
-              // Layer 3: Overlay cloud data (cloud is source of truth for users that exist there)
-              snap.forEach((d) => {
-                const u = d.data() as User;
-                if (u && u.id) {
-                  map.set(u.id, u);
-                }
-              });
-              
-              return Array.from(map.values());
-            });
+        // 1. Fetch all user profiles from Supabase
+        const cloudUsers = await fetchAllProfiles();
+        if (cloudUsers.length > 0) {
+          setUsers((prevLocalUsers) => {
+            const map = new Map<string, User>();
+            INITIAL_USERS.forEach((u) => map.set(u.id, u));
+            prevLocalUsers.forEach((u) => { if (u && u.id) map.set(u.id, u); });
+            cloudUsers.forEach((u) => { if (u && u.id) map.set(u.id, u); });
+            return Array.from(map.values());
+          });
 
-            // Keep current user updated with cloud data if logged in
-            const currentSavedId = localStorage.getItem(STORAGE_KEYS.CURRENT_USER_ID);
-            if (currentSavedId) {
-              const cloudUser = snap.docs
-                .map((d) => d.data() as User)
-                .find((u) => u.id === currentSavedId);
-              if (cloudUser) {
-                setCurrentUser(cloudUser);
-              }
-            }
-
-            setCloudSyncStatus((prev) => (prev === 'quota-exceeded' ? 'quota-exceeded' : 'connected'));
-            setLastCloudSyncTime(new Date());
-          },
-          (err) => {
-            handleFirestoreError(err, 'Users listener');
+          const currentSavedId = localStorage.getItem(STORAGE_KEYS.CURRENT_USER_ID);
+          if (currentSavedId) {
+            const cloudUser = cloudUsers.find((u) => u.id === currentSavedId);
+            if (cloudUser) setCurrentUser(cloudUser);
           }
-        );
-        unsubs.push(unsubUsers);
+        }
 
-        // 2. Master Company Info real-time listener
-        const unsubCompany = onSnapshot(
-          collection(db, COLLECTIONS.COMPANY),
-          (snap) => {
-            if (!snap.empty) {
-              const data = snap.docs[0].data() as CompanyInfo;
-              if (data && data.name) {
-                const normalizedData: CompanyInfo = {
-                  ...data,
-                  logoUrl: data.logoUrl || data.logo || '',
-                  logo: data.logoUrl || data.logo || '',
-                };
-                setCompanyInfo(normalizedData);
-                localStorage.setItem(STORAGE_KEYS.COMPANY, JSON.stringify(normalizedData));
-              }
-            }
-            setCloudSyncStatus((prev) => (prev === 'quota-exceeded' ? 'quota-exceeded' : 'connected'));
-            setLastCloudSyncTime(new Date());
-          },
-          (err) => {
-            handleFirestoreError(err, 'Company listener');
-          }
-        );
-        unsubs.push(unsubCompany);
+        // 2. Fetch company info (use current user's org or first available)
+        const savedOrgId = (() => {
+          const uid = localStorage.getItem(STORAGE_KEYS.CURRENT_USER_ID);
+          const localUsers = safeGetLocalStorage<User[]>(STORAGE_KEYS.USERS, []);
+          const u = localUsers.find(x => x.id === uid);
+          return u ? resolveOrganizationId(u, localUsers) : 'org-system';
+        })();
+        const companyData = await fetchCompanyInfoByOrg(savedOrgId);
+        if (companyData && companyData.name) {
+          const normalizedData: CompanyInfo = {
+            ...companyData,
+            logoUrl: companyData.logoUrl || companyData.logo || '',
+            logo: companyData.logoUrl || companyData.logo || '',
+          };
+          setCompanyInfo(normalizedData);
+          localStorage.setItem(STORAGE_KEYS.COMPANY, JSON.stringify(normalizedData));
+        }
 
-        // 3. Contract Templates real-time listener
-        const unsubTemplates = onSnapshot(
-          collection(db, COLLECTIONS.CONTRACT_TEMPLATES),
-          (snap) => {
-            if (!snap.empty) {
-              const list: ContractTemplate[] = [];
-              snap.forEach((d) => {
-                const tmpl = d.data() as ContractTemplate;
-                if (tmpl && tmpl.id) list.push(tmpl);
-              });
-              if (list.length > 0) {
-                setContractTemplates((prevLocal) => {
-                  const cloudIds = new Set(list.map((t) => t.id));
-                  const localOnly = prevLocal.filter((t) => !cloudIds.has(t.id));
-                  return [...list, ...localOnly];
-                });
-              }
-            }
-          },
-          (err) => {
-            handleFirestoreError(err, 'Contract Templates listener');
-          }
-        );
-        unsubs.push(unsubTemplates);
+        // 3. Fetch contract templates
+        const templates = await fetchContractTemplatesByOrg(savedOrgId);
+        if (templates.length > 0) {
+          setContractTemplates((prevLocal) => {
+            const cloudIds = new Set(templates.map((t) => t.id));
+            const localOnly = prevLocal.filter((t) => !cloudIds.has(t.id));
+            return [...templates, ...localOnly];
+          });
+        }
 
-        setCloudSyncStatus((prev) => (prev === 'quota-exceeded' ? 'quota-exceeded' : 'connected'));
+        setCloudSyncStatus('connected');
+        setLastCloudSyncTime(new Date());
       } catch (err) {
-        handleFirestoreError(err, 'Global initialization error');
+        console.warn('[Supabase] Global initialization error:', err);
+        setCloudSyncStatus('error');
       }
     };
 
-    initializeGlobalRealtime();
-
-    return () => {
-      unsubs.forEach((unsub) => unsub());
-    };
+    initializeGlobalData();
   }, []);
+
 
   // -------------------------------------------------------------
   // Real-time Cloud Synchronization: Authenticated Tenant Business Data
@@ -899,422 +848,92 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   useEffect(() => {
     if (!isAuthenticated) return;
 
-    let unsubs: (() => void)[] = [];
-
-    const initializeTenantRealtime = async () => {
+    const loadTenantDataFromSupabase = async () => {
       try {
         setCloudSyncStatus('syncing');
 
-        // 1. Customers real-time listener
-        const unsubCustomers = onSnapshot(
-          collection(db, COLLECTIONS.CUSTOMERS),
-          (snap) => {
-            const cloudList: Customer[] = [];
-            snap.forEach((d) => {
-              const item = d.data() as Customer;
-              if (item && item.id) cloudList.push(item);
-            });
+        // Resolve current user's organization
+        const orgId = currentUser ? resolveOrganizationId(currentUser, users) : '';
+        if (!orgId) {
+          console.warn('[Supabase] Cannot load tenant data: no orgId');
+          return;
+        }
 
-            // CRITICAL SAFEGUARD: Only merge cloud data if cloud actually has records.
-            // If cloud is empty (quota exceeded, offline, failed writes), do NOT wipe local customers!
-            if (cloudList.length > 0) {
-              cloudList.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
-              setCustomers((prevLocal) => {
-                // Merge: cloud is source of truth for docs that exist there,
-                // but preserve any local-only customers not yet synced to cloud
-                const cloudIds = new Set(cloudList.map((c) => c.id));
-                const localOnly = prevLocal.filter((c) => !cloudIds.has(c.id));
-                const merged = [...cloudList, ...localOnly];
-                merged.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
-                return merged;
-              });
-            }
-            setIsCustomersHydrated(true);
-            setCloudSyncStatus((prev) => (prev === 'quota-exceeded' ? 'quota-exceeded' : 'connected'));
-            setLastCloudSyncTime(new Date());
-          },
-          (err) => {
-            handleFirestoreError(err, 'Customers listener');
-          }
-        );
-        unsubs.push(unsubCustomers);
+        // Fetch ALL tenant business data from Supabase in parallel
+        const [
+          sbCustomers,
+          sbProducts,
+          sbInventory,
+          sbQuotations,
+          sbContracts,
+          sbReserves,
+          sbOrders,
+          sbStockTx,
+          sbStockIn,
+          sbStockOut,
+          sbStockAudit,
+          sbPurchaseOrders,
+        ] = await Promise.all([
+          fetchCustomersByOrg(orgId),
+          fetchProductsByOrg(orgId),
+          fetchInventoryByOrg(orgId),
+          fetchQuotationsByOrg(orgId),
+          fetchContractsByOrg(orgId),
+          fetchReservesByOrg(orgId),
+          fetchOrdersByOrg(orgId),
+          fetchStockTransactionsByOrg(orgId),
+          fetchStockInVouchersByOrg(orgId),
+          fetchStockOutVouchersByOrg(orgId),
+          fetchStockAuditVouchersByOrg(orgId),
+          fetchPurchaseOrdersByOrg(orgId),
+        ]);
 
-        // 2. Products real-time listener
-        const unsubProducts = onSnapshot(
-          collection(db, COLLECTIONS.PRODUCTS),
-          (snap) => {
-            const cloudList: ProductPriceItem[] = [];
-            snap.forEach((d) => {
-              const item = d.data();
-              if (item && (item.sku || item.product_code)) {
-                cloudList.push(normalizeProductPriceItem(item));
-              }
-            });
+        // Update React state
+        setCustomers(sbCustomers);
+        setIsCustomersHydrated(true);
 
-            console.log('[PRICE_IMPORT] SNAPSHOT_MERGE cloud items count:', cloudList.length);
+        if (sbProducts.length > 0 || true) {
+          setProducts(sbProducts);
+          setIsProductsHydrated(true);
+          // Cache to IndexedDB for offline performance
+          saveProductsToIndexedDB(sbProducts, orgId).catch(() => {});
+        }
 
-            // CRITICAL: Only merge cloud data IF cloud has records.
-            // If cloud is empty (e.g. initial load, quota reached, offline), DO NOT wipe local products!
-            if (cloudList.length > 0) {
-              setProducts((prevLocal) => {
-                const map = new Map<string, ProductPriceItem>();
-                const skuToKeyMap = new Map<string, string>();
-                
-                // Layer 1: Preserve all existing local products (O(N))
-                prevLocal.forEach((p) => {
-                  const normalized = normalizeProductPriceItem(p);
-                  const orgKey = normalized.organizationId || normalized.companyId || 'global';
-                  const targetKey = `${orgKey}_${normalized.sku}`;
-                  map.set(targetKey, normalized);
-                  skuToKeyMap.set(normalized.sku, targetKey);
-                });
+        if (sbInventory.length > 0 || true) {
+          setInventory(sbInventory);
+          setIsInventoryHydrated(true);
+          saveInventoryToIndexedDB(sbInventory, orgId).catch(() => {});
+        }
 
-                // Layer 2: Overlay cloud data with O(1) lookup
-                cloudList.forEach((cloudItem) => {
-                  const skuUpper = cloudItem.sku;
-                  const existingLocalKey = skuToKeyMap.get(skuUpper);
-                  const existingLocal = existingLocalKey ? map.get(existingLocalKey) : undefined;
+        setQuotations(sbQuotations);
+        setIsQuotationsHydrated(true);
 
-                  const orgId = cloudItem.organizationId || cloudItem.companyId || existingLocal?.organizationId || existingLocal?.companyId;
-                  const createdBy = cloudItem.createdBy || existingLocal?.createdBy;
-                  const createdByName = cloudItem.createdByName || existingLocal?.createdByName;
+        setContracts(sbContracts);
+        setIsContractsHydrated(true);
 
-                  const mergedItem: ProductPriceItem = {
-                    ...cloudItem,
-                    organizationId: orgId,
-                    companyId: orgId,
-                    createdBy: createdBy || 'system',
-                    createdByName: createdByName || 'System',
-                  };
+        setReserveItems(sbReserves);
+        setIsReservesHydrated(true);
 
-                  const targetKey = `${orgId || 'global'}_${skuUpper}`;
-                  if (existingLocalKey && existingLocalKey !== targetKey) {
-                    map.delete(existingLocalKey);
-                  }
-                  map.set(targetKey, mergedItem);
-                  skuToKeyMap.set(skuUpper, targetKey);
-                });
+        setOrderItems(sbOrders);
+        setIsOrdersHydrated(true);
 
-                return Array.from(map.values());
-              });
-            }
-            setIsProductsHydrated(true);
-            setCloudSyncStatus((prev) => (prev === 'quota-exceeded' ? 'quota-exceeded' : 'connected'));
-            setLastCloudSyncTime(new Date());
-          },
-          (err) => {
-            handleFirestoreError(err, 'Products listener');
-          }
-        );
-        unsubs.push(unsubProducts);
+        setStockTransactions(sbStockTx);
+        setStockInVouchers(sbStockIn);
+        setStockOutVouchers(sbStockOut);
+        setStockAuditVouchers(sbStockAudit);
 
-        // 3. Inventory real-time listener
-        const unsubInventory = onSnapshot(
-          collection(db, COLLECTIONS.INVENTORY),
-          (snap) => {
-            const cloudList: InventoryItem[] = [];
-            snap.forEach((d) => {
-              const item = d.data() as InventoryItem;
-              if (item && item.sku) {
-                cloudList.push({
-                  ...item,
-                  sku: (item.sku || '').trim().toUpperCase(),
-                  name: (item.name || '').trim() || `Sản phẩm ${item.sku}`,
-                  unit: (item.unit || '').trim() || 'Bộ',
-                  totalQuantity: typeof item.totalQuantity === 'number' && !isNaN(item.totalQuantity) ? item.totalQuantity : 0,
-                  reservedQuantity: typeof item.reservedQuantity === 'number' && !isNaN(item.reservedQuantity) ? item.reservedQuantity : 0,
-                  availableQuantity: typeof item.availableQuantity === 'number' && !isNaN(item.availableQuantity) ? item.availableQuantity : 0,
-                  warehouseLocation: (item.warehouseLocation || 'Kho Tổng').trim(),
-                  updatedAt: item.updatedAt || new Date().toISOString().split('T')[0],
-                });
-              }
-            });
+        setPurchaseOrders(sbPurchaseOrders.map(normalizePurchaseOrder));
+        setIsPurchaseOrdersHydrated(true);
 
-            if (cloudList.length > 0) {
-              setInventory((prevLocal) => {
-                const map = new Map<string, InventoryItem>();
-                // Layer 1: Preserve all existing local inventory
-                prevLocal.forEach((i) => {
-                  const key = `${i.organizationId || i.companyId || 'global'}_${(i.sku || '').trim().toUpperCase()}`;
-                  map.set(key, i);
-                });
-                // Layer 2: Overlay cloud data (source of truth for synced items)
-                cloudList.forEach((i) => {
-                  const key = `${i.organizationId || i.companyId || 'global'}_${(i.sku || '').trim().toUpperCase()}`;
-                  map.set(key, i);
-                });
-                return Array.from(map.values());
-              });
-            }
-            setIsInventoryHydrated(true);
-            setCloudSyncStatus((prev) => (prev === 'quota-exceeded' ? 'quota-exceeded' : 'connected'));
-            setLastCloudSyncTime(new Date());
-          },
-          (err) => {
-            handleFirestoreError(err, 'Inventory listener');
-          }
-        );
-        unsubs.push(unsubInventory);
-
-        // 4. Quotations real-time listener
-        const unsubQuotes = onSnapshot(
-          collection(db, COLLECTIONS.QUOTATIONS),
-          (snap) => {
-            const cloudList: Quotation[] = [];
-            snap.forEach((d) => {
-              const item = d.data() as Quotation;
-              if (item && item.id) cloudList.push(item);
-            });
-
-            // CRITICAL SAFEGUARD: Only merge cloud data if cloud actually has records.
-            // If cloud is empty (quota exceeded, offline, failed writes), do NOT wipe local quotations!
-            if (cloudList.length > 0) {
-              cloudList.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
-              setQuotations((prevLocal) => {
-                // Merge: cloud is source of truth for docs that exist there,
-                // but preserve any local-only quotations not yet synced to cloud
-                const cloudIds = new Set(cloudList.map((q) => q.id));
-                const localOnly = prevLocal.filter((q) => !cloudIds.has(q.id));
-                const merged = [...cloudList, ...localOnly];
-                merged.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
-                return merged;
-              });
-            }
-            setIsQuotationsHydrated(true);
-            setCloudSyncStatus((prev) => (prev === 'quota-exceeded' ? 'quota-exceeded' : 'connected'));
-            setLastCloudSyncTime(new Date());
-          },
-          (err) => {
-            handleFirestoreError(err, 'Quotations listener');
-          }
-        );
-        unsubs.push(unsubQuotes);
-
-        // 5. Contracts real-time listener
-        const unsubContracts = onSnapshot(
-          collection(db, COLLECTIONS.CONTRACTS),
-          (snap) => {
-            const cloudList: Contract[] = [];
-            snap.forEach((d) => {
-              const item = d.data() as Contract;
-              if (item && item.id) cloudList.push(item);
-            });
-
-            // CRITICAL SAFEGUARD: Only merge cloud data if cloud actually has records.
-            if (cloudList.length > 0) {
-              cloudList.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
-              setContracts((prevLocal) => {
-                const cloudIds = new Set(cloudList.map((c) => c.id));
-                const localOnly = prevLocal.filter((c) => !cloudIds.has(c.id));
-                const merged = [...cloudList, ...localOnly];
-                merged.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
-                return merged;
-              });
-            }
-            setIsContractsHydrated(true);
-            setCloudSyncStatus((prev) => (prev === 'quota-exceeded' ? 'quota-exceeded' : 'connected'));
-            setLastCloudSyncTime(new Date());
-          },
-          (err) => {
-            handleFirestoreError(err, 'Contracts listener');
-          }
-        );
-        unsubs.push(unsubContracts);
-
-        // 6. Reserves real-time listener
-        const unsubReserves = onSnapshot(
-          collection(db, COLLECTIONS.RESERVES),
-          (snap) => {
-            const cloudList: ReserveItem[] = [];
-            snap.forEach((d) => {
-              const item = d.data() as ReserveItem;
-              if (item && item.id) cloudList.push(item);
-            });
-            if (cloudList.length > 0) {
-              setReserveItems((prevLocal) => {
-                const cloudIds = new Set(cloudList.map((r) => r.id));
-                const localOnly = prevLocal.filter((r) => !cloudIds.has(r.id));
-                return [...cloudList, ...localOnly];
-              });
-            }
-            setIsReservesHydrated(true);
-            setCloudSyncStatus((prev) => (prev === 'quota-exceeded' ? 'quota-exceeded' : 'connected'));
-            setLastCloudSyncTime(new Date());
-          },
-          (err) => {
-            handleFirestoreError(err, 'Reserves listener');
-          }
-        );
-        unsubs.push(unsubReserves);
-
-        // 7. Orders real-time listener
-        const unsubOrders = onSnapshot(
-          collection(db, COLLECTIONS.ORDERS),
-          (snap) => {
-            const cloudList: OrderItem[] = [];
-            snap.forEach((d) => {
-              const item = d.data() as OrderItem;
-              if (item && item.id) cloudList.push(item);
-            });
-            if (cloudList.length > 0) {
-              setOrderItems((prevLocal) => {
-                const cloudIds = new Set(cloudList.map((o) => o.id));
-                const localOnly = prevLocal.filter((o) => !cloudIds.has(o.id));
-                return [...cloudList, ...localOnly];
-              });
-            }
-            setIsOrdersHydrated(true);
-            setCloudSyncStatus((prev) => (prev === 'quota-exceeded' ? 'quota-exceeded' : 'connected'));
-            setLastCloudSyncTime(new Date());
-          },
-          (err) => {
-            handleFirestoreError(err, 'Orders listener');
-          }
-        );
-        unsubs.push(unsubOrders);
-
-        // 8. Stock Transactions real-time listener
-        const unsubStockTx = onSnapshot(
-          collection(db, COLLECTIONS.STOCK_TRANSACTIONS),
-          (snap) => {
-            const cloudList: StockTransaction[] = [];
-            snap.forEach((d) => {
-              const tx = d.data() as StockTransaction;
-              if (tx && tx.id) cloudList.push(tx);
-            });
-            if (cloudList.length > 0) {
-              cloudList.sort((a, b) => new Date(b.timestamp || b.date).getTime() - new Date(a.timestamp || a.date).getTime());
-              setStockTransactions((prevLocal) => {
-                const cloudIds = new Set(cloudList.map((t) => t.id));
-                const localOnly = prevLocal.filter((t) => !cloudIds.has(t.id));
-                const merged = [...cloudList, ...localOnly];
-                merged.sort((a, b) => new Date(b.timestamp || b.date).getTime() - new Date(a.timestamp || a.date).getTime());
-                return merged;
-              });
-            }
-          },
-          (err) => {
-            handleFirestoreError(err, 'Stock transactions listener');
-          }
-        );
-        unsubs.push(unsubStockTx);
-
-        // 9. Stock In Vouchers real-time listener
-        const unsubStockIn = onSnapshot(
-          collection(db, COLLECTIONS.STOCK_IN_VOUCHERS),
-          (snap) => {
-            const cloudList: StockInVoucher[] = [];
-            snap.forEach((d) => {
-              const v = d.data() as StockInVoucher;
-              if (v && v.id) cloudList.push(v);
-            });
-            if (cloudList.length > 0) {
-              cloudList.sort((a, b) => new Date(b.createdAt || b.date).getTime() - new Date(a.createdAt || a.date).getTime());
-              setStockInVouchers((prevLocal) => {
-                const cloudIds = new Set(cloudList.map((v) => v.id));
-                const localOnly = prevLocal.filter((v) => !cloudIds.has(v.id));
-                const merged = [...cloudList, ...localOnly];
-                merged.sort((a, b) => new Date(b.createdAt || b.date).getTime() - new Date(a.createdAt || a.date).getTime());
-                return merged;
-              });
-            }
-          },
-          (err) => {
-            handleFirestoreError(err, 'Stock In vouchers listener');
-          }
-        );
-        unsubs.push(unsubStockIn);
-
-        // 10. Stock Out Vouchers real-time listener
-        const unsubStockOut = onSnapshot(
-          collection(db, COLLECTIONS.STOCK_OUT_VOUCHERS),
-          (snap) => {
-            const cloudList: StockOutVoucher[] = [];
-            snap.forEach((d) => {
-              const v = d.data() as StockOutVoucher;
-              if (v && v.id) cloudList.push(v);
-            });
-            if (cloudList.length > 0) {
-              cloudList.sort((a, b) => new Date(b.createdAt || b.date).getTime() - new Date(a.createdAt || a.date).getTime());
-              setStockOutVouchers((prevLocal) => {
-                const cloudIds = new Set(cloudList.map((v) => v.id));
-                const localOnly = prevLocal.filter((v) => !cloudIds.has(v.id));
-                const merged = [...cloudList, ...localOnly];
-                merged.sort((a, b) => new Date(b.createdAt || b.date).getTime() - new Date(a.createdAt || a.date).getTime());
-                return merged;
-              });
-            }
-          },
-          (err) => {
-            handleFirestoreError(err, 'Stock Out vouchers listener');
-          }
-        );
-        unsubs.push(unsubStockOut);
-
-        // 11. Stock Audit Vouchers real-time listener
-        const unsubStockAudit = onSnapshot(
-          collection(db, COLLECTIONS.STOCK_AUDIT_VOUCHERS),
-          (snap) => {
-            const cloudList: StockAuditVoucher[] = [];
-            snap.forEach((d) => {
-              const v = d.data() as StockAuditVoucher;
-              if (v && v.id) cloudList.push(v);
-            });
-            if (cloudList.length > 0) {
-              cloudList.sort((a, b) => new Date(b.createdAt || b.date).getTime() - new Date(a.createdAt || a.date).getTime());
-              setStockAuditVouchers((prevLocal) => {
-                const cloudIds = new Set(cloudList.map((v) => v.id));
-                const localOnly = prevLocal.filter((v) => !cloudIds.has(v.id));
-                const merged = [...cloudList, ...localOnly];
-                merged.sort((a, b) => new Date(b.createdAt || b.date).getTime() - new Date(a.createdAt || a.date).getTime());
-                return merged;
-              });
-            }
-          },
-          (err) => {
-            handleFirestoreError(err, 'Stock Audit vouchers listener');
-          }
-        );
-        unsubs.push(unsubStockAudit);
-
-        // 12. Purchase Orders real-time listener (Đơn đặt NCC)
-        const unsubPurchaseOrders = onSnapshot(
-          collection(db, COLLECTIONS.PURCHASE_ORDERS),
-          (snap) => {
-            const cloudList: PurchaseOrder[] = [];
-            snap.forEach((d) => {
-              const po = d.data();
-              if (po && po.id) cloudList.push(normalizePurchaseOrder(po));
-            });
-            if (cloudList.length > 0) {
-              cloudList.sort((a, b) => new Date(b.createdAt || b.orderDate).getTime() - new Date(a.createdAt || a.orderDate).getTime());
-              setPurchaseOrders((prevLocal) => {
-                const cloudIds = new Set(cloudList.map((p) => p.id));
-                const localOnly = prevLocal.filter((p) => !cloudIds.has(p.id));
-                const merged = [...cloudList, ...localOnly];
-                merged.sort((a, b) => new Date(b.createdAt || b.orderDate).getTime() - new Date(a.createdAt || a.orderDate).getTime());
-                return merged;
-              });
-            }
-            setIsPurchaseOrdersHydrated(true);
-          },
-          (err) => {
-            handleFirestoreError(err, 'Purchase Orders listener');
-          }
-        );
-        unsubs.push(unsubPurchaseOrders);
-
-        setCloudSyncStatus((prev) => (prev === 'quota-exceeded' ? 'quota-exceeded' : 'connected'));
+        setCloudSyncStatus('connected');
+        setLastCloudSyncTime(new Date());
       } catch (err) {
-        handleFirestoreError(err, 'Tenant initialization error');
+        console.warn('[Supabase] Tenant data loading error:', err);
+        setCloudSyncStatus('error');
       }
     };
 
-    initializeTenantRealtime();
-
-    return () => {
-      unsubs.forEach((unsub) => unsub());
-    };
+    loadTenantDataFromSupabase();
   }, [isAuthenticated]);
 
   // Sync to localStorage / IndexedDB as local instant cache
@@ -1461,7 +1080,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (reservesReconciled) {
       console.log('[SalesReconciliation] Reconciling reserve items with Customer Master assigned Sales');
       setReserveItems(reconciledReserves);
-      batchSyncReservesToCloud(reconciledReserves);
+      batchUpsertReserves(reconciledReserves);
     }
 
     let ordersReconciled = false;
@@ -1486,7 +1105,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (ordersReconciled) {
       console.log('[SalesReconciliation] Reconciling order items with Customer Master assigned Sales');
       setOrderItems(reconciledOrders);
-      batchSyncOrdersToCloud(reconciledOrders);
+      batchUpsertOrders(reconciledOrders);
     }
   }, [customers]);
 
@@ -1494,21 +1113,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const syncAllToCloudNow = async () => {
     try {
       setCloudSyncStatus('syncing');
+      const orgId = resolveOrganizationId(currentUser, users);
       await Promise.all([
-        ...users.map((u) => syncUserToCloud(u)),
-        syncCompanyInfoToCloud(companyInfo),
-        ...customers.map((c) => syncCustomerToCloud(c)),
-        batchSyncProductsToCloud(products),
-        batchSyncInventoryToCloud(inventory),
-        ...quotations.map((q) => syncQuotationToCloud(q)),
-        ...contracts.map((c) => syncContractToCloud(c)),
-        batchSyncReservesToCloud(reserveItems),
-        batchSyncOrdersToCloud(orderItems),
+        ...users.map((u) => upsertProfile(u)),
+        upsertCompanyInfo(companyInfo),
+        ...customers.map((c) => upsertCustomer(c)),
+        batchUpsertProducts(products, orgId),
+        batchUpsertInventory(inventory, orgId),
+        ...quotations.map((q) => upsertQuotation(q)),
+        ...contracts.map((c) => upsertContract(c)),
+        batchUpsertReserves(reserveItems),
+        batchUpsertOrders(orderItems),
       ]);
       setCloudSyncStatus('connected');
       setLastCloudSyncTime(new Date());
     } catch (err) {
-      console.error('[Firestore] Sync all error:', err);
+      console.error('[Supabase] Sync all error:', err);
       setCloudSyncStatus('error');
     }
   };
@@ -1525,7 +1145,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(updatedList));
       return updatedList;
     });
-    await syncUserToCloud(updatedUser);
+    await upsertProfile(updatedUser);
   };
 
   const updateCompanyInfo = async (info: Partial<CompanyInfo>) => {
@@ -1539,7 +1159,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
     setCompanyInfo(updated);
     localStorage.setItem(STORAGE_KEYS.COMPANY, JSON.stringify(updated));
-    await syncCompanyInfoToCloud(updated);
+    await upsertCompanyInfo(updated);
   };
 
   // User management
@@ -1551,7 +1171,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           const orgId = u.organizationId || `org-${u.id}`;
           if (!u.organizationId) {
             // Auto-create Organization for approved Level 1
-            syncOrganizationToCloud({
+            upsertOrganization({
               id: orgId,
               ownerId: u.id,
               ownerName: u.name,
@@ -1564,7 +1184,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         return u;
       });
       const targetUser = updated.find((u) => u.id === userId);
-      if (targetUser) syncUserToCloud(targetUser);
+      if (targetUser) upsertProfile(targetUser);
       localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(updated));
       return updated;
     });
@@ -1576,7 +1196,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setUsers((prev) => {
       const updated = prev.map((u) => (u.id === userId ? { ...u, status: 'inactive' as const } : u));
       const targetUser = updated.find((u) => u.id === userId);
-      if (targetUser) syncUserToCloud(targetUser);
+      if (targetUser) upsertProfile(targetUser);
       localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(updated));
       return updated;
     });
@@ -1614,7 +1234,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(updated));
       return updated;
     });
-    syncUserToCloud(newUser);
+    upsertProfile(newUser);
     return newUser;
   };
 
@@ -1652,7 +1272,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(updated));
       return updated;
     });
-    syncUserToCloud(newUser);
+    upsertProfile(newUser);
     return newUser;
   };
 
@@ -1697,7 +1317,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (currentUser.id === updated.id) {
       setCurrentUser(updated);
     }
-    syncUserToCloud(updated);
+    upsertProfile(updated);
   };
 
   const deleteUser = (userId: string) => {
@@ -1710,7 +1330,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       safeSetLocalStorage(STORAGE_KEYS.USERS, newList);
       return newList;
     });
-    deleteUserFromCloud(userId);
+    deleteProfileById(userId);
 
     // 2. If deleting Sales C2: reassign their customers to their Manager C1 so customers are not orphaned
     if (targetUser.role === 'sales_c2') {
@@ -1732,7 +1352,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                 memberIds: newMemberIds,
                 updatedAt: new Date().toISOString().split('T')[0],
               };
-              syncCustomerToCloud(updatedCust);
+              upsertCustomer(updatedCust);
               return updatedCust;
             }
             return c;
@@ -1778,7 +1398,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         validUsers.forEach((u) => {
           if (u && u.id) {
             map.set(u.id, u);
-            syncUserToCloud(u).catch(() => {});
+            upsertProfile(u).catch(() => {});
           }
         });
         const merged = Array.from(map.values());
@@ -1826,15 +1446,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     // Check in-memory state, IndexedDB, Firestore by UID / email, localStorage, or INITIAL_USERS
     let user: User | null = users.find((u) => u.email.toLowerCase() === cleanEmail) || null;
 
-    // Direct Firestore Cloud lookup if not in state (essential for new machine / cleared cache!)
+    // Direct Supabase lookup if not in state (essential for new machine / cleared cache!)
     if (!user) {
       try {
-        const cloudUser = await fetchUserFromCloud(fbUserUid || undefined, cleanEmail);
+        let cloudUser: User | null = null;
+        if (fbUserUid) {
+          cloudUser = await fetchProfileByFirebaseUid(fbUserUid);
+        }
+        if (!cloudUser) {
+          cloudUser = await fetchProfileByEmail(cleanEmail);
+        }
         if (cloudUser) {
           user = cloudUser;
         }
       } catch (cloudErr) {
-        console.warn('[Login] Firestore direct lookup error:', cloudErr);
+        console.warn('[Login] Supabase direct lookup error:', cloudErr);
       }
     }
 
@@ -2051,10 +1677,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
 
     // 4. Sync to Firestore
-    syncUserToCloud(newUser).catch((err) => {
+    upsertProfile(newUser).catch((err) => {
       console.warn('[Register] Cloud sync failed for user, will retry on next session:', err);
     });
-    syncOrganizationToCloud(newOrg).catch((err) => {
+    upsertOrganization(newOrg).catch((err) => {
       console.warn('[Register] Cloud sync failed for organization:', err);
     });
 
@@ -2134,7 +1760,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (currentUser.id === targetUser.id) {
       setCurrentUser(updatedUser);
     }
-    syncUserToCloud(updatedUser);
+    upsertProfile(updatedUser);
 
     return {
       success: true,
@@ -2234,7 +1860,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       updatedAt: now,
     };
     setCustomers((prev) => [newCust, ...prev]);
-    syncCustomerToCloud(newCust);
+    upsertCustomer(newCust);
     return newCust;
   };
 
@@ -2244,7 +1870,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setCustomers((prev) =>
       prev.map((c) => (c.id === updated.id ? itemWithTime : c))
     );
-    syncCustomerToCloud(itemWithTime);
+    upsertCustomer(itemWithTime);
 
     // Synchronize assigned sales representative to all active reserves and orders for this customer
     setReserveItems((prevReserves) => {
@@ -2262,7 +1888,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         return r;
       });
       if (changed) {
-        batchSyncReservesToCloud(updatedReserves.filter((r) => r.customerId === updated.id));
+        batchUpsertReserves(updatedReserves.filter((r) => r.customerId === updated.id));
       }
       return updatedReserves;
     });
@@ -2282,7 +1908,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         return o;
       });
       if (changed) {
-        batchSyncOrdersToCloud(updatedOrders.filter((o) => o.customerId === updated.id));
+        batchUpsertOrders(updatedOrders.filter((o) => o.customerId === updated.id));
       }
       return updatedOrders;
     });
@@ -2304,7 +1930,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         }
         return c;
       });
-      if (targetCust) syncCustomerToCloud(targetCust);
+      if (targetCust) upsertCustomer(targetCust);
       return updated;
     });
   };
@@ -2325,7 +1951,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         }
         return c;
       });
-      if (targetCust) syncCustomerToCloud(targetCust);
+      if (targetCust) upsertCustomer(targetCust);
       return updated;
     });
 
@@ -2344,7 +1970,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         return r;
       });
       if (changed) {
-        batchSyncReservesToCloud(updatedReserves.filter((r) => r.customerId === customerId));
+        batchUpsertReserves(updatedReserves.filter((r) => r.customerId === customerId));
       }
       return updatedReserves;
     });
@@ -2363,7 +1989,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         return o;
       });
       if (changed) {
-        batchSyncOrdersToCloud(updatedOrders.filter((o) => o.customerId === customerId));
+        batchUpsertOrders(updatedOrders.filter((o) => o.customerId === customerId));
       }
       return updatedOrders;
     });
@@ -2372,15 +1998,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const deleteCustomer = (customerId: string) => {
     // 1. Remove customer from state and Cloud Firestore
     setCustomers((prev) => prev.filter((c) => c.id !== customerId));
-    deleteCustomerFromCloud(customerId);
-    deleteCustomerMemberFromCloud(`cm-${customerId}`);
+    deleteCustomerById(customerId);
+    deleteCustomerMemberById(`cm-${customerId}`);
 
     // 2. Cascade delete all quotations for this customer
     const quotesToDelete = quotations.filter((q) => q.customerId === customerId);
     if (quotesToDelete.length > 0) {
       const quoteIds = quotesToDelete.map((q) => q.id);
       setQuotations((prev) => prev.filter((q) => q.customerId !== customerId));
-      batchDeleteQuotationsFromCloud(quoteIds);
+      batchDeleteQuotations(quoteIds);
     }
 
     // 3. Cascade delete all contracts for this customer
@@ -2388,7 +2014,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (contractsToDelete.length > 0) {
       const contractIds = contractsToDelete.map((c) => c.id);
       setContracts((prev) => prev.filter((c) => c.customerId !== customerId));
-      batchDeleteContractsFromCloud(contractIds);
+      batchDeleteContracts(contractIds);
     }
 
     // 4. Cascade delete all reserve items for this customer & identify affected SKUs
@@ -2402,7 +2028,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       });
 
       setReserveItems((prev) => prev.filter((r) => r.customerId !== customerId));
-      batchDeleteReservesFromCloud(reserveIds);
+      batchDeleteReserves(reserveIds);
     }
 
     // 5. Cascade delete all order items for this customer
@@ -2410,7 +2036,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (ordersToDelete.length > 0) {
       const orderIds = ordersToDelete.map((o) => o.id);
       setOrderItems((prev) => prev.filter((o) => o.customerId !== customerId));
-      batchDeleteOrdersFromCloud(orderIds);
+      batchDeleteOrders(orderIds);
     }
 
     // 6. CRITICAL: Release reserved quantity and re-calculate available inventory for all affected SKUs
@@ -2444,7 +2070,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         saveInventoryToIndexedDB(updatedInv);
         const changedItems = updatedInv.filter((i) => affectedSkus.has((i.sku || '').trim().toLowerCase()));
         if (changedItems.length > 0) {
-          batchSyncInventoryToCloud(changedItems);
+          batchUpsertInventory(changedItems);
         }
         return updatedInv;
       });
@@ -2474,7 +2100,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         }
         return c;
       });
-      if (targetCust) syncCustomerToCloud(targetCust);
+      if (targetCust) upsertCustomer(targetCust);
       return updated;
     });
 
@@ -2488,7 +2114,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       createdBy: currentUser.id,
       createdAt: new Date().toISOString().split('T')[0],
     };
-    syncCustomerMemberToCloud(member);
+    upsertCustomerMember(member);
   };
 
   /**
@@ -2510,12 +2136,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         }
         return c;
       });
-      if (targetCust) syncCustomerToCloud(targetCust);
+      if (targetCust) upsertCustomer(targetCust);
       return updated;
     });
 
     // Also delete CustomerMember record from Firestore
-    deleteCustomerMemberFromCloud(`cm-${customerId}-${userId}`);
+    deleteCustomerMemberById(`cm-${customerId}-${userId}`);
   };
 
   // Active Company Scope for the logged in user
@@ -2560,7 +2186,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       saveProductsToIndexedDB(updated, myOrgId).catch(() => {});
       return updated;
     });
-    syncProductToCloud(stampedProd);
+    upsertProduct(stampedProd);
 
     // Also create corresponding inventory item if not exists for this organization
     setInventory((prev) => {
@@ -2579,7 +2205,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           createdBy: currentUser.id,
           createdByName: currentUser.name,
         };
-        syncInventoryItemToCloud(newInv);
+        upsertInventoryItem(newInv);
         const updatedInv = [...prev, newInv];
         saveInventoryToIndexedDB(updatedInv, myOrgId).catch(() => {});
         return updatedInv;
@@ -2608,13 +2234,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       saveProductsToIndexedDB(updatedList, myOrgId).catch(() => {});
       return updatedList;
     });
-    syncProductToCloud(stampedProd);
+    upsertProduct(stampedProd);
 
     setInventory((prev) => {
       const updatedList = prev.map((inv) => {
         if (inv.sku.trim().toUpperCase() === updated.sku.trim().toUpperCase() && (inv.organizationId === myOrgId || inv.companyId === myCompanyId)) {
           const syncedInv = { ...inv, name: updated.name, unit: updated.unit, organizationId: myOrgId, companyId: myCompanyId };
-          syncInventoryItemToCloud(syncedInv);
+          upsertInventoryItem(syncedInv);
           return syncedInv;
         }
         return inv;
@@ -2634,7 +2260,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       saveProductsToIndexedDB(remaining, myOrgId).catch(() => {});
       return remaining;
     });
-    deleteProductFromCloud(sku, myCompanyId);
+    deleteProductBySku(sku, myCompanyId);
 
     // Also delete inventory item for this organization
     setInventory((prev) => {
@@ -2644,7 +2270,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       saveInventoryToIndexedDB(remaining, myOrgId).catch(() => {});
       return remaining;
     });
-    deleteInventoryItemFromCloud(sku, myCompanyId);
+    deleteInventoryBySku(sku, myCompanyId);
   };
 
   const updateProductImage = async (sku: string, imageUrl: string | undefined): Promise<void> => {
@@ -2679,7 +2305,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
 
     if (updatedTargetProduct) {
-      syncProductToCloud(updatedTargetProduct);
+      upsertProduct(updatedTargetProduct);
     }
   };
 
@@ -2748,7 +2374,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
 
     if (updatedItemsToSync.length > 0) {
-      batchSyncProductsToCloud(updatedItemsToSync).catch((err) =>
+      batchUpsertProducts(updatedItemsToSync).catch((err) =>
         console.warn('[Cloud Sync Warning] Product image batch sync:', err)
       );
     }
@@ -2852,12 +2478,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setIsInventoryHydrated(true);
 
     if (newlyAdded.length > 0) {
-      batchSyncInventoryToCloud(newlyAdded).catch(() => {});
+      batchUpsertInventory(newlyAdded).catch(() => {});
     }
 
     // 5. Asynchronous Cloud Sync in background chunks
     console.log('[PRICE_IMPORT] FIRESTORE_SYNC_START');
-    batchSyncProductsToCloud(stampedProducts)
+    batchUpsertProducts(stampedProducts)
       .then(() => console.log('[PRICE_IMPORT] FIRESTORE_SAVED count:', stampedProducts.length))
       .catch((err) => console.warn('[PRICE_IMPORT] FIRESTORE_SYNC_WARNING (Local persistence intact):', err));
 
@@ -2992,7 +2618,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       organizationId: txData.organizationId || resolveOrganizationId(currentUser, users),
     };
     setStockTransactions((prev) => [newTx, ...prev]);
-    syncStockTransactionToCloud(newTx);
+    upsertStockTransaction(newTx);
     return newTx;
   };
 
@@ -3016,7 +2642,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       saveInventoryToIndexedDB(newInv);
       return newInv;
     });
-    syncInventoryItemToCloud(updated);
+    upsertInventoryItem(updated);
   };
 
   const addInventoryItem = (newItem: Omit<InventoryItem, 'availableQuantity' | 'reservedQuantity' | 'updatedAt'>) => {
@@ -3039,7 +2665,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       saveInventoryToIndexedDB(newInv);
       return newInv;
     });
-    syncInventoryItemToCloud(created);
+    upsertInventoryItem(created);
 
     addStockTransaction({
       sku: created.sku,
@@ -3066,7 +2692,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       saveInventoryToIndexedDB(newInv);
       return newInv;
     });
-    deleteInventoryItemFromCloud(sku, myCompanyId);
+    deleteInventoryBySku(sku, myCompanyId);
   };
 
   const quickAdjustStock = (sku: string, deltaQty: number, notes?: string) => {
@@ -3097,7 +2723,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         return item;
       });
       if (targetItem) {
-        syncInventoryItemToCloud(targetItem);
+        upsertInventoryItem(targetItem);
         saveInventoryToIndexedDB(updated);
       }
       return updated;
@@ -3142,7 +2768,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
 
     setStockInVouchers((prev) => [newVoucher, ...prev]);
-    syncStockInVoucherToCloud(newVoucher);
+    upsertStockInVoucher(newVoucher);
     return newVoucher;
   };
 
@@ -3162,7 +2788,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       updatedAt: now.toISOString(),
     };
     setStockInVouchers((prev) => prev.map((v) => (v.id === voucherId ? updatedVoucher : v)));
-    syncStockInVoucherToCloud(updatedVoucher);
+    upsertStockInVoucher(updatedVoucher);
 
     // 2. Increment On Hand for each item in the voucher
     const itemMap = new Map<string, number>();
@@ -3209,7 +2835,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       saveInventoryToIndexedDB(updated);
       const changed = updated.filter((i) => itemMap.has(i.sku.trim().toUpperCase()));
-      if (changed.length > 0) batchSyncInventoryToCloud(changed);
+      if (changed.length > 0) batchUpsertInventory(changed);
       return updated;
     });
 
@@ -3308,12 +2934,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (newlyUpdatedOrders.length > 0) {
       const orderIds = new Set(newlyUpdatedOrders.map((o) => o.id));
       setOrderItems((prev) => prev.map((o) => (orderIds.has(o.id) ? newlyUpdatedOrders.find((u) => u.id === o.id)! : o)));
-      newlyUpdatedOrders.forEach((o) => syncOrderItemToCloud(o));
+      newlyUpdatedOrders.forEach((o) => upsertOrderItem(o));
     }
 
     if (newlyCreatedReserves.length > 0) {
       setReserveItems((prev) => [...newlyCreatedReserves, ...prev]);
-      batchSyncReservesToCloud(newlyCreatedReserves);
+      batchUpsertReserves(newlyCreatedReserves);
     }
   };
 
@@ -3327,7 +2953,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       updatedAt: new Date().toISOString(),
     };
     setStockInVouchers((prev) => prev.map((v) => (v.id === voucherId ? updatedVoucher : v)));
-    syncStockInVoucherToCloud(updatedVoucher);
+    upsertStockInVoucher(updatedVoucher);
   };
 
   // Stock Out Voucher Actions
@@ -3351,7 +2977,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
 
     setStockOutVouchers((prev) => [newVoucher, ...prev]);
-    syncStockOutVoucherToCloud(newVoucher);
+    upsertStockOutVoucher(newVoucher);
     return newVoucher;
   };
 
@@ -3370,7 +2996,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       updatedAt: now.toISOString(),
     };
     setStockOutVouchers((prev) => prev.map((v) => (v.id === voucherId ? updatedVoucher : v)));
-    syncStockOutVoucherToCloud(updatedVoucher);
+    upsertStockOutVoucher(updatedVoucher);
 
     // 2. Decrement On Hand for each item in the voucher
     const itemMap = new Map<string, number>();
@@ -3428,7 +3054,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       saveInventoryToIndexedDB(updated);
       const changed = updated.filter((i) => itemMap.has(i.sku.trim().toUpperCase()));
-      if (changed.length > 0) batchSyncInventoryToCloud(changed);
+      if (changed.length > 0) batchUpsertInventory(changed);
       return updated;
     });
 
@@ -3473,7 +3099,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               ...(r.timeline || []),
             ],
           };
-          syncReserveItemToCloud(updatedReserve);
+          upsertReserveItem(updatedReserve);
           return updatedReserve;
         }
         return r;
@@ -3521,7 +3147,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               ...(o.timeline || []),
             ],
           };
-          syncOrderItemToCloud(updatedOrder);
+          upsertOrderItem(updatedOrder);
           return updatedOrder;
         }
         return o;
@@ -3545,7 +3171,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       updatedAt: new Date().toISOString(),
     };
     setStockOutVouchers((prev) => prev.map((v) => (v.id === voucherId ? updatedVoucher : v)));
-    syncStockOutVoucherToCloud(updatedVoucher);
+    upsertStockOutVoucher(updatedVoucher);
   };
 
   // Stock Audit Voucher Actions
@@ -3569,7 +3195,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
 
     setStockAuditVouchers((prev) => [newVoucher, ...prev]);
-    syncStockAuditVoucherToCloud(newVoucher);
+    upsertStockAuditVoucher(newVoucher);
     return newVoucher;
   };
 
@@ -3588,7 +3214,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       updatedAt: now.toISOString(),
     };
     setStockAuditVouchers((prev) => prev.map((v) => (v.id === voucherId ? updatedVoucher : v)));
-    syncStockAuditVoucherToCloud(updatedVoucher);
+    upsertStockAuditVoucher(updatedVoucher);
 
     // 2. Adjust On Hand to actualQuantity for each audited item
     const itemMap = new Map<string, { actualQty: number; diff: number; reason?: string }>();
@@ -3634,7 +3260,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       saveInventoryToIndexedDB(updated);
       const changed = updated.filter((i) => itemMap.has(i.sku.trim().toUpperCase()));
-      if (changed.length > 0) batchSyncInventoryToCloud(changed);
+      if (changed.length > 0) batchUpsertInventory(changed);
       return updated;
     });
   };
@@ -3649,7 +3275,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       updatedAt: new Date().toISOString(),
     };
     setStockAuditVouchers((prev) => prev.map((v) => (v.id === voucherId ? updatedVoucher : v)));
-    syncStockAuditVoucherToCloud(updatedVoucher);
+    upsertStockAuditVoucher(updatedVoucher);
   };
 
   const receiveInboundOrderBatch = (
@@ -3855,12 +3481,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       });
       return nextList;
     });
-    updatedOrders.forEach((o) => syncOrderItemToCloud(o));
+    updatedOrders.forEach((o) => upsertOrderItem(o));
 
     // 3. Update Reserve Items State & Cloud
     if (newReserves.length > 0) {
       setReserveItems((prev) => [...newReserves, ...prev]);
-      batchSyncReservesToCloud(newReserves);
+      batchUpsertReserves(newReserves);
     }
 
     // 4. Update Inventory On Hand in Inventory table
@@ -3882,7 +3508,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           warehouseLocation: existing.warehouseLocation || loc,
           updatedAt: now,
         };
-        syncInventoryItemToCloud(updatedInv);
+        upsertInventoryItem(updatedInv);
         const nextList = prev.map((i) =>
           i.sku.trim().toUpperCase() === targetSku && (i.companyId === myCompanyId || !i.companyId)
             ? updatedInv
@@ -3906,7 +3532,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           createdBy: currentUser.id,
           createdByName: currentUser.name,
         };
-        syncInventoryItemToCloud(updatedInv);
+        upsertInventoryItem(updatedInv);
         const nextList = [...prev, updatedInv];
         saveInventoryToIndexedDB(nextList);
         return nextList;
@@ -4001,7 +3627,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setIsInventoryHydrated(true);
 
     // 4. Cloud sync in background
-    batchSyncInventoryToCloud(stampedList).catch(() => {});
+    batchUpsertInventory(stampedList).catch(() => {});
 
     return stampedList.length;
   };
@@ -4060,7 +3686,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       updatedAt: now,
     };
     setQuotations((prev) => [newQuote, ...prev]);
-    syncQuotationToCloud(newQuote);
+    upsertQuotation(newQuote);
 
     // Automatically update customer stage to 'quoting' if it was 'new' or 'contacted'
     setCustomers((prev) => {
@@ -4072,7 +3698,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         }
         return c;
       });
-      if (custToUpdate) syncCustomerToCloud(custToUpdate);
+      if (custToUpdate) upsertCustomer(custToUpdate);
       return updated;
     });
 
@@ -4085,7 +3711,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setQuotations((prev) =>
       prev.map((q) => (q.id === quotation.id ? itemWithTime : q))
     );
-    syncQuotationToCloud(itemWithTime);
+    upsertQuotation(itemWithTime);
   };
 
   const updateQuotationStatus = (quoteId: string, status: QuotationStatus) => {
@@ -4106,7 +3732,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             isContractQuote: false,
             updatedAt: now,
           };
-          syncQuotationToCloud(updated);
+          upsertQuotation(updated);
           return updated;
         }
         return q;
@@ -4124,7 +3750,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           }
           return c;
         });
-        if (custToUpdate) syncCustomerToCloud(custToUpdate);
+        if (custToUpdate) upsertCustomer(custToUpdate);
         return updated;
       });
     }
@@ -4168,14 +3794,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
 
     setQuotations((prev) => [newQuote, ...prev]);
-    syncQuotationToCloud(newQuote);
+    upsertQuotation(newQuote);
 
     return newQuote;
   };
 
   const deleteQuotation = (id: string) => {
     setQuotations((prev) => prev.filter((q) => q.id !== id));
-    deleteQuotationFromCloud(id);
+    deleteQuotationById(id);
   };
 
   // Contract Templates Methods
@@ -4202,7 +3828,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       updatedAt: now,
     };
     setContractTemplates((prev) => [newTmpl, ...prev]);
-    syncContractTemplateToCloud(newTmpl);
+    upsertContractTemplate(newTmpl);
     return newTmpl;
   };
 
@@ -4213,12 +3839,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       updatedAt: now,
     };
     setContractTemplates((prev) => prev.map((t) => (t.id === updated.id ? itemWithTime : t)));
-    syncContractTemplateToCloud(itemWithTime);
+    upsertContractTemplate(itemWithTime);
   };
 
   const deleteContractTemplate = (templateId: string) => {
     setContractTemplates((prev) => prev.filter((t) => t.id !== templateId));
-    deleteContractTemplateFromCloud(templateId);
+    deleteContractTemplateById(templateId);
   };
 
   const duplicateContractTemplate = (templateId: string): ContractTemplate | null => {
@@ -4238,7 +3864,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       updatedAt: now,
     };
     setContractTemplates((prev) => [copy, ...prev]);
-    syncContractTemplateToCloud(copy);
+    upsertContractTemplate(copy);
     return copy;
   };
 
@@ -4322,7 +3948,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         ? prev.map((q) => (q.id === updatedQuote.id ? updatedQuote : q))
         : [updatedQuote, ...prev];
     });
-    syncQuotationToCloud(updatedQuote);
+    upsertQuotation(updatedQuote);
 
     // 2. Update Customer stage to 'contract_signed'
     setCustomers((prev) => {
@@ -4334,7 +3960,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         }
         return c;
       });
-      if (custToUpdate) syncCustomerToCloud(custToUpdate);
+      if (custToUpdate) upsertCustomer(custToUpdate);
       return updated;
     });
 
@@ -4497,7 +4123,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       ...contractDetails,
     };
     setContracts((prev) => [newContract, ...prev]);
-    syncContractToCloud(newContract);
+    upsertContract(newContract);
 
     // 4. AUTOMATIC SPLIT: 1 Bảng Giữ Hàng (Reserve List) + 1 Bảng Đặt Hàng (Order List)
     const newReserveList: ReserveItem[] = [];
@@ -4674,17 +4300,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     // Cập nhật State & Cloud Firestore
     const updatedInventoryList = Array.from(updatedInventoryMap.values());
     setInventory(updatedInventoryList);
-    batchSyncInventoryToCloud(updatedInventoryList);
+    batchUpsertInventory(updatedInventoryList);
 
     setReserveItems((prev) => {
       const merged = [...newReserveList, ...prev];
-      batchSyncReservesToCloud(newReserveList);
+      batchUpsertReserves(newReserveList);
       return merged;
     });
 
     setOrderItems((prev) => {
       const merged = [...newOrderList, ...prev];
-      batchSyncOrdersToCloud(newOrderList);
+      batchUpsertOrders(newOrderList);
       return merged;
     });
 
@@ -4719,7 +4345,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const updateContract = (updated: Contract) => {
     setContracts((prev) => prev.map((c) => (c.id === updated.id ? updated : c)));
-    syncContractToCloud(updated);
+    upsertContract(updated);
   };
 
   const updateContractMilestoneStatus = (
@@ -4737,7 +4363,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         }
         return c;
       });
-      if (targetContract) syncContractToCloud(targetContract);
+      if (targetContract) upsertContract(targetContract);
       return updated;
     });
   };
@@ -4844,7 +4470,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const targetRes: ReserveItem = { ...oldItem, status };
 
       const updated = prev.map((r) => (r.id === id ? targetRes : r));
-      syncReserveItemToCloud(targetRes);
+      upsertReserveItem(targetRes);
 
       // Handle stock balance changes:
       const wasDispatched = previousStatus === 'dispatched' || previousStatus === 'shipped';
@@ -4866,7 +4492,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             }
             return inv;
           });
-          if (updatedInv) syncInventoryItemToCloud(updatedInv);
+          if (updatedInv) upsertInventoryItem(updatedInv);
           saveInventoryToIndexedDB(newInv);
           return newInv;
         });
@@ -4887,7 +4513,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             }
             return inv;
           });
-          if (updatedInv) syncInventoryItemToCloud(updatedInv);
+          if (updatedInv) upsertInventoryItem(updatedInv);
           saveInventoryToIndexedDB(newInv);
           return newInv;
         });
@@ -4934,7 +4560,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         timeline: [timelineEvent, ...(target.timeline || [])],
       };
 
-      syncReserveItemToCloud(updatedRes);
+      upsertReserveItem(updatedRes);
       return prev.map((r) => (r.id === reserveId ? updatedRes : r));
     });
   };
@@ -4988,7 +4614,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               totalQuantity: afterOnHand,
               updatedAt: new Date().toISOString().split('T')[0],
             };
-            syncInventoryItemToCloud(updatedInv);
+            upsertInventoryItem(updatedInv);
             return updatedInv;
           }
           return inv;
@@ -5014,7 +4640,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         notes: `Xuất kho bàn giao HĐ ${target.contractNumber} (${target.customerName})`,
       });
 
-      syncReserveItemToCloud(updatedRes);
+      upsertReserveItem(updatedRes);
       return prev.map((r) => (r.id === reserveId ? updatedRes : r));
     });
   };
@@ -5048,7 +4674,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         timeline: [timelineEvent, ...(target.timeline || [])],
       };
 
-      syncReserveItemToCloud(updatedRes);
+      upsertReserveItem(updatedRes);
       return prev.map((r) => (r.id === reserveId ? updatedRes : r));
     });
   };
@@ -5093,7 +4719,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         notes: `Hủy giữ hàng HĐ ${target.contractNumber} (${target.customerName}): ${reason || 'Không có lý do'}`,
       });
 
-      syncReserveItemToCloud(updatedRes);
+      upsertReserveItem(updatedRes);
       return prev.map((r) => (r.id === reserveId ? updatedRes : r));
     });
   };
@@ -5102,7 +4728,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setReserveItems((prev) => {
       const oldItem = prev.find((r) => r.id === item.id);
       const updated = prev.map((r) => (r.id === item.id ? item : r));
-      syncReserveItemToCloud(item);
+      upsertReserveItem(item);
 
       // Check if status changed regarding dispatched
       if (oldItem) {
@@ -5124,7 +4750,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               }
               return inv;
             });
-            if (updatedInv) syncInventoryItemToCloud(updatedInv);
+            if (updatedInv) upsertInventoryItem(updatedInv);
             saveInventoryToIndexedDB(newInv);
             return newInv;
           });
@@ -5143,7 +4769,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               }
               return inv;
             });
-            if (updatedInv) syncInventoryItemToCloud(updatedInv);
+            if (updatedInv) upsertInventoryItem(updatedInv);
             saveInventoryToIndexedDB(newInv);
             return newInv;
           });
@@ -5168,7 +4794,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         }
         return o;
       });
-      if (targetOrder) syncOrderItemToCloud(targetOrder);
+      if (targetOrder) upsertOrderItem(targetOrder);
       return updated;
     });
   };
@@ -5213,7 +4839,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         timeline: [timelineEvent, ...(target.timeline || [])],
       };
 
-      syncOrderItemToCloud(updatedOrder);
+      upsertOrderItem(updatedOrder);
       return prev.map((o) => (o.id === orderId ? updatedOrder : o));
     });
   };
@@ -5225,7 +4851,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const updateOrderItem = (item: OrderItem) => {
     setOrderItems((prev) => {
       const updated = prev.map((o) => (o.id === item.id ? item : o));
-      syncOrderItemToCloud(item);
+      upsertOrderItem(item);
       return updated;
     });
   };
@@ -5279,7 +4905,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const updatedList = [newPO, ...purchaseOrders];
     setPurchaseOrders(updatedList);
     safeSetLocalStorage(STORAGE_KEYS.PURCHASE_ORDERS, updatedList);
-    syncPurchaseOrderToCloud(newPO);
+    upsertPurchaseOrder(newPO);
 
     // Update status of linked OrderItems to 'ordered' if they were 'pending'
     const linkedOrderItemIds = new Set<string>();
@@ -5294,7 +4920,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         const updated = prev.map((o) => {
           if (linkedOrderItemIds.has(o.id) && (o.status === 'pending' || o.status === 'pending_order')) {
             const updatedOrder: OrderItem = { ...o, status: 'ordered' };
-            syncOrderItemToCloud(updatedOrder);
+            upsertOrderItem(updatedOrder);
             return updatedOrder;
           }
           return o;
@@ -5315,7 +4941,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setPurchaseOrders((prev) => {
       const updated = prev.map((p) => (p.id === normalized.id ? normalized : p));
       safeSetLocalStorage(STORAGE_KEYS.PURCHASE_ORDERS, updated);
-      syncPurchaseOrderToCloud(normalized);
+      upsertPurchaseOrder(normalized);
       return updated;
     });
   };
@@ -5333,7 +4959,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         STORAGE_KEYS.PURCHASE_ORDERS,
         prev.map((p) => (p.id === poId ? updated : p))
       );
-      syncPurchaseOrderToCloud(updated);
+      upsertPurchaseOrder(updated);
       return prev.map((p) => (p.id === poId ? updated : p));
     });
   };
@@ -5342,7 +4968,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setPurchaseOrders((prev) => {
       const updated = prev.filter((p) => p.id !== poId);
       safeSetLocalStorage(STORAGE_KEYS.PURCHASE_ORDERS, updated);
-      deletePurchaseOrderFromCloud(poId);
+      deletePurchaseOrderById(poId);
       return updated;
     });
   };
@@ -5394,12 +5020,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const newPOList = purchaseOrders.map((p) => (p.id === poId ? updatedPO : p));
     setPurchaseOrders(newPOList);
     safeSetLocalStorage(STORAGE_KEYS.PURCHASE_ORDERS, newPOList);
-    syncPurchaseOrderToCloud(updatedPO);
+    upsertPurchaseOrder(updatedPO);
 
     // 2. Add StockInVoucher
     const newVouchers = [stockInVoucher, ...stockInVouchers];
     setStockInVouchers(newVouchers);
-    syncStockInVoucherToCloud(stockInVoucher);
+    upsertStockInVoucher(stockInVoucher);
 
     // 3. Update OrderItems (Sales Requests)
     if (updatedOrderItems.length > 0) {
@@ -5413,7 +5039,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       });
       setOrderItems(newOrders);
       safeSetLocalStorage(STORAGE_KEYS.ORDERS, newOrders);
-      batchSyncOrdersToCloud(updatedOrderItems);
+      batchUpsertOrders(updatedOrderItems);
     }
 
     // 4. Add Created ReserveItems
@@ -5421,7 +5047,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const newReserves = [...reserveItems, ...createdReserveItems];
       setReserveItems(newReserves);
       safeSetLocalStorage(STORAGE_KEYS.RESERVES, newReserves);
-      batchSyncReservesToCloud(createdReserveItems);
+      batchUpsertReserves(createdReserveItems);
     }
 
     // 5. Update Inventory (On Hand += actual received, Reserved += allocated to Sales, Available = On Hand - Reserved)
@@ -5486,11 +5112,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     setInventory(newInventory);
     saveInventoryToIndexedDB(newInventory);
-    batchSyncInventoryToCloud(newInventory.filter((i) => receivedBySku[i.sku.toUpperCase()] > 0));
+    batchUpsertInventory(newInventory.filter((i) => receivedBySku[i.sku.toUpperCase()] > 0));
 
     if (newTransactions.length > 0) {
       setStockTransactions((prev) => [...newTransactions, ...prev]);
-      batchSyncStockTransactionsToCloud(newTransactions);
+      batchUpsertStockTransactions(newTransactions);
     }
 
     return stockInVoucher;
@@ -5533,7 +5159,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         safeSetLocalStorage(STORAGE_KEYS.CUSTOMERS, remaining);
         return remaining;
       });
-      await clearTenantCustomersFromCloud(myOrgId);
+      await deleteCustomerById(myOrgId);
     }
 
     // 2. Clear Products for THIS tenant only (other tenants' products preserved in state & IndexedDB)
@@ -5546,7 +5172,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         return remaining;
       });
       await clearTenantProductsFromIndexedDB(myOrgId);
-      await clearTenantProductsFromCloud(myOrgId);
+      await clearProductsByOrg(myOrgId);
     }
 
     // 3. Clear Inventory for THIS tenant only
@@ -5559,7 +5185,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         return remaining;
       });
       await clearTenantInventoryFromIndexedDB(myOrgId);
-      await clearTenantInventoryFromCloud(myOrgId);
+      await clearInventoryByOrg(myOrgId);
     }
 
     // 4. Clear Quotations & Contracts for THIS tenant only
@@ -5574,8 +5200,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         safeSetLocalStorage(STORAGE_KEYS.CONTRACTS, remaining);
         return remaining;
       });
-      await clearTenantQuotationsFromCloud(myOrgId);
-      await clearTenantContractsFromCloud(myOrgId);
+      await clearQuotationsByOrg(myOrgId);
+      await clearContractsByOrg(myOrgId);
     }
 
     // 5. Clear Reserves, Orders, Purchase Orders & Vouchers for THIS tenant only
@@ -5595,10 +5221,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         safeSetLocalStorage(STORAGE_KEYS.PURCHASE_ORDERS, remaining);
         return remaining;
       });
-      await clearTenantReservesFromCloud(myOrgId);
-      await clearTenantOrdersFromCloud(myOrgId);
-      await clearTenantStockVouchersFromCloud(myOrgId);
-      await clearTenantPurchaseOrdersFromCloud(myOrgId);
+      await clearReservesByOrg(myOrgId);
+      await clearOrdersByOrg(myOrgId);
+      await clearStockTransactionsByOrg(myOrgId);
+      await clearStockInVouchersByOrg(myOrgId);
+      await clearStockOutVouchersByOrg(myOrgId);
+      await clearStockAuditVouchersByOrg(myOrgId);
+      await clearPurchaseOrdersByOrg(myOrgId);
     }
 
     setLastCloudSyncTime(new Date());

@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useRef } from 'react';
 import { useApp } from '../../context/AppContext';
-import { ProductPriceItem, InventoryItem } from '../../types';
+import { ProductPriceItem, InventoryItem, resolveOrganizationId } from '../../types';
 import { formatVND, exportProductsToExcel, downloadProductTemplateExcel } from '../../utils/formatters';
 import { ProductImportModal } from './ProductImportModal';
 import { ProductImageImportModal } from './ProductImageImportModal';
@@ -48,7 +48,6 @@ const ProductPriceMasterContent: React.FC = () => {
     clearSpecificData,
     currentUser,
     companyScope,
-    resolveOrganizationId,
     users,
   } = useApp();
 
