@@ -53,6 +53,8 @@ import {
   migrateAndCleanupLegacyStorage,
   safeSetLocalStorage,
   safeGetLocalStorage,
+  getTenantStorageKey,
+  loadTenantDataWithFallback,
   STORAGE_KEYS,
 } from '../utils/localDB';
 import { normalizeProductPriceItem } from '../utils/priceImportEngine';
@@ -450,7 +452,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [isAuthModalOpen, setIsAuthModalOpen] = useState<boolean>(false);
 
   const [customers, setCustomers] = useState<Customer[]>(() => {
-    return safeGetLocalStorage<Customer[]>(STORAGE_KEYS.CUSTOMERS, INITIAL_CUSTOMERS);
+    const savedId = safeGetLocalStorage<string>(STORAGE_KEYS.CURRENT_USER_ID, '');
+    const currentList = safeGetLocalStorage<User[]>(STORAGE_KEYS.USERS, INITIAL_USERS);
+    const activeUser = currentList.find((u) => u.id === savedId) || INITIAL_USERS[0];
+    const orgId = activeUser.organizationId || resolveOrganizationId(activeUser, currentList);
+    return loadTenantDataWithFallback<Customer[]>(STORAGE_KEYS.CUSTOMERS, orgId, INITIAL_CUSTOMERS);
   });
 
   const [isProductsHydrated, setIsProductsHydrated] = useState<boolean>(false);
@@ -466,11 +472,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [inventory, setInventory] = useState<InventoryItem[]>(INITIAL_INVENTORY);
 
   const [quotations, setQuotations] = useState<Quotation[]>(() => {
-    return safeGetLocalStorage<Quotation[]>(STORAGE_KEYS.QUOTATIONS, INITIAL_QUOTATIONS);
+    const savedId = safeGetLocalStorage<string>(STORAGE_KEYS.CURRENT_USER_ID, '');
+    const currentList = safeGetLocalStorage<User[]>(STORAGE_KEYS.USERS, INITIAL_USERS);
+    const activeUser = currentList.find((u) => u.id === savedId) || INITIAL_USERS[0];
+    const orgId = activeUser.organizationId || resolveOrganizationId(activeUser, currentList);
+    return loadTenantDataWithFallback<Quotation[]>(STORAGE_KEYS.QUOTATIONS, orgId, INITIAL_QUOTATIONS);
   });
 
   const [contracts, setContracts] = useState<Contract[]>(() => {
-    return safeGetLocalStorage<Contract[]>(STORAGE_KEYS.CONTRACTS, INITIAL_CONTRACTS);
+    const savedId = safeGetLocalStorage<string>(STORAGE_KEYS.CURRENT_USER_ID, '');
+    const currentList = safeGetLocalStorage<User[]>(STORAGE_KEYS.USERS, INITIAL_USERS);
+    const activeUser = currentList.find((u) => u.id === savedId) || INITIAL_USERS[0];
+    const orgId = activeUser.organizationId || resolveOrganizationId(activeUser, currentList);
+    return loadTenantDataWithFallback<Contract[]>(STORAGE_KEYS.CONTRACTS, orgId, INITIAL_CONTRACTS);
   });
 
   const [contractTemplates, setContractTemplates] = useState<ContractTemplate[]>(() => {
@@ -484,20 +498,98 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [contractModalQuote, setContractModalQuote] = useState<Quotation | null>(null);
 
   const [reserveItems, setReserveItems] = useState<ReserveItem[]>(() => {
-    return safeGetLocalStorage<ReserveItem[]>(STORAGE_KEYS.RESERVES, INITIAL_RESERVE_ITEMS);
+    const savedId = safeGetLocalStorage<string>(STORAGE_KEYS.CURRENT_USER_ID, '');
+    const currentList = safeGetLocalStorage<User[]>(STORAGE_KEYS.USERS, INITIAL_USERS);
+    const activeUser = currentList.find((u) => u.id === savedId) || INITIAL_USERS[0];
+    const orgId = activeUser.organizationId || resolveOrganizationId(activeUser, currentList);
+    return loadTenantDataWithFallback<ReserveItem[]>(STORAGE_KEYS.RESERVES, orgId, INITIAL_RESERVE_ITEMS);
   });
 
   const [orderItems, setOrderItems] = useState<OrderItem[]>(() => {
-    return safeGetLocalStorage<OrderItem[]>(STORAGE_KEYS.ORDERS, INITIAL_ORDER_ITEMS);
+    const savedId = safeGetLocalStorage<string>(STORAGE_KEYS.CURRENT_USER_ID, '');
+    const currentList = safeGetLocalStorage<User[]>(STORAGE_KEYS.USERS, INITIAL_USERS);
+    const activeUser = currentList.find((u) => u.id === savedId) || INITIAL_USERS[0];
+    const orgId = activeUser.organizationId || resolveOrganizationId(activeUser, currentList);
+    return loadTenantDataWithFallback<OrderItem[]>(STORAGE_KEYS.ORDERS, orgId, INITIAL_ORDER_ITEMS);
   });
 
   const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>(() => {
-    const saved = safeGetLocalStorage<any[]>(STORAGE_KEYS.PURCHASE_ORDERS, []);
+    const savedId = safeGetLocalStorage<string>(STORAGE_KEYS.CURRENT_USER_ID, '');
+    const currentList = safeGetLocalStorage<User[]>(STORAGE_KEYS.USERS, INITIAL_USERS);
+    const activeUser = currentList.find((u) => u.id === savedId) || INITIAL_USERS[0];
+    const orgId = activeUser.organizationId || resolveOrganizationId(activeUser, currentList);
+    const saved = loadTenantDataWithFallback<any[]>(STORAGE_KEYS.PURCHASE_ORDERS, orgId, []);
     if (Array.isArray(saved) && saved.length > 0) {
       return saved.map((p) => normalizePurchaseOrder(p));
     }
     return [];
   });
+
+  // Master Company Information (Synced to all C1 & C2 users)
+  const [companyInfo, setCompanyInfo] = useState<CompanyInfo>(() => {
+    return safeGetLocalStorage<CompanyInfo>(STORAGE_KEYS.COMPANY, INITIAL_COMPANY_INFO);
+  });
+
+  // Warehouse Vouchers & Stock Transaction Ledger State (Persistent Local Cache)
+  const [stockTransactions, setStockTransactions] = useState<StockTransaction[]>(() => {
+    const savedId = safeGetLocalStorage<string>(STORAGE_KEYS.CURRENT_USER_ID, '');
+    const currentList = safeGetLocalStorage<User[]>(STORAGE_KEYS.USERS, INITIAL_USERS);
+    const activeUser = currentList.find((u) => u.id === savedId) || INITIAL_USERS[0];
+    const orgId = activeUser.organizationId || resolveOrganizationId(activeUser, currentList);
+    return loadTenantDataWithFallback<StockTransaction[]>(STORAGE_KEYS.STOCK_TRANSACTIONS, orgId, []);
+  });
+  const [stockInVouchers, setStockInVouchers] = useState<StockInVoucher[]>(() => {
+    const savedId = safeGetLocalStorage<string>(STORAGE_KEYS.CURRENT_USER_ID, '');
+    const currentList = safeGetLocalStorage<User[]>(STORAGE_KEYS.USERS, INITIAL_USERS);
+    const activeUser = currentList.find((u) => u.id === savedId) || INITIAL_USERS[0];
+    const orgId = activeUser.organizationId || resolveOrganizationId(activeUser, currentList);
+    return loadTenantDataWithFallback<StockInVoucher[]>(STORAGE_KEYS.STOCK_IN_VOUCHERS, orgId, []);
+  });
+  const [stockOutVouchers, setStockOutVouchers] = useState<StockOutVoucher[]>(() => {
+    const savedId = safeGetLocalStorage<string>(STORAGE_KEYS.CURRENT_USER_ID, '');
+    const currentList = safeGetLocalStorage<User[]>(STORAGE_KEYS.USERS, INITIAL_USERS);
+    const activeUser = currentList.find((u) => u.id === savedId) || INITIAL_USERS[0];
+    const orgId = activeUser.organizationId || resolveOrganizationId(activeUser, currentList);
+    return loadTenantDataWithFallback<StockOutVoucher[]>(STORAGE_KEYS.STOCK_OUT_VOUCHERS, orgId, []);
+  });
+  const [stockAuditVouchers, setStockAuditVouchers] = useState<StockAuditVoucher[]>(() => {
+    const savedId = safeGetLocalStorage<string>(STORAGE_KEYS.CURRENT_USER_ID, '');
+    const currentList = safeGetLocalStorage<User[]>(STORAGE_KEYS.USERS, INITIAL_USERS);
+    const activeUser = currentList.find((u) => u.id === savedId) || INITIAL_USERS[0];
+    const orgId = activeUser.organizationId || resolveOrganizationId(activeUser, currentList);
+    return loadTenantDataWithFallback<StockAuditVoucher[]>(STORAGE_KEYS.STOCK_AUDIT_VOUCHERS, orgId, []);
+  });
+
+  // Reusable Tenant Local Data Hydrator (Fast Local Hydration before Cloud sync)
+  const hydrateTenantLocalData = (orgId: string) => {
+    const c = loadTenantDataWithFallback<Customer[]>(STORAGE_KEYS.CUSTOMERS, orgId, INITIAL_CUSTOMERS);
+    setCustomers(c);
+    const q = loadTenantDataWithFallback<Quotation[]>(STORAGE_KEYS.QUOTATIONS, orgId, INITIAL_QUOTATIONS);
+    setQuotations(q);
+    const ct = loadTenantDataWithFallback<Contract[]>(STORAGE_KEYS.CONTRACTS, orgId, INITIAL_CONTRACTS);
+    setContracts(ct);
+    const r = loadTenantDataWithFallback<ReserveItem[]>(STORAGE_KEYS.RESERVES, orgId, INITIAL_RESERVE_ITEMS);
+    setReserveItems(r);
+    const o = loadTenantDataWithFallback<OrderItem[]>(STORAGE_KEYS.ORDERS, orgId, INITIAL_ORDER_ITEMS);
+    setOrderItems(o);
+    const po = loadTenantDataWithFallback<PurchaseOrder[]>(STORAGE_KEYS.PURCHASE_ORDERS, orgId, []);
+    setPurchaseOrders(Array.isArray(po) ? po.map((p) => normalizePurchaseOrder(p)) : []);
+    const tx = loadTenantDataWithFallback<StockTransaction[]>(STORAGE_KEYS.STOCK_TRANSACTIONS, orgId, []);
+    setStockTransactions(tx);
+    const sin = loadTenantDataWithFallback<StockInVoucher[]>(STORAGE_KEYS.STOCK_IN_VOUCHERS, orgId, []);
+    setStockInVouchers(sin);
+    const sout = loadTenantDataWithFallback<StockOutVoucher[]>(STORAGE_KEYS.STOCK_OUT_VOUCHERS, orgId, []);
+    setStockOutVouchers(sout);
+    const saud = loadTenantDataWithFallback<StockAuditVoucher[]>(STORAGE_KEYS.STOCK_AUDIT_VOUCHERS, orgId, []);
+    setStockAuditVouchers(saud);
+
+    setIsCustomersHydrated(true);
+    setIsQuotationsHydrated(true);
+    setIsContractsHydrated(true);
+    setIsReservesHydrated(true);
+    setIsOrdersHydrated(true);
+    setIsPurchaseOrdersHydrated(true);
+  };
 
   // BOOTSTRAP & AUTH RESTORE: Listen to Firebase Auth state & Hydrate tenant data
   useEffect(() => {
@@ -523,7 +615,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             safeSetLocalStorage(STORAGE_KEYS.IS_AUTHENTICATED, 'true');
             safeSetLocalStorage(STORAGE_KEYS.CURRENT_USER_ID, profile.id);
 
-            // Load tenant cache from IndexedDB
+            // Load tenant cache from IndexedDB & LocalStorage
             const orgId = profile.organizationId || resolveOrganizationId(profile, users);
             if (orgId) {
               const tenantProds = await loadProductsFromIndexedDB(orgId);
@@ -534,6 +626,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               if (tenantInv && tenantInv.length > 0 && isMounted) {
                 setInventory(tenantInv);
               }
+              hydrateTenantLocalData(orgId);
             }
             setIsProductsHydrated(true);
             setIsInventoryHydrated(true);
@@ -561,6 +654,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             if (tenantInv && tenantInv.length > 0 && isMounted) {
               setInventory(tenantInv);
             }
+            hydrateTenantLocalData(orgId);
           }
           setIsProductsHydrated(true);
           setIsInventoryHydrated(true);
@@ -631,6 +725,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         console.warn('[LocalDB] Inventory bootstrap error:', err);
         if (isMounted) setIsInventoryHydrated(true);
       }
+
+      // Hydrate all tenant datasets
+      if (isMounted) {
+        hydrateTenantLocalData(activeOrgId);
+      }
     };
 
     bootstrapStorage();
@@ -640,25 +739,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       unsubscribeAuth();
     };
   }, []);
-
-  // Master Company Information (Synced to all C1 & C2 users)
-  const [companyInfo, setCompanyInfo] = useState<CompanyInfo>(() => {
-    return safeGetLocalStorage<CompanyInfo>(STORAGE_KEYS.COMPANY, INITIAL_COMPANY_INFO);
-  });
-
-  // Warehouse Vouchers & Stock Transaction Ledger State (Persistent Local Cache)
-  const [stockTransactions, setStockTransactions] = useState<StockTransaction[]>(() => {
-    return safeGetLocalStorage<StockTransaction[]>(STORAGE_KEYS.STOCK_TRANSACTIONS, []);
-  });
-  const [stockInVouchers, setStockInVouchers] = useState<StockInVoucher[]>(() => {
-    return safeGetLocalStorage<StockInVoucher[]>(STORAGE_KEYS.STOCK_IN_VOUCHERS, []);
-  });
-  const [stockOutVouchers, setStockOutVouchers] = useState<StockOutVoucher[]>(() => {
-    return safeGetLocalStorage<StockOutVoucher[]>(STORAGE_KEYS.STOCK_OUT_VOUCHERS, []);
-  });
-  const [stockAuditVouchers, setStockAuditVouchers] = useState<StockAuditVoucher[]>(() => {
-    return safeGetLocalStorage<StockAuditVoucher[]>(STORAGE_KEYS.STOCK_AUDIT_VOUCHERS, []);
-  });
 
   // Profile & Company Identity Modal
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
@@ -1248,78 +1328,110 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, [currentUser]);
 
   useEffect(() => {
-    if (!isCustomersHydrated) return;
+    if (!isAuthenticated || !isCustomersHydrated) return;
+    const currentOrgId = currentUser.organizationId || resolveOrganizationId(currentUser, users);
+    if (!currentOrgId) return;
+    safeSetLocalStorage(getTenantStorageKey(STORAGE_KEYS.CUSTOMERS, currentOrgId), customers);
     safeSetLocalStorage(STORAGE_KEYS.CUSTOMERS, customers);
-  }, [customers, isCustomersHydrated]);
+  }, [customers, isCustomersHydrated, isAuthenticated, currentUser, users]);
 
   useEffect(() => {
-    if (!isProductsHydrated) {
-      return;
-    }
+    if (!isAuthenticated || !isProductsHydrated) return;
     const currentOrgId = currentUser.organizationId || resolveOrganizationId(currentUser, users);
+    if (!currentOrgId) return;
     saveProductsToIndexedDB(products, currentOrgId).catch((err) => {
       console.warn('[LocalDB] Auto-save products to IndexedDB warning:', err);
     });
-  }, [products, isProductsHydrated, currentUser, users]);
+  }, [products, isProductsHydrated, isAuthenticated, currentUser, users]);
 
   useEffect(() => {
-    if (!isInventoryHydrated) {
-      return;
-    }
+    if (!isAuthenticated || !isInventoryHydrated) return;
     const currentOrgId = currentUser.organizationId || resolveOrganizationId(currentUser, users);
+    if (!currentOrgId) return;
     saveInventoryToIndexedDB(inventory, currentOrgId).catch((err) => {
       console.warn('[LocalDB] Auto-save inventory to IndexedDB warning:', err);
     });
-  }, [inventory, isInventoryHydrated, currentUser, users]);
+  }, [inventory, isInventoryHydrated, isAuthenticated, currentUser, users]);
 
   useEffect(() => {
-    if (!isQuotationsHydrated) return;
+    if (!isAuthenticated || !isQuotationsHydrated) return;
+    const currentOrgId = currentUser.organizationId || resolveOrganizationId(currentUser, users);
+    if (!currentOrgId) return;
+    safeSetLocalStorage(getTenantStorageKey(STORAGE_KEYS.QUOTATIONS, currentOrgId), quotations);
     safeSetLocalStorage(STORAGE_KEYS.QUOTATIONS, quotations);
-  }, [quotations, isQuotationsHydrated]);
+  }, [quotations, isQuotationsHydrated, isAuthenticated, currentUser, users]);
 
   useEffect(() => {
-    if (!isContractsHydrated) return;
+    if (!isAuthenticated || !isContractsHydrated) return;
+    const currentOrgId = currentUser.organizationId || resolveOrganizationId(currentUser, users);
+    if (!currentOrgId) return;
+    safeSetLocalStorage(getTenantStorageKey(STORAGE_KEYS.CONTRACTS, currentOrgId), contracts);
     safeSetLocalStorage(STORAGE_KEYS.CONTRACTS, contracts);
-  }, [contracts, isContractsHydrated]);
+  }, [contracts, isContractsHydrated, isAuthenticated, currentUser, users]);
 
   useEffect(() => {
     safeSetLocalStorage(STORAGE_KEYS.CONTRACT_TEMPLATES, contractTemplates);
   }, [contractTemplates]);
 
   useEffect(() => {
-    if (!isReservesHydrated) return;
+    if (!isAuthenticated || !isReservesHydrated) return;
+    const currentOrgId = currentUser.organizationId || resolveOrganizationId(currentUser, users);
+    if (!currentOrgId) return;
+    safeSetLocalStorage(getTenantStorageKey(STORAGE_KEYS.RESERVES, currentOrgId), reserveItems);
     safeSetLocalStorage(STORAGE_KEYS.RESERVES, reserveItems);
-  }, [reserveItems, isReservesHydrated]);
+  }, [reserveItems, isReservesHydrated, isAuthenticated, currentUser, users]);
 
   useEffect(() => {
-    if (!isOrdersHydrated) return;
+    if (!isAuthenticated || !isOrdersHydrated) return;
+    const currentOrgId = currentUser.organizationId || resolveOrganizationId(currentUser, users);
+    if (!currentOrgId) return;
+    safeSetLocalStorage(getTenantStorageKey(STORAGE_KEYS.ORDERS, currentOrgId), orderItems);
     safeSetLocalStorage(STORAGE_KEYS.ORDERS, orderItems);
-  }, [orderItems, isOrdersHydrated]);
+  }, [orderItems, isOrdersHydrated, isAuthenticated, currentUser, users]);
 
   useEffect(() => {
-    if (!isPurchaseOrdersHydrated) return;
+    if (!isAuthenticated || !isPurchaseOrdersHydrated) return;
+    const currentOrgId = currentUser.organizationId || resolveOrganizationId(currentUser, users);
+    if (!currentOrgId) return;
+    safeSetLocalStorage(getTenantStorageKey(STORAGE_KEYS.PURCHASE_ORDERS, currentOrgId), purchaseOrders);
     safeSetLocalStorage(STORAGE_KEYS.PURCHASE_ORDERS, purchaseOrders);
-  }, [purchaseOrders, isPurchaseOrdersHydrated]);
+  }, [purchaseOrders, isPurchaseOrdersHydrated, isAuthenticated, currentUser, users]);
 
   useEffect(() => {
     safeSetLocalStorage(STORAGE_KEYS.COMPANY, companyInfo);
   }, [companyInfo]);
 
   useEffect(() => {
+    if (!isAuthenticated) return;
+    const currentOrgId = currentUser.organizationId || resolveOrganizationId(currentUser, users);
+    if (!currentOrgId) return;
+    safeSetLocalStorage(getTenantStorageKey(STORAGE_KEYS.STOCK_TRANSACTIONS, currentOrgId), stockTransactions);
     safeSetLocalStorage(STORAGE_KEYS.STOCK_TRANSACTIONS, stockTransactions);
-  }, [stockTransactions]);
+  }, [stockTransactions, isAuthenticated, currentUser, users]);
 
   useEffect(() => {
+    if (!isAuthenticated) return;
+    const currentOrgId = currentUser.organizationId || resolveOrganizationId(currentUser, users);
+    if (!currentOrgId) return;
+    safeSetLocalStorage(getTenantStorageKey(STORAGE_KEYS.STOCK_IN_VOUCHERS, currentOrgId), stockInVouchers);
     safeSetLocalStorage(STORAGE_KEYS.STOCK_IN_VOUCHERS, stockInVouchers);
-  }, [stockInVouchers]);
+  }, [stockInVouchers, isAuthenticated, currentUser, users]);
 
   useEffect(() => {
+    if (!isAuthenticated) return;
+    const currentOrgId = currentUser.organizationId || resolveOrganizationId(currentUser, users);
+    if (!currentOrgId) return;
+    safeSetLocalStorage(getTenantStorageKey(STORAGE_KEYS.STOCK_OUT_VOUCHERS, currentOrgId), stockOutVouchers);
     safeSetLocalStorage(STORAGE_KEYS.STOCK_OUT_VOUCHERS, stockOutVouchers);
-  }, [stockOutVouchers]);
+  }, [stockOutVouchers, isAuthenticated, currentUser, users]);
 
   useEffect(() => {
+    if (!isAuthenticated) return;
+    const currentOrgId = currentUser.organizationId || resolveOrganizationId(currentUser, users);
+    if (!currentOrgId) return;
+    safeSetLocalStorage(getTenantStorageKey(STORAGE_KEYS.STOCK_AUDIT_VOUCHERS, currentOrgId), stockAuditVouchers);
     safeSetLocalStorage(STORAGE_KEYS.STOCK_AUDIT_VOUCHERS, stockAuditVouchers);
-  }, [stockAuditVouchers]);
+  }, [stockAuditVouchers, isAuthenticated, currentUser, users]);
 
   // Automated Self-Healing Reconciliation:
   // Synchronizes sales representative and customer names across ReserveItems and OrderItems with current Customer Master.
@@ -1808,7 +1920,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return [...prev, loggedInUser];
     });
 
-    // 3. Load tenant-specific products & inventory from IndexedDB
+    // 3. Load tenant-specific products & inventory from IndexedDB & LocalStorage
     const orgId = resolveOrganizationId(user, users);
     if (orgId) {
       const cachedProds = await loadProductsFromIndexedDB(orgId);
@@ -1823,6 +1935,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       } else {
         setInventory([]);
       }
+
+      // Re-hydrate all business records (customers, quotations, contracts, POs, vouchers)
+      hydrateTenantLocalData(orgId);
     }
     setIsProductsHydrated(true);
     setIsInventoryHydrated(true);
@@ -1830,8 +1945,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     // 4. Set auth state
     setCurrentUser(user);
     setIsAuthenticated(true);
-    localStorage.setItem(STORAGE_KEYS.IS_AUTHENTICATED, 'true');
-    localStorage.setItem(STORAGE_KEYS.CURRENT_USER_ID, user.id);
+    safeSetLocalStorage(STORAGE_KEYS.IS_AUTHENTICATED, 'true');
+    safeSetLocalStorage(STORAGE_KEYS.CURRENT_USER_ID, user.id);
 
     if (isUserPending(user.status)) {
       return {

@@ -321,6 +321,43 @@ export async function migrateAndCleanupLegacyStorage(): Promise<void> {
 }
 
 /**
+ * Generate a tenant-isolated storage key
+ */
+export function getTenantStorageKey(baseKey: string, orgId?: string): string {
+  const cleanOrg = (orgId || 'global').trim();
+  return `${baseKey}_${cleanOrg}`;
+}
+
+/**
+ * Safe LocalStorage getter with tenant-first lookup and fallback to global key
+ */
+export function loadTenantDataWithFallback<T>(baseKey: string, orgId: string, defaultValue: T): T {
+  try {
+    const tenantKey = getTenantStorageKey(baseKey, orgId);
+    const tenantVal = safeGetLocalStorage<T | null>(tenantKey, null);
+    if (tenantVal !== null) {
+      if (Array.isArray(tenantVal)) {
+        if (tenantVal.length > 0) return tenantVal;
+      } else {
+        return tenantVal;
+      }
+    }
+    // Fallback to legacy global key
+    const globalVal = safeGetLocalStorage<T | null>(baseKey, null);
+    if (globalVal !== null) {
+      if (Array.isArray(globalVal)) {
+        if (globalVal.length > 0) return globalVal;
+      } else {
+        return globalVal;
+      }
+    }
+  } catch (err) {
+    console.warn(`[LocalDB] Error loading tenant data for ${baseKey} (${orgId}):`, err);
+  }
+  return defaultValue;
+}
+
+/**
  * Safe LocalStorage setter strictly for SMALL datasets (Users, Auth, Quotes, Contracts, Company).
  * Explicitly rejects storing full Products or Inventory to avoid quota exhaustion.
  */
