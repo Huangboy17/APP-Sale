@@ -90,6 +90,7 @@ import {
   setOnQuotaExceededListener,
   handleFirestoreError,
   syncUserToCloud,
+  fetchUserFromCloud,
   syncCompanyInfoToCloud,
   deleteUserFromCloud,
   syncCustomerToCloud,
@@ -544,11 +545,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (fbUser && isMounted) {
         console.log('[Firebase Auth] Session restored for user:', fbUser.email, fbUser.uid);
         try {
-          // Look up user doc from Firestore
-          const userDoc = await getDoc(doc(db, COLLECTIONS.USERS, fbUser.uid));
-          if (userDoc.exists() && isMounted) {
-            const profile = userDoc.data() as User;
+          // Look up user doc from Firestore by UID or email
+          const profile = await fetchUserFromCloud(fbUser.uid, fbUser.email || undefined);
+          if (profile && isMounted) {
             setCurrentUser(profile);
+            setUsers((prev) => {
+              const exists = prev.some((u) => u.id === profile.id || u.email.toLowerCase() === profile.email.toLowerCase());
+              if (exists) {
+                return prev.map((u) => (u.id === profile.id || u.email.toLowerCase() === profile.email.toLowerCase() ? profile : u));
+              }
+              return [...prev, profile];
+            });
             setIsAuthenticated(true);
             localStorage.setItem(STORAGE_KEYS.IS_AUTHENTICATED, 'true');
             localStorage.setItem(STORAGE_KEYS.CURRENT_USER_ID, profile.id);
@@ -699,15 +706,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [lastCloudSyncTime, setLastCloudSyncTime] = useState<Date | null>(new Date());
 
   // -------------------------------------------------------------
-  // Real-time Cloud Synchronization (Google Cloud Firestore)
+  // Real-time Cloud Synchronization: Global Metadata (Users, Company, Templates)
+  // Always active on any device so user accounts and company info are immediately available.
   // -------------------------------------------------------------
   useEffect(() => {
-    // CRITICAL: Only establish Firestore listeners when authenticated.
-    // When isAuthenticated changes (login/logout), this effect re-runs:
-    // - Login: new listeners established → Firestore delivers fresh data
-    // - Logout: cleanup runs → listeners unsubscribed
-    if (!isAuthenticated) return;
-
     let unsubs: (() => void)[] = [];
 
     // Register quota exceeded callback
@@ -715,17 +717,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setCloudSyncStatus('quota-exceeded');
     });
 
-    const initializeFirestoreRealtime = async () => {
+    const initializeGlobalRealtime = async () => {
       try {
         setCloudSyncStatus('syncing');
         await seedInitialDataIfEmpty();
 
-        // 1. Users real-time listener
+        // 1. Users real-time listener (Cross-device account discovery)
         const unsubUsers = onSnapshot(
           collection(db, COLLECTIONS.USERS),
           (snap) => {
             // CRITICAL: Merge cloud data WITH existing local users.
-            // Never discard locally-registered users that haven't synced to cloud yet.
             setUsers((prevLocalUsers) => {
               const map = new Map<string, User>();
               
@@ -768,7 +769,79 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         );
         unsubs.push(unsubUsers);
 
-        // 2. Customers real-time listener
+        // 2. Master Company Info real-time listener
+        const unsubCompany = onSnapshot(
+          collection(db, COLLECTIONS.COMPANY),
+          (snap) => {
+            if (!snap.empty) {
+              const data = snap.docs[0].data() as CompanyInfo;
+              if (data && data.name) {
+                const normalizedData: CompanyInfo = {
+                  ...data,
+                  logoUrl: data.logoUrl || data.logo || '',
+                  logo: data.logoUrl || data.logo || '',
+                };
+                setCompanyInfo(normalizedData);
+                localStorage.setItem(STORAGE_KEYS.COMPANY, JSON.stringify(normalizedData));
+              }
+            }
+            setCloudSyncStatus((prev) => (prev === 'quota-exceeded' ? 'quota-exceeded' : 'connected'));
+            setLastCloudSyncTime(new Date());
+          },
+          (err) => {
+            handleFirestoreError(err, 'Company listener');
+          }
+        );
+        unsubs.push(unsubCompany);
+
+        // 3. Contract Templates real-time listener
+        const unsubTemplates = onSnapshot(
+          collection(db, COLLECTIONS.CONTRACT_TEMPLATES),
+          (snap) => {
+            if (!snap.empty) {
+              const list: ContractTemplate[] = [];
+              snap.forEach((d) => {
+                const tmpl = d.data() as ContractTemplate;
+                if (tmpl && tmpl.id) list.push(tmpl);
+              });
+              if (list.length > 0) {
+                setContractTemplates(list);
+              }
+            }
+          },
+          (err) => {
+            handleFirestoreError(err, 'Contract Templates listener');
+          }
+        );
+        unsubs.push(unsubTemplates);
+
+        setCloudSyncStatus((prev) => (prev === 'quota-exceeded' ? 'quota-exceeded' : 'connected'));
+      } catch (err) {
+        handleFirestoreError(err, 'Global initialization error');
+      }
+    };
+
+    initializeGlobalRealtime();
+
+    return () => {
+      unsubs.forEach((unsub) => unsub());
+    };
+  }, []);
+
+  // -------------------------------------------------------------
+  // Real-time Cloud Synchronization: Authenticated Tenant Business Data
+  // Subscribes when logged in, unsubscribes on logout to prevent cross-tenant data leakage.
+  // -------------------------------------------------------------
+  useEffect(() => {
+    if (!isAuthenticated) return;
+
+    let unsubs: (() => void)[] = [];
+
+    const initializeTenantRealtime = async () => {
+      try {
+        setCloudSyncStatus('syncing');
+
+        // 1. Customers real-time listener
         const unsubCustomers = onSnapshot(
           collection(db, COLLECTIONS.CUSTOMERS),
           (snap) => {
@@ -802,7 +875,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         );
         unsubs.push(unsubCustomers);
 
-        // 3. Products real-time listener
+        // 2. Products real-time listener
         const unsubProducts = onSnapshot(
           collection(db, COLLECTIONS.PRODUCTS),
           (snap) => {
@@ -871,7 +944,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         );
         unsubs.push(unsubProducts);
 
-        // 4. Inventory real-time listener
+        // 3. Inventory real-time listener
         const unsubInventory = onSnapshot(
           collection(db, COLLECTIONS.INVENTORY),
           (snap) => {
@@ -919,7 +992,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         );
         unsubs.push(unsubInventory);
 
-        // 5. Quotations real-time listener
+        // 4. Quotations real-time listener
         const unsubQuotes = onSnapshot(
           collection(db, COLLECTIONS.QUOTATIONS),
           (snap) => {
@@ -953,7 +1026,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         );
         unsubs.push(unsubQuotes);
 
-        // 6. Contracts real-time listener
+        // 5. Contracts real-time listener
         const unsubContracts = onSnapshot(
           collection(db, COLLECTIONS.CONTRACTS),
           (snap) => {
@@ -984,7 +1057,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         );
         unsubs.push(unsubContracts);
 
-        // 7. Reserves real-time listener
+        // 6. Reserves real-time listener
         const unsubReserves = onSnapshot(
           collection(db, COLLECTIONS.RESERVES),
           (snap) => {
@@ -1004,7 +1077,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         );
         unsubs.push(unsubReserves);
 
-        // 8. Orders real-time listener
+        // 7. Orders real-time listener
         const unsubOrders = onSnapshot(
           collection(db, COLLECTIONS.ORDERS),
           (snap) => {
@@ -1024,32 +1097,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         );
         unsubs.push(unsubOrders);
 
-        // 9. Master Company Info real-time listener
-        const unsubCompany = onSnapshot(
-          collection(db, COLLECTIONS.COMPANY),
-          (snap) => {
-            if (!snap.empty) {
-              const data = snap.docs[0].data() as CompanyInfo;
-              if (data && data.name) {
-                const normalizedData: CompanyInfo = {
-                  ...data,
-                  logoUrl: data.logoUrl || data.logo || '',
-                  logo: data.logoUrl || data.logo || '',
-                };
-                setCompanyInfo(normalizedData);
-                localStorage.setItem(STORAGE_KEYS.COMPANY, JSON.stringify(normalizedData));
-              }
-            }
-            setCloudSyncStatus((prev) => (prev === 'quota-exceeded' ? 'quota-exceeded' : 'connected'));
-            setLastCloudSyncTime(new Date());
-          },
-          (err) => {
-            handleFirestoreError(err, 'Company listener');
-          }
-        );
-        unsubs.push(unsubCompany);
-
-        // 10. Stock Transactions real-time listener
+        // 8. Stock Transactions real-time listener
         const unsubStockTx = onSnapshot(
           collection(db, COLLECTIONS.STOCK_TRANSACTIONS),
           (snap) => {
@@ -1068,7 +1116,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         );
         unsubs.push(unsubStockTx);
 
-        // 11. Stock In Vouchers real-time listener
+        // 9. Stock In Vouchers real-time listener
         const unsubStockIn = onSnapshot(
           collection(db, COLLECTIONS.STOCK_IN_VOUCHERS),
           (snap) => {
@@ -1086,7 +1134,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         );
         unsubs.push(unsubStockIn);
 
-        // 12. Stock Out Vouchers real-time listener
+        // 10. Stock Out Vouchers real-time listener
         const unsubStockOut = onSnapshot(
           collection(db, COLLECTIONS.STOCK_OUT_VOUCHERS),
           (snap) => {
@@ -1104,7 +1152,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         );
         unsubs.push(unsubStockOut);
 
-        // 13. Stock Audit Vouchers real-time listener
+        // 11. Stock Audit Vouchers real-time listener
         const unsubStockAudit = onSnapshot(
           collection(db, COLLECTIONS.STOCK_AUDIT_VOUCHERS),
           (snap) => {
@@ -1122,7 +1170,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         );
         unsubs.push(unsubStockAudit);
 
-        // 14. Purchase Orders real-time listener (Đơn đặt NCC)
+        // 12. Purchase Orders real-time listener (Đơn đặt NCC)
         const unsubPurchaseOrders = onSnapshot(
           collection(db, COLLECTIONS.PURCHASE_ORDERS),
           (snap) => {
@@ -1141,34 +1189,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         );
         unsubs.push(unsubPurchaseOrders);
 
-        // 15. Contract Templates real-time listener
-        const unsubTemplates = onSnapshot(
-          collection(db, COLLECTIONS.CONTRACT_TEMPLATES),
-          (snap) => {
-            if (!snap.empty) {
-              const list: ContractTemplate[] = [];
-              snap.forEach((d) => {
-                const tmpl = d.data() as ContractTemplate;
-                if (tmpl && tmpl.id) list.push(tmpl);
-              });
-              if (list.length > 0) {
-                setContractTemplates(list);
-              }
-            }
-          },
-          (err) => {
-            handleFirestoreError(err, 'Contract Templates listener');
-          }
-        );
-        unsubs.push(unsubTemplates);
-
         setCloudSyncStatus((prev) => (prev === 'quota-exceeded' ? 'quota-exceeded' : 'connected'));
       } catch (err) {
-        handleFirestoreError(err, 'Initialization error');
+        handleFirestoreError(err, 'Tenant initialization error');
       }
     };
 
-    initializeFirestoreRealtime();
+    initializeTenantRealtime();
 
     return () => {
       unsubs.forEach((unsub) => unsub());
@@ -1619,16 +1646,37 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const cleanEmail = email.trim().toLowerCase();
     const userPassword = password || '123456';
 
-    // 1. Attempt Firebase Auth sign-in if connected
+    let fbUserUid: string | null = null;
+    let authError: any = null;
+
+    // 1. Attempt Firebase Auth sign-in
     try {
-      await signInWithEmailAndPassword(auth, cleanEmail, userPassword);
+      const cred = await signInWithEmailAndPassword(auth, cleanEmail, userPassword);
+      if (cred.user?.uid) {
+        fbUserUid = cred.user.uid;
+      }
     } catch (fbErr: any) {
-      console.info('[Firebase Auth] signIn note (offline or local account):', fbErr?.message || fbErr);
+      authError = fbErr;
+      console.info('[Firebase Auth] signIn error/note:', fbErr?.code, fbErr?.message || fbErr);
     }
 
-    let user = users.find((u) => u.email.toLowerCase() === cleanEmail);
+    // 2. Resolve User Profile:
+    // Check in-memory state, Firestore by UID / email (crucial for new machine/incognito), localStorage, or INITIAL_USERS
+    let user: User | null = users.find((u) => u.email.toLowerCase() === cleanEmail) || null;
 
-    // FALLBACK: If not found in current React state, check localStorage directly.
+    // Direct Firestore Cloud lookup if not in state (essential for new machine / cleared cache!)
+    if (!user) {
+      try {
+        const cloudUser = await fetchUserFromCloud(fbUserUid || undefined, cleanEmail);
+        if (cloudUser) {
+          user = cloudUser;
+        }
+      } catch (cloudErr) {
+        console.warn('[Login] Firestore direct lookup error:', cloudErr);
+      }
+    }
+
+    // Fallback: check localStorage directly
     if (!user) {
       try {
         const savedUsersStr = localStorage.getItem(STORAGE_KEYS.USERS);
@@ -1637,23 +1685,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           const localUser = savedUsers.find((u) => u.email.toLowerCase() === cleanEmail);
           if (localUser) {
             user = localUser;
-            setUsers((prev) => {
-              if (prev.find((u) => u.id === localUser.id)) return prev;
-              return [...prev, localUser];
-            });
-            syncUserToCloud(localUser);
           }
         }
-      } catch {
-        // localStorage parse error — ignore
+      } catch {}
+    }
+
+    if (!user) {
+      user = INITIAL_USERS.find((u) => u.email.toLowerCase() === cleanEmail) || null;
+    }
+
+    // If still not found anywhere
+    if (!user) {
+      if (authError?.code === 'auth/wrong-password') {
+        return {
+          success: false,
+          message: 'Mật khẩu không chính xác. Vui lòng kiểm tra lại hoặc bấm "Quên mật khẩu".',
+        };
       }
-    }
-
-    if (!user) {
-      user = INITIAL_USERS.find((u) => u.email.toLowerCase() === cleanEmail);
-    }
-
-    if (!user) {
       return {
         success: false,
         message: 'Không tìm thấy tài khoản với email này. Vui lòng kiểm tra lại hoặc bấm Đăng Ký.',
@@ -1668,16 +1716,34 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       };
     }
 
-    // Password verification
+    // Password verification (if Firebase Auth didn't already verify it, or if offline fallback)
     const expectedPassword = user.password || (user.role === 'super_admin' ? 'admin' : '123456');
-    if (password && password !== expectedPassword) {
+    if (!fbUserUid && password && password !== expectedPassword) {
       return {
         success: false,
         message: 'Mật khẩu không chính xác. Vui lòng kiểm tra lại hoặc bấm "Quên mật khẩu".',
       };
     }
 
-    // 2. Load tenant-specific products & inventory from IndexedDB
+    // If user existed in Firestore with matching password, but Firebase Auth account wasn't registered yet:
+    // Auto-create Firebase Auth account in background so subsequent logins use native Firebase Auth!
+    if (!fbUserUid && cleanEmail && userPassword) {
+      try {
+        await createUserWithEmailAndPassword(auth, cleanEmail, userPassword);
+      } catch {}
+    }
+
+    // Merge into local users state and localStorage
+    const loggedInUser = user;
+    setUsers((prev) => {
+      const exists = prev.some((u) => u.id === loggedInUser.id || u.email.toLowerCase() === cleanEmail);
+      if (exists) {
+        return prev.map((u) => (u.id === loggedInUser.id || u.email.toLowerCase() === cleanEmail ? loggedInUser : u));
+      }
+      return [...prev, loggedInUser];
+    });
+
+    // 3. Load tenant-specific products & inventory from IndexedDB
     const orgId = resolveOrganizationId(user, users);
     if (orgId) {
       const cachedProds = await loadProductsFromIndexedDB(orgId);
@@ -1696,7 +1762,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setIsProductsHydrated(true);
     setIsInventoryHydrated(true);
 
-    // 3. Set auth state
+    // 4. Set auth state
     setCurrentUser(user);
     setIsAuthenticated(true);
     localStorage.setItem(STORAGE_KEYS.IS_AUTHENTICATED, 'true');

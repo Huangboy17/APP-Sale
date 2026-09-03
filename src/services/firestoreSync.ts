@@ -3,10 +3,13 @@ import {
   collection,
   doc,
   setDoc,
+  getDoc,
   getDocs,
   writeBatch,
   deleteDoc,
   onSnapshot,
+  query,
+  where,
 } from '../lib/firebase';
 import {
   User,
@@ -170,6 +173,29 @@ export async function deleteUserFromCloud(userId: string) {
     await deleteDoc(doc(db, COLLECTIONS.USERS, userId));
   } catch (err) {
     handleFirestoreError(err, 'Delete user');
+  }
+}
+
+export async function fetchUserFromCloud(uidOrId?: string, email?: string): Promise<User | null> {
+  try {
+    if (uidOrId) {
+      const userDoc = await getDoc(doc(db, COLLECTIONS.USERS, uidOrId));
+      if (userDoc.exists()) {
+        return userDoc.data() as User;
+      }
+    }
+    if (email) {
+      const cleanEmail = email.trim().toLowerCase();
+      const q = query(collection(db, COLLECTIONS.USERS), where('email', '==', cleanEmail));
+      const snap = await getDocs(q);
+      if (!snap.empty) {
+        return snap.docs[0].data() as User;
+      }
+    }
+    return null;
+  } catch (err) {
+    console.warn('[Firestore] fetchUserFromCloud error:', err);
+    return null;
   }
 }
 
