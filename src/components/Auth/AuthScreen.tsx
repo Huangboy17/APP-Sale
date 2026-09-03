@@ -18,6 +18,11 @@ import {
   Sparkles,
   Shield,
   Layers,
+  Database,
+  Download,
+  Upload,
+  Check,
+  X,
 } from 'lucide-react';
 
 export const AuthScreen: React.FC = () => {
@@ -27,6 +32,7 @@ export const AuthScreen: React.FC = () => {
     resetPassword,
     authScreenMode,
     setAuthScreenMode,
+    importAccountsData,
   } = useApp();
 
   // Login Form State
@@ -34,6 +40,11 @@ export const AuthScreen: React.FC = () => {
   const [loginPassword, setLoginPassword] = useState('');
   const [showLoginPassword, setShowLoginPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(true);
+
+  // Sync / Import Modal State on Login screen
+  const [isSyncModalOpen, setIsSyncModalOpen] = useState(false);
+  const [syncCode, setSyncCode] = useState('');
+  const [syncFeedback, setSyncFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
   // Register Form State (Always Cấp 1 - Giám Đốc / Doanh Nghiệp)
   const [regName, setRegName] = useState('');
@@ -54,6 +65,25 @@ export const AuthScreen: React.FC = () => {
   // Feedback notifications
   const [alert, setAlert] = useState<{ type: 'error' | 'success' | 'info'; message: string } | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+
+  const handleProcessSync = async () => {
+    if (!syncCode.trim()) {
+      setSyncFeedback({ type: 'error', message: 'Vui lòng dán mã JSON danh sách tài khoản.' });
+      return;
+    }
+    const res = await importAccountsData(syncCode);
+    if (res.success) {
+      setSyncFeedback({ type: 'success', message: res.message });
+      setTimeout(() => {
+        setIsSyncModalOpen(false);
+        setSyncCode('');
+        setSyncFeedback(null);
+        setAlert({ type: 'success', message: `Đã nạp ${res.count} tài khoản vào thiết bị! Bạn có thể chọn đăng nhập ngay.` });
+      }, 1500);
+    } else {
+      setSyncFeedback({ type: 'error', message: res.message });
+    }
+  };
 
   const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -462,6 +492,87 @@ export const AuthScreen: React.FC = () => {
                       Đăng ký Cấp 1 ngay
                     </button>
                   </div>
+
+                  {/* Quick Demo Accounts & Cross-Device Sync */}
+                  <div className="pt-4 mt-4 border-t border-slate-700/60 space-y-2.5">
+                    <div className="flex items-center justify-between text-xs text-slate-400">
+                      <span className="font-semibold text-slate-300">Tài khoản mẫu / Đăng nhập nhanh:</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSyncCode('');
+                          setSyncFeedback(null);
+                          setIsSyncModalOpen(true);
+                        }}
+                        className="text-purple-400 hover:text-purple-300 text-[11px] font-bold flex items-center space-x-1 cursor-pointer"
+                      >
+                        <Database className="w-3.5 h-3.5" />
+                        <span>Đồng bộ mã tài khoản</span>
+                      </button>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setLoginEmail('buiviethoangktxd@gmail.com');
+                          setLoginPassword('admin');
+                        }}
+                        className="p-2 bg-slate-900/90 hover:bg-slate-700/80 border border-slate-700 rounded-lg text-left transition cursor-pointer"
+                      >
+                        <div className="font-bold text-white flex items-center justify-between">
+                          <span>Super Admin</span>
+                          <span className="text-[9px] text-purple-400 font-mono">admin</span>
+                        </div>
+                        <div className="text-[10px] text-slate-400 truncate">buiviethoangktxd@gmail.com</div>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setLoginEmail('quan.tran@salesflow.vn');
+                          setLoginPassword('123456');
+                        }}
+                        className="p-2 bg-slate-900/90 hover:bg-slate-700/80 border border-slate-700 rounded-lg text-left transition cursor-pointer"
+                      >
+                        <div className="font-bold text-white flex items-center justify-between">
+                          <span>Giám Đốc C1 (Cty A)</span>
+                          <span className="text-[9px] text-blue-400 font-mono">123456</span>
+                        </div>
+                        <div className="text-[10px] text-slate-400 truncate">quan.tran@salesflow.vn</div>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setLoginEmail('huong.le@salesflow.vn');
+                          setLoginPassword('123456');
+                        }}
+                        className="p-2 bg-slate-900/90 hover:bg-slate-700/80 border border-slate-700 rounded-lg text-left transition cursor-pointer"
+                      >
+                        <div className="font-bold text-white flex items-center justify-between">
+                          <span>Giám Đốc C1 (Cty B)</span>
+                          <span className="text-[9px] text-blue-400 font-mono">123456</span>
+                        </div>
+                        <div className="text-[10px] text-slate-400 truncate">huong.le@salesflow.vn</div>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setLoginEmail('mai.nguyen@salesflow.vn');
+                          setLoginPassword('123456');
+                        }}
+                        className="p-2 bg-slate-900/90 hover:bg-slate-700/80 border border-slate-700 rounded-lg text-left transition cursor-pointer"
+                      >
+                        <div className="font-bold text-white flex items-center justify-between">
+                          <span>Sales C2 (Cty A)</span>
+                          <span className="text-[9px] text-emerald-400 font-mono">123456</span>
+                        </div>
+                        <div className="text-[10px] text-slate-400 truncate">mai.nguyen@salesflow.vn</div>
+                      </button>
+                    </div>
+                  </div>
                 </form>
               )}
 
@@ -760,6 +871,79 @@ export const AuthScreen: React.FC = () => {
           <span>Hệ thống quản lý trực tuyến</span>
         </div>
       </footer>
+
+      {/* Cross-Device Account Sync Modal */}
+      {isSyncModalOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl max-w-md w-full overflow-hidden animate-in fade-in zoom-in-95 duration-150 text-white">
+            <div className="px-5 py-4 bg-slate-800/80 border-b border-slate-700 flex items-center justify-between">
+              <div className="flex items-center space-x-2.5">
+                <Database className="w-5 h-5 text-purple-400" />
+                <h3 className="font-bold text-sm text-white">Đồng Bộ Tài Khoản Giữa Các Thiết Bị</h3>
+              </div>
+              <button
+                onClick={() => setIsSyncModalOpen(false)}
+                className="text-slate-400 hover:text-slate-200 p-1 rounded cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-3.5 text-xs">
+              <p className="text-slate-300 text-xs leading-relaxed">
+                Nếu bạn vừa tạo tài khoản ở máy tính khác hoặc mở trên trình duyệt mới (khi Cloud đang bảo trì/hết quota), bạn có thể dán mã JSON danh sách tài khoản đã xuất từ máy cũ để kích hoạt phiên làm việc ngay lập tức:
+              </p>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+                  Dán mã JSON tài khoản:
+                </label>
+                <textarea
+                  rows={6}
+                  value={syncCode}
+                  onChange={(e) => setSyncCode(e.target.value)}
+                  placeholder={`{\n  "version": "1.0",\n  "users": [\n    {\n      "id": "user-...",\n      "email": "giamdoc@company.vn",\n      "role": "manager_c1"\n    }\n  ]\n}`}
+                  className="w-full p-2.5 bg-slate-950 text-emerald-400 font-mono text-[11px] border border-slate-700 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-purple-500 resize-none"
+                />
+              </div>
+
+              {syncFeedback && (
+                <div
+                  className={`p-2.5 rounded-xl border text-xs font-semibold flex items-center space-x-2 ${
+                    syncFeedback.type === 'success'
+                      ? 'bg-emerald-950/80 border-emerald-700 text-emerald-200'
+                      : 'bg-rose-950/80 border-rose-700 text-rose-200'
+                  }`}
+                >
+                  {syncFeedback.type === 'success' ? (
+                    <Check className="w-4 h-4 text-emerald-400 shrink-0" />
+                  ) : (
+                    <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+                  )}
+                  <span>{syncFeedback.message}</span>
+                </div>
+              )}
+
+              <div className="pt-2 border-t border-slate-800 flex items-center justify-end space-x-2.5">
+                <button
+                  type="button"
+                  onClick={() => setIsSyncModalOpen(false)}
+                  className="px-3.5 py-2 text-xs font-semibold text-slate-400 hover:text-white hover:bg-slate-800 rounded-xl cursor-pointer"
+                >
+                  Đóng
+                </button>
+                <button
+                  type="button"
+                  onClick={handleProcessSync}
+                  className="px-4 py-2 bg-purple-600 hover:bg-purple-500 active:bg-purple-700 text-white text-xs font-bold rounded-xl shadow-lg shadow-purple-600/30 transition cursor-pointer"
+                >
+                  Xác Nhận & Nạp Tài Khoản
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -48,6 +48,8 @@ import {
   saveInventoryToIndexedDB,
   loadInventoryFromIndexedDB,
   verifyInventoryCountInIndexedDB,
+  saveUsersToIndexedDB,
+  loadUsersFromIndexedDB,
   migrateAndCleanupLegacyStorage,
   safeSetLocalStorage,
   safeGetLocalStorage,
@@ -232,6 +234,8 @@ interface AppContextType {
   approveUser: (userId: string) => void;
   updateUser: (user: User) => void;
   deleteUser: (userId: string) => void;
+  exportAccountsData: () => string;
+  importAccountsData: (jsonString: string) => Promise<{ success: boolean; count: number; message: string }>;
 
   // Master Company Information & Brand Identity
   companyInfo: CompanyInfo;
@@ -608,6 +612,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     // 2. Storage initialization
     const bootstrapStorage = async () => {
       await migrateAndCleanupLegacyStorage();
+
+      // Hydrate users from IndexedDB on startup (High Performance Local Cache)
+      try {
+        const idbUsers = await loadUsersFromIndexedDB();
+        if (idbUsers && Array.isArray(idbUsers) && idbUsers.length > 0 && isMounted) {
+          setUsers((prev) => {
+            const map = new Map<string, User>();
+            INITIAL_USERS.forEach((u) => map.set(u.id, u));
+            prev.forEach((u) => map.set(u.id, u));
+            idbUsers.forEach((u) => map.set(u.id, u));
+            return Array.from(map.values());
+          });
+        }
+      } catch (err) {
+        console.warn('[LocalDB] Users bootstrap error:', err);
+      }
 
       if (!isAuthenticated) {
         setIsProductsHydrated(true);
@@ -1205,6 +1225,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // Sync to localStorage / IndexedDB as local instant cache
   useEffect(() => {
     safeSetLocalStorage(STORAGE_KEYS.USERS, users);
+    saveUsersToIndexedDB(users).catch(() => {});
   }, [users]);
 
   useEffect(() => {
@@ -1639,8 +1660,66 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
+  const exportAccountsData = (): string => {
+    const payload = {
+      version: '1.0',
+      exportDate: new Date().toISOString(),
+      users,
+      organizations: INITIAL_ORGANIZATIONS,
+    };
+    return JSON.stringify(payload, null, 2);
+  };
+
+  const importAccountsData = async (jsonString: string): Promise<{ success: boolean; count: number; message: string }> => {
+    try {
+      if (!jsonString || !jsonString.trim()) {
+        return { success: false, count: 0, message: 'Dữ liệu nhập vào trống.' };
+      }
+      const parsed = JSON.parse(jsonString.trim());
+      const rawList: User[] = Array.isArray(parsed) ? parsed : (parsed.users || []);
+      if (!Array.isArray(rawList) || rawList.length === 0) {
+        return { success: false, count: 0, message: 'Không tìm thấy danh sách tài khoản hợp lệ trong dữ liệu.' };
+      }
+
+      const validUsers = rawList.filter((u) => u && (u.id || u.email));
+      if (validUsers.length === 0) {
+        return { success: false, count: 0, message: 'Dữ liệu không có tài khoản hợp lệ.' };
+      }
+
+      setUsers((prev) => {
+        const map = new Map<string, User>();
+        INITIAL_USERS.forEach((u) => map.set(u.id, u));
+        prev.forEach((u) => {
+          if (u && u.id) map.set(u.id, u);
+        });
+        validUsers.forEach((u) => {
+          if (u && u.id) {
+            map.set(u.id, u);
+            syncUserToCloud(u).catch(() => {});
+          }
+        });
+        const merged = Array.from(map.values());
+        safeSetLocalStorage(STORAGE_KEYS.USERS, merged);
+        saveUsersToIndexedDB(merged).catch(() => {});
+        return merged;
+      });
+
+      return {
+        success: true,
+        count: validUsers.length,
+        message: `Đã nhập và đồng bộ thành công ${validUsers.length} tài khoản!`,
+      };
+    } catch (err: any) {
+      return {
+        success: false,
+        count: 0,
+        message: `Lỗi đọc định dạng JSON: ${err?.message || 'Dữ liệu không đúng cú pháp'}`,
+      };
+    }
+  };
+
   // -------------------------------------------------------------
-  // Authentication & Account Management (Firebase Auth + Firestore)
+  // Authentication & Account Management (Firebase Auth + Firestore + IndexedDB)
   // -------------------------------------------------------------
   const login = async (email: string, password?: string) => {
     const cleanEmail = email.trim().toLowerCase();
@@ -1661,7 +1740,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
 
     // 2. Resolve User Profile:
-    // Check in-memory state, Firestore by UID / email (crucial for new machine/incognito), localStorage, or INITIAL_USERS
+    // Check in-memory state, IndexedDB, Firestore by UID / email, localStorage, or INITIAL_USERS
     let user: User | null = users.find((u) => u.email.toLowerCase() === cleanEmail) || null;
 
     // Direct Firestore Cloud lookup if not in state (essential for new machine / cleared cache!)
@@ -1673,6 +1752,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         }
       } catch (cloudErr) {
         console.warn('[Login] Firestore direct lookup error:', cloudErr);
+      }
+    }
+
+    // Direct IndexedDB lookup (High Performance Offline Engine)
+    if (!user) {
+      try {
+        const idbUsers = await loadUsersFromIndexedDB();
+        if (idbUsers && Array.isArray(idbUsers)) {
+          const idbUser = idbUsers.find((u) => u.email.toLowerCase() === cleanEmail);
+          if (idbUser) {
+            user = idbUser;
+          }
+        }
+      } catch (idbErr) {
+        console.warn('[Login] IndexedDB direct lookup error:', idbErr);
       }
     }
 
@@ -5486,6 +5580,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         approveUser,
         updateUser,
         deleteUser,
+        exportAccountsData,
+        importAccountsData,
         companyInfo,
         updateCompanyInfo,
         isProfileModalOpen,

@@ -3,19 +3,21 @@
  * Guarantees ZERO localStorage usage for Products & Inventory to completely prevent QuotaExceededError.
  */
 
-import { ProductPriceItem, InventoryItem } from '../types';
+import { ProductPriceItem, InventoryItem, User } from '../types';
 
 const DB_NAME = 'SalesFlow_LocalDB';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 export const IDB_STORES = {
   PRODUCTS: 'products_store',
   INVENTORY: 'inventory_store',
   PRODUCT_IMAGES: 'product_images_store',
+  USERS: 'users_store',
 } as const;
 
 const IDB_KEYS = {
   PRODUCTS: 'master_products_data',
   INVENTORY: 'master_inventory_data',
+  USERS: 'master_users_data',
 };
 
 // Open or initialize IndexedDB connection with connection reuse
@@ -43,6 +45,9 @@ function openDB(): Promise<IDBDatabase> {
       }
       if (!db.objectStoreNames.contains(IDB_STORES.PRODUCT_IMAGES)) {
         db.createObjectStore(IDB_STORES.PRODUCT_IMAGES);
+      }
+      if (!db.objectStoreNames.contains(IDB_STORES.USERS)) {
+        db.createObjectStore(IDB_STORES.USERS);
       }
     };
 
@@ -230,6 +235,27 @@ export async function loadInventoryFromIndexedDB(orgId?: string): Promise<Invent
 export async function verifyInventoryCountInIndexedDB(orgId?: string): Promise<number> {
   const inv = await loadInventoryFromIndexedDB(orgId);
   return inv ? inv.length : 0;
+}
+
+/**
+ * Dedicated Users Persistence (IndexedDB Local High Performance Cache)
+ * Ensures user accounts remain accessible even when localStorage is wiped or Cloud quota is reached.
+ */
+export async function saveUsersToIndexedDB(users: User[]): Promise<void> {
+  try {
+    await saveToIDB(IDB_STORES.USERS, IDB_KEYS.USERS, users);
+  } catch (err) {
+    console.warn('[LocalDB] saveUsersToIndexedDB warning:', err);
+  }
+}
+
+export async function loadUsersFromIndexedDB(): Promise<User[] | null> {
+  try {
+    return await loadFromIDB<User[]>(IDB_STORES.USERS, IDB_KEYS.USERS);
+  } catch (err) {
+    console.warn('[LocalDB] loadUsersFromIndexedDB warning:', err);
+    return null;
+  }
 }
 
 /**
