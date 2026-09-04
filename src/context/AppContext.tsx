@@ -1425,7 +1425,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // Authentication & Account Management (Firebase Auth + Firestore + IndexedDB)
   // -------------------------------------------------------------
   const login = async (email: string, password?: string) => {
-    const cleanEmail = email.trim().toLowerCase();
+    const rawInput = email.trim().toLowerCase();
+    const isSpecialAdminAlias = rawInput === 'admin' || rawInput === 'super_admin' || rawInput === 'admin@system.local';
+    const cleanEmail = isSpecialAdminAlias
+      ? (users.find((u) => u.role === 'super_admin')?.email || 'buiviethoangktxd@gmail.com').toLowerCase()
+      : rawInput;
     const userPassword = password || '123456';
 
     let fbUserUid: string | null = null;
@@ -1443,8 +1447,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
 
     // 2. Resolve User Profile:
-    // Check in-memory state, IndexedDB, Firestore by UID / email, localStorage, or INITIAL_USERS
-    let user: User | null = users.find((u) => u.email.toLowerCase() === cleanEmail) || null;
+    // Check in-memory state, IndexedDB, Supabase by UID / email, localStorage, or INITIAL_USERS
+    let user: User | null =
+      users.find((u) => u.email.toLowerCase() === cleanEmail || (isSpecialAdminAlias && u.role === 'super_admin')) || null;
 
     // Direct Supabase lookup if not in state (essential for new machine / cleared cache!)
     if (!user) {
@@ -1736,35 +1741,51 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const resetPassword = (email: string, newPassword?: string) => {
-    const cleanEmail = email.trim().toLowerCase();
-    const targetUser = users.find((u) => u.email.toLowerCase() === cleanEmail);
+    const rawInput = email.trim().toLowerCase();
+    const isSpecialAdminAlias = rawInput === 'admin' || rawInput === 'super_admin' || rawInput === 'admin@system.local';
+    const cleanEmail = isSpecialAdminAlias
+      ? (users.find((u) => u.role === 'super_admin')?.email || 'buiviethoangktxd@gmail.com').toLowerCase()
+      : rawInput;
+
+    let targetUser = users.find(
+      (u) => (u.email || '').toLowerCase() === cleanEmail || (isSpecialAdminAlias && u.role === 'super_admin') || (u.id || '').toLowerCase() === rawInput
+    );
+
+    if (!targetUser) {
+      targetUser = INITIAL_USERS.find(
+        (u) => (u.email || '').toLowerCase() === cleanEmail || (isSpecialAdminAlias && u.role === 'super_admin') || (u.id || '').toLowerCase() === rawInput
+      );
+    }
 
     if (!targetUser) {
       return {
         success: false,
-        message: `Không tìm thấy tài khoản tương ứng với email "${email}". Vui lòng kiểm tra lại.`,
+        message: `Không tìm thấy tài khoản tương ứng với "${email}". Vui lòng kiểm tra lại.`,
       };
     }
 
-    const updatedPassword = newPassword || '123456';
+    const updatedPassword = (newPassword || '').trim() || (targetUser.role === 'super_admin' ? 'admin' : '123456');
     const updatedUser: User = {
       ...targetUser,
       password: updatedPassword,
     };
 
     setUsers((prev) => {
-      const newList = prev.map((u) => (u.id === targetUser.id ? updatedUser : u));
+      const exists = prev.some((u) => u.id === targetUser.id);
+      const newList = exists ? prev.map((u) => (u.id === targetUser.id ? updatedUser : u)) : [...prev, updatedUser];
       localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(newList));
       return newList;
     });
     if (currentUser.id === targetUser.id) {
       setCurrentUser(updatedUser);
     }
-    upsertProfile(updatedUser);
+    upsertProfile(updatedUser).catch((err) => {
+      console.warn('[Supabase] Could not sync reset password:', err);
+    });
 
     return {
       success: true,
-      message: `Đã đổi mật khẩu cho tài khoản "${targetUser.name}" (${email}) thành công! Mời bạn đăng nhập với mật khẩu mới.`,
+      message: `Đã đổi mật khẩu cho tài khoản "${targetUser.name}" (${targetUser.email}) thành công! Mời bạn đăng nhập với mật khẩu mới.`,
     };
   };
 

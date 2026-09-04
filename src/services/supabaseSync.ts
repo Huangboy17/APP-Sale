@@ -57,13 +57,13 @@ export function handleSupabaseError(error: any, actionName: string): void {
 }
 
 // ------------------------------------------------------------------
-// Profiles (Users table)
+// Profiles (Users table -> profiles in Supabase)
 // ------------------------------------------------------------------
 
 export async function upsertProfile(user: User): Promise<boolean> {
   try {
     const { error } = await supabase
-      .from('users')
+      .from('profiles')
       .upsert(toSnakeCase(user), { onConflict: 'id' });
     if (error) throw error;
     return true;
@@ -75,7 +75,7 @@ export async function upsertProfile(user: User): Promise<boolean> {
 
 export async function deleteProfileById(userId: string): Promise<boolean> {
   try {
-    const { error } = await supabase.from('users').delete().eq('id', userId);
+    const { error } = await supabase.from('profiles').delete().eq('id', userId);
     if (error) throw error;
     return true;
   } catch (error) {
@@ -87,7 +87,7 @@ export async function deleteProfileById(userId: string): Promise<boolean> {
 export async function fetchProfileByFirebaseUid(uid: string): Promise<User | null> {
   try {
     const { data, error } = await supabase
-      .from('users')
+      .from('profiles')
       .select('*')
       .eq('firebase_uid', uid)
       .single();
@@ -102,7 +102,7 @@ export async function fetchProfileByFirebaseUid(uid: string): Promise<User | nul
 export async function fetchProfileByEmail(email: string): Promise<User | null> {
   try {
     const { data, error } = await supabase
-      .from('users')
+      .from('profiles')
       .select('*')
       .eq('email', email)
       .single();
@@ -116,7 +116,7 @@ export async function fetchProfileByEmail(email: string): Promise<User | null> {
 
 export async function fetchAllProfiles(): Promise<User[]> {
   try {
-    const { data, error } = await supabase.from('users').select('*');
+    const { data, error } = await supabase.from('profiles').select('*');
     if (error) throw error;
     return data ? data.map(toCamelCase) : [];
   } catch (error) {

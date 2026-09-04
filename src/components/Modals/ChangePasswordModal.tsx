@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
+import { auth, updatePassword } from '../../lib/firebase';
 import { Lock, KeyRound, Eye, EyeOff, X, CheckCircle2, AlertCircle } from 'lucide-react';
 
 interface ChangePasswordModalProps {
@@ -17,21 +18,30 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({ isOpen
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   if (!isOpen) return null;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
 
     // If user has existing password, check it
-    const expectedPass = currentUser.password || (currentUser.role === 'super_admin' ? 'admin' : '123456');
-    if (currentPassword !== expectedPass && currentPassword !== '123456' && currentPassword !== 'admin') {
-      setError('Mật khẩu hiện tại không chính xác.');
+    const expectedPass = (currentUser.password || '').trim();
+    const isSuperAdmin = currentUser.role === 'super_admin';
+    
+    // Check if input matches stored password, or fallback defaults
+    const isMatch =
+      (expectedPass && currentPassword.trim() === expectedPass) ||
+      (isSuperAdmin && (currentPassword.trim() === 'admin' || currentPassword.trim() === '123456')) ||
+      (!expectedPass && (currentPassword.trim() === '123456' || currentPassword.trim() === 'admin'));
+
+    if (!isMatch) {
+      setError('Mật khẩu hiện tại không chính xác. (Mặc định: ' + (isSuperAdmin ? '"admin"' : '"123456"') + ')');
       return;
     }
 
-    if (newPassword.length < 4) {
+    if (newPassword.trim().length < 4) {
       setError('Mật khẩu mới phải có tối thiểu 4 ký tự.');
       return;
     }
@@ -41,19 +51,38 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({ isOpen
       return;
     }
 
-    updateUser({
-      ...currentUser,
-      password: newPassword,
-    });
+    setIsSubmitting(true);
 
-    setSuccess(true);
-    setTimeout(() => {
-      setSuccess(false);
-      setCurrentPassword('');
-      setNewPassword('');
-      setConfirmNewPassword('');
-      onClose();
-    }, 1500);
+    try {
+      // 1. Update in State, LocalStorage & Supabase PostgreSQL
+      updateUser({
+        ...currentUser,
+        password: newPassword.trim(),
+      });
+
+      // 2. Sync to Firebase Auth if logged in
+      if (auth.currentUser) {
+        try {
+          await updatePassword(auth.currentUser, newPassword.trim());
+          console.log('[Firebase Auth] Password updated successfully in Firebase Auth');
+        } catch (fbErr: any) {
+          console.warn('[Firebase Auth] Could not update Firebase Auth password directly:', fbErr?.code || fbErr);
+        }
+      }
+
+      setSuccess(true);
+      setTimeout(() => {
+        setSuccess(false);
+        setIsSubmitting(false);
+        setCurrentPassword('');
+        setNewPassword('');
+        setConfirmNewPassword('');
+        onClose();
+      }, 1500);
+    } catch (err: any) {
+      setError(`Lỗi cập nhật: ${err?.message || 'Không thể lưu mật khẩu mới'}`);
+      setIsSubmitting(false);
+    }
   };
 
   return (

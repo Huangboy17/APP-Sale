@@ -7,6 +7,7 @@ import {
   onAuthStateChanged,
   setPersistence,
   browserLocalPersistence,
+  updatePassword,
   User as FirebaseUser,
 } from 'firebase/auth';
 import firebaseConfig from '../../firebase-applet-config.json';
@@ -33,6 +34,7 @@ export {
   onAuthStateChanged,
   setPersistence,
   browserLocalPersistence,
+  updatePassword,
 };
 
 export type { FirebaseUser };
